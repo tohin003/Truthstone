@@ -94,6 +94,12 @@ class Decision(BaseModel):
     # "how noisy would guarding be here?" is the question that decides whether to turn it
     # back on. `None` means this decision was the real one.
     would_have: DecisionAction | None = None
+    # REQUEST_REVIEW for an irreversible or destructive action: the developer's explicit
+    # sign-off is required. Adapters render this through the host-capability ladder
+    # (core/hosts.py): a native `ask` where the host has one that really asks, and a DENY
+    # with "needs developer sign-off" where the host's `ask` would silently fail open.
+    # Advisory review requests (False) degrade to non-blocking context instead.
+    signoff_required: bool = False
 
     @classmethod
     def allow(cls, level: EscalationLevel = EscalationLevel.DETERMINISTIC) -> Decision:

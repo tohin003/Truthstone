@@ -79,6 +79,10 @@ def validate(
                 level=EscalationLevel.DETERMINISTIC,
                 reason=render_challenge(verdict.raise_now),
                 findings=findings,
+                # Every REQUEST_REVIEW produced here is an irreversible command: the
+                # developer must say yes, so a host whose `ask` fails open renders this
+                # as a deny rather than letting it through (core/hosts.py, H1).
+                signoff_required=True,
             )
         return Decision(action=DecisionAction.ALLOW, findings=findings, reason=verdict.reason)
 
