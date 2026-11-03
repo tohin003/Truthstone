@@ -1570,6 +1570,26 @@ These have no measured evidence yet, so none of them is ranked.
 | **B5 — prove it** | M4, C1, M6, M8, M5, M7, then M1 → M2 → M3 → M9 (pilot, then main run) | Do not run M9 before B1, or it measures G1's blindness. |
 | **B6 — robust under load and faults** | R5, R7, R12, R3, R13, then R1, R11, R17, R4, R18, R2; then R6, R9, R10, R14, R16, R8, R15 | R5 and R7 are measured, prototyped (R5) and S-sized. R6 builds on R5. R9 and R10 need the shim (adapter owner) and README wording (lead). |
 
+## 8. Stage 2 status
+
+Stage 2 implements the **core** side only. Status values: **done** · **partial** · **not started** · **handed off** (owner named) · **out of scope** (decided by the lead).
+
+Every commit on this branch leaves `.venv/bin/pytest -q` and `.venv/bin/ruff check src tests` green.
+
+<!-- S2-STATUS-TABLE -->
+| ID | Item | Status | Commit | Notes |
+|---|---|---|---|---|
+| C1 | Census beyond §3 (`EXTENDED_TAXONOMY`), risky commands counted, regression rationale corrected | done | 291f9b8 | The SPEC is untouched: the extension is code-only and reported in its own section (user decision flagged). |
+| R3 | Missing tree-sitter visible | partial | c04792c | Tests now skip without the extra instead of failing. `doctor` warning pending. README install line → lead. |
+| H1 | HostCapabilities + rendering ladder | partial | 8c367e4 | `Decision.signoff_required` added and set on every irreversible-command review. Ladder pending. |
+| G1 | Failing runs reach the gate | handed off (adapter) + core pending | — | Adapter: subscribe `PostToolUseFailure`, translate `error` → `{"stdout", "exit_code", "interrupted"}` (docs/ADAPTER-CONTRACT.md). |
+| A5 | MODIFY safety | adapter half handed off | — | Adapter: never `defer`; render through the H1 ladder. |
+| G10, R2 | systemMessage; Windows shim | handed off (adapter) | — | Windows is unsupported this release; must fail open. |
+| H5 (matcher), R9/R10 (shim halves) | — | handed off (adapter) | — | — |
+| M1, M2, M3, M4, M9 | Benchmark items | handed off (benchmark builder) | — | `src/agentguard/bench/**` and `bench/**` are off-limits here. |
+| M5 | Transcript replay | out of scope | — | Reading the user's transcripts for labelling needs the user's consent. |
+<!-- /S2-STATUS-TABLE -->
+
 ---
 
 ## Appendix A — Evidence the lead session verified directly
