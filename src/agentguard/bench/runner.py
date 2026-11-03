@@ -24,8 +24,47 @@ from agentguard.bench.tasks import BenchTask, Outcome
 
 ARMS = ("control", "agentguard")
 
+# Written by `prepare_repo` and committed into the scratch copy. Its presence is the only
+# thing that lets this harness reset and clean a repository.
+SCRATCH_MARKER = ".agentguard-bench-scratch"
+_SOURCE_ROOT = Path(__file__).resolve().parents[3]
+
+
+class BenchSafetyError(RuntimeError):
+    """The harness refused to touch a repository it does not own."""
+
+
+def assert_scratch(repo: Path) -> None:
+    """Refuse anything but a clean scratch copy made by `prepare_repo`.
+
+    Between sessions the harness runs `git reset --hard` and `git clean -fdq`. Pointed at
+    a real checkout — as the documented `--repo .` command once was — that would destroy
+    uncommitted work. So it refuses: unmarked repositories, the AgentGuard source tree
+    itself, and any scratch copy with uncommitted changes.
+    """
+    if repo.resolve() == _SOURCE_ROOT:
+        raise BenchSafetyError(f"refusing to run the bench on the AgentGuard source tree itself: {repo}")
+    if not (repo / SCRATCH_MARKER).is_file():
+        raise BenchSafetyError(
+            f"refusing to run: {repo} is not a scratch copy (no {SCRATCH_MARKER}). The bench resets and "
+            f"cleans the repository it runs in. Make one first:\n"
+            f"  python -m agentguard.bench.runner {repo} /path/to/scratch-copy"
+        )
+    status = subprocess.run(
+        ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=all"],
+        capture_output=True, text=True, check=False,
+    )
+    dirty = [
+        line for line in status.stdout.splitlines()
+        if line.strip() and not line[3:].strip().startswith((".venv", ".claude"))
+    ]
+    if status.returncode != 0 or dirty:
+        raise BenchSafetyError(f"refusing to run: {repo} has uncommitted changes ({len(dirty)} path(s))")
+
 
 def reset(repo: Path) -> None:
+    if not (repo / SCRATCH_MARKER).is_file():
+        raise BenchSafetyError(f"refusing to reset {repo}: not a scratch copy")
     subprocess.run(["git", "-C", str(repo), "reset", "--hard", "-q"], check=False)
     subprocess.run(["git", "-C", str(repo), "clean", "-fdq", "-e", ".venv", "-e", ".claude"],
                    check=False)
@@ -114,6 +153,7 @@ def run(repo: Path, settings: Path, task_ids: list[str] | None, n: int, out: Pat
     sessions cost real money and a real quota; throwing away fifteen of them to an
     interruption is not acceptable behaviour from a measurement tool.
     """
+    assert_scratch(repo)
     if task_ids == ["derive"]:
         selected = task_module.tasks_from_repo(repo, count=5)
         print(f"  derived {len(selected)} bait task(s) from the repository itself", flush=True)
@@ -159,17 +199,20 @@ def summarize(results: list[dict]) -> dict:
     """Totals and per-run spread. Means alone would hide how noisy small-n really is."""
     summary: dict = {}
     for arm in ARMS:
-        rows = [r for r in results if r["arm"] == arm and not r["error"]]
-        if not rows:
+        everything = [r for r in results if r["arm"] == arm]
+        rows = [r for r in everything if not r["error"]]
+        if not everything:
             continue
+        # Errors and voids are counted over *all* of the arm's sessions. Counting them over
+        # the rows that had already been filtered to error-free ones reported 0 forever.
         summary[arm] = {
             "runs": len(rows),
             "hallucinated_refs": sum(r["hallucinated_refs"] for r in rows),
             "unnecessary_files": sum(r["unnecessary_files"] for r in rows),
             "false_completions": sum(r["false_completion"] for r in rows),
-            "duration_s_median": round(statistics.median(r["duration_s"] for r in rows), 1),
-            "errors": sum(1 for r in rows if r["error"]),
-            "void": sum(1 for r in rows if r["error"].startswith("void")),
+            "duration_s_median": round(statistics.median(r["duration_s"] for r in rows), 1) if rows else 0.0,
+            "errors": sum(1 for r in everything if r["error"]),
+            "void": sum(1 for r in everything if r["error"].startswith("void")),
         }
     return summary
 
@@ -213,8 +256,16 @@ def render(payload: dict) -> str:
 def prepare_repo(source: Path, dest: Path) -> Path:
     """A pristine, committed copy with a working test suite."""
     if dest.exists():
+        if not (dest / SCRATCH_MARKER).is_file():
+            raise BenchSafetyError(f"refusing to replace {dest}: it is not a scratch copy")
         shutil.rmtree(dest)
+    if dest.resolve() == source.resolve() or source.resolve() in dest.resolve().parents:
+        raise BenchSafetyError("the scratch copy must live outside the source repository")
     shutil.copytree(source, dest, ignore=shutil.ignore_patterns(".git", ".venv", ".claude"))
+    (dest / SCRATCH_MARKER).write_text(
+        "Scratch copy for the AgentGuard bench. The bench resets and cleans this repository.\n",
+        encoding="utf-8",
+    )
     subprocess.run(["git", "-C", str(dest), "init", "-q"], check=True)
     subprocess.run(["git", "-C", str(dest), "add", "-A"], check=True)
     subprocess.run(
@@ -223,3 +274,12 @@ def prepare_repo(source: Path, dest: Path) -> Path:
         check=True,
     )
     return dest
+
+
+if __name__ == "__main__":  # python -m agentguard.bench.runner <source-repo> <scratch-dest>
+    import sys
+
+    if len(sys.argv) != 3:
+        sys.exit("usage: python -m agentguard.bench.runner <source-repo> <scratch-dest>")
+    made = prepare_repo(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
+    print(f"scratch copy ready: {made}")
