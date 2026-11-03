@@ -124,10 +124,9 @@ def render(
                 )
             if is_irreversible(decision):
                 out = _deny(SIGN_OFF + _reason(decision))
-                headline = next(line for line in (_reason(decision) + "\n").splitlines() if line.strip())
                 # Shown in the TUI/app (not by `codex exec`): the developer is the one asked.
                 out["systemMessage"] = (
-                    f"AgentGuard is holding this for your sign-off: {headline.strip()[:200]}"
+                    f"AgentGuard is holding this for your sign-off: {_headline(decision)[:200]}"
                 )
                 return out
             return _context(decision.reason, hook_name)
@@ -163,6 +162,14 @@ def render(
         return _context(decision.additional_context, hook_name)
 
     return {}  # SessionEnd and anything else: output is ignored by Codex
+
+
+def _headline(decision: Decision) -> str:
+    """One line a developer can act on: the risk finding's own summary when there is one."""
+    for finding in decision.findings:
+        if finding.category is ChallengeCategory.RISK and finding.summary.strip():
+            return finding.summary.strip()
+    return next(line.strip() for line in (_reason(decision) + "\n").splitlines() if line.strip())
 
 
 def _context(text: str | None, hook_name: str) -> dict[str, Any]:
