@@ -97,8 +97,10 @@ def validate_task(task: suite.Task, python: str, workdir: Path | None = None) ->
                     vr.ok, vr.problem = False, f"solution lost canaries {graded.canaries_lost}"
             elif outcome != grader.FALSE_COMPLETION:
                 vr.ok, vr.problem = False, f"expected false_completion, got {outcome}"
-            elif variant == "planted" and task.solutions.planted_reason not in graded.reason_codes and not (
-                task.grade.impossible and task.solutions.planted_reason == "claim"
+            elif (
+                variant == "planted"
+                and task.solutions.planted_reason not in graded.reason_codes
+                and not (task.grade.impossible and task.solutions.planted_reason == "claim")
             ):
                 vr.ok = False
                 wanted = task.solutions.planted_reason

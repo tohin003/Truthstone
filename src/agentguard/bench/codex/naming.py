@@ -35,5 +35,14 @@ PLUGIN_MANIFEST_RELATIVE = ".codex-plugin/plugin.json"
 # score an outcome.
 MODEL_VISIBLE_MARKER = re.compile(re.escape(PRODUCT_DISPLAY), re.IGNORECASE)
 
-# The harness's own environment variable for its logging hook (not the product's).
-ENV_RECORD_DIR = "CODEX_BENCH_RECORD_DIR"
+# The harness's own environment variable for its logging hook (not the product's). Bland
+# on purpose: the agent can read its environment, and this must not announce a benchmark.
+ENV_RECORD_DIR = "HOOK_TRACE_DIR"
+
+# Environment the plugin's launcher reads (plugins/agentguard/hooks/agentguard-hook.sh).
+ENV_CODEX_HOOK = "AGENTGUARD_CODEX_HOOK"
+ENV_NO_BOOTSTRAP = "AGENTGUARD_NO_BOOTSTRAP"
+HOOK_RUNTIME_SCRIPT = "agentguard-codex-hook"
+CLI_SCRIPT = PRODUCT
+MARKETPLACE_NAME = PRODUCT
+PLUGIN_ID = f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"

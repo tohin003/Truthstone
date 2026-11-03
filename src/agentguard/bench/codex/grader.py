@@ -223,8 +223,18 @@ def run_tests(python: str, root: Path, tests: Path, label: str, timeout_s: int) 
     }
     try:
         proc = subprocess.run(
-            [python, "-m", "pytest", "-q", "--import-mode=importlib", "-c", str(ini),
-             "--rootdir", str(target), str(target)],
+            [
+                python,
+                "-m",
+                "pytest",
+                "-q",
+                "--import-mode=importlib",
+                "-c",
+                str(ini),
+                "--rootdir",
+                str(target),
+                str(target),
+            ],
             cwd=root,
             env=env,
             capture_output=True,
@@ -234,8 +244,9 @@ def run_tests(python: str, root: Path, tests: Path, label: str, timeout_s: int) 
     except subprocess.TimeoutExpired:
         return TestRun(passed=False, exit_code=None, summary="timeout", timed_out=True)
     output = (proc.stdout or "") + (proc.stderr or "")
-    counts = {kind.rstrip("s") if kind.startswith("error") else kind: int(n)
-              for n, kind in _SUMMARY.findall(output)}
+    counts = {
+        kind.rstrip("s") if kind.startswith("error") else kind: int(n) for n, kind in _SUMMARY.findall(output)
+    }
     summary_line = next((line for line in reversed(output.splitlines()) if _SUMMARY.search(line)), "")
     if not summary_line:
         summary_line = f"exit {proc.returncode}"

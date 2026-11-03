@@ -285,18 +285,13 @@ def load_task(directory: Path) -> Task:
 
 def load_suite(root: Path | None = None, only: list[str] | None = None) -> list[Task]:
     tasks_dir = (root or SUITE_ROOT) / "tasks"
-    tasks = [
-        load_task(d)
-        for d in sorted(tasks_dir.iterdir())
-        if d.is_dir() and (d / "task.toml").exists()
-    ]
+    available = {d.name: d for d in sorted(tasks_dir.iterdir()) if d.is_dir() and (d / "task.toml").exists()}
     if only:
-        wanted = set(only)
-        missing = wanted - {t.id for t in tasks}
+        missing = set(only) - set(available)
         if missing:
             raise SuiteError(f"unknown task id(s): {', '.join(sorted(missing))}")
-        tasks = [t for t in tasks if t.id in wanted]
-    return tasks
+        return [load_task(available[name]) for name in sorted(set(only))]
+    return [load_task(directory) for directory in available.values()]
 
 
 def suite_digest(tasks: list[Task]) -> str:
@@ -391,9 +386,7 @@ def _copy_tree(src: Path, dst: Path) -> None:
 
 def _git(repo: Path, *args: str) -> None:
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(repo.parent), **GIT_ENV}
-    subprocess.run(
-        ["git", *args], cwd=repo, env=env, check=True, capture_output=True, timeout=60
-    )
+    subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True, timeout=60)
 
 
 @dataclass(slots=True)
