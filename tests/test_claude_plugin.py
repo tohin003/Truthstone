@@ -228,6 +228,24 @@ class TestLauncher:
         assert "unguarded" in message
         assert not (data / "runtime.ready").exists()
 
+    def test_without_git_it_says_how_to_install_it(self, plugin_dirs, tmp_path):
+        """The runtime comes from GitHub; uv needs git for that."""
+        data, project, home = plugin_dirs
+        tools = tmp_path / "tools"
+        tools.mkdir()
+        for name in ("sed", "head", "mkdir", "find", "date", "cat", "rm", "ln", "mv", "tr", "dirname"):
+            found = shutil.which(name)
+            if found:
+                (tools / name).symlink_to(found)
+        fake_uv = tmp_path / "uv"
+        fake_uv.write_text("#!/bin/sh\nexit 1\n")
+        fake_uv.chmod(0o755)
+        env = harness.plugin_env(data, project, home, AGENTGUARD_UV=str(fake_uv), PATH=str(tools))
+        result = launcher("session-start", env, session_payload(project))
+        assert result.returncode == 0
+        message = json.loads(result.stdout)["systemMessage"]
+        assert "git was not found" in message and "xcode-select --install" in message
+
     def test_disabled_says_nothing(self, plugin_dirs):
         data, project, home = plugin_dirs
         env = harness.plugin_env(

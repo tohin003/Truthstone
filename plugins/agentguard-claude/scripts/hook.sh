@@ -122,6 +122,14 @@ install_runtime() {
 		say "$PRODUCT is not active: it installs its runtime with uv, and uv was not found. Install uv with:  $UV_INSTALL  — then start a new Claude Code session. Until then this session is unguarded and nothing else changes."
 		return 1
 	fi
+	case $want in
+	git+*)
+		if ! command -v git >/dev/null 2>&1; then
+			say "$PRODUCT is not active: it installs its runtime from GitHub with git, and git was not found. Install git (macOS: xcode-select --install), then start a new Claude Code session. Until then this session is unguarded and nothing else changes."
+			return 1
+		fi
+		;;
+	esac
 	mkdir -p "$data" 2>/dev/null || return 1
 	if ! claim_lock; then
 		say "$PRODUCT is still being installed by another session, so this session is unguarded. It will be active in your next session."
