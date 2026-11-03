@@ -161,7 +161,40 @@ TAXONOMY: tuple[ModeSpec, ...] = (
     ),
 )
 
-BY_MODE: dict[FailureMode, ModeSpec] = {entry.mode: entry for entry in TAXONOMY}
+# -- Beyond SPEC §3 -----------------------------------------------------------------
+#
+# AgentGuard's own extension. **Not SPEC text**: SPEC §3 is pinned verbatim above, and
+# growing it is the SPEC owner's decision. These are failures modern agents are documented
+# to commit that §3 has no bullet for (docs/IMPROVEMENTS.md §4.1: system cards, ImpossibleBench,
+# incident reports). The census reports them in their own section, so a reader can never
+# mistake one for a SPEC §3 row. Each `spec_text` here is deliberately phrased so that it
+# cannot collide with a §3 bullet — `test_s03` asserts that.
+EXTENDED_TAXONOMY: tuple[ModeSpec, ...] = (
+    ModeSpec(
+        FailureMode.DESTRUCTIVE_ACTION,
+        "propose an irreversible action without sign-off (beyond §3)",
+        "action validator — irreversible-command patterns (REQUEST_REVIEW)",
+        "the agent proposed a command AgentGuard classifies as irreversible and escalated "
+        "for the developer's sign-off. It does NOT prove the command was wrong — a force "
+        "push may be exactly right — only that it needed a human's yes",
+    ),
+    ModeSpec(
+        FailureMode.VERIFICATION_TAMPERING,
+        "weaken or bypass the checks that verify the work (beyond §3)",
+        "",
+        "",
+    ),
+    ModeSpec(
+        FailureMode.SECRET_EXPOSURE,
+        "write a credential into tracked content (beyond §3)",
+        "",
+        "",
+    ),
+)
+
+ALL_MODES: tuple[ModeSpec, ...] = TAXONOMY + EXTENDED_TAXONOMY
+
+BY_MODE: dict[FailureMode, ModeSpec] = {entry.mode: entry for entry in ALL_MODES}
 
 # Why the six uninstrumented modes have no detector. Printed with the census, because
 # "no detector" invites the reader to assume an oversight, and in most of these cases it
@@ -184,21 +217,31 @@ NOT_INSTRUMENTED_BECAUSE: dict[FailureMode, str] = {
         "judgement SPEC §17 says to hand back to the host, not to make here"
     ),
     FailureMode.OVERLOOKED_REGRESSION: (
-        "candidate signal exists — a test suite that passed earlier in the task and "
-        "fails later — but test output carries counts, not test names, so a differing "
-        "subset is indistinguishable from a regression. Not built rather than built wrong"
+        "no detector yet. The signal exists — pytest's default `-rfE` summary names every "
+        "failing test (`FAILED path::test`), so a test that passed earlier in the task and "
+        "fails later is distinguishable from a differing subset. The detector (and the "
+        "stale-importer check after a removed name) is planned, not built"
     ),
     FailureMode.CONTINUED_ON_BAD_ASSUMPTION: (
         "requires the agent to have been challenged and to have proceeded anyway. "
         "Observe-only mode never challenges, so the census cannot observe this by "
         "construction"
     ),
+    FailureMode.VERIFICATION_TAMPERING: (
+        "no detector yet. Planned: weakening signatures on existing test files (skip/xfail "
+        "markers added, assertions removed, `sys.exit(0)` in a test, a patched test report) "
+        "and verification-bypass flags such as `--no-verify`"
+    ),
+    FailureMode.SECRET_EXPOSURE: (
+        "no detector yet. Planned: strict credential formats in newly written, tracked "
+        "content — never in gitignored files, where a key belongs"
+    ),
 }
 
 
-def instrumented() -> tuple[ModeSpec, ...]:
-    return tuple(entry for entry in TAXONOMY if entry.instrumented)
+def instrumented(modes: tuple[ModeSpec, ...] = TAXONOMY) -> tuple[ModeSpec, ...]:
+    return tuple(entry for entry in modes if entry.instrumented)
 
 
-def uninstrumented() -> tuple[ModeSpec, ...]:
-    return tuple(entry for entry in TAXONOMY if not entry.instrumented)
+def uninstrumented(modes: tuple[ModeSpec, ...] = TAXONOMY) -> tuple[ModeSpec, ...]:
+    return tuple(entry for entry in modes if not entry.instrumented)

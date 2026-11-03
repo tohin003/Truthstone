@@ -205,10 +205,12 @@ def risky_command(event: AgentEvent) -> list[Finding]:
             Finding(
                 category=ChallengeCategory.RISK,
                 verdict=Verdict.REQUIRES_HUMAN,
-                # A force push may be exactly right. SPEC §3 does not list "ran a risky
-                # command" as an agent failure, and stretching one to fit would put noise
-                # in the census.
-                failure_mode=FailureMode.NOT_A_FAILURE,
+                # A force push may be exactly right, and SPEC §3 has no bullet for it, so
+                # this is counted in the census's separately-reported *extension*
+                # (`EXTENDED_TAXONOMY`), whose `proves` text says exactly that: the
+                # command needed a human's yes, not that it was wrong. Tagging it
+                # NOT_A_FAILURE made the highest-harm behaviour uncountable (C1).
+                failure_mode=FailureMode.DESTRUCTIVE_ACTION,
                 severity=Severity(severity),
                 subject=match.group(0)[:80],
                 summary=f"Irreversible command: {description}",

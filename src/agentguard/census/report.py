@@ -26,7 +26,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from agentguard.census.taxonomy import NOT_INSTRUMENTED_BECAUSE, TAXONOMY, ModeSpec
+from agentguard.census.taxonomy import (
+    ALL_MODES,
+    EXTENDED_TAXONOMY,
+    NOT_INSTRUMENTED_BECAUSE,
+    TAXONOMY,
+    ModeSpec,
+)
 from agentguard.core.store import ProjectStore
 
 
@@ -49,6 +55,11 @@ class Census:
     silent: list[ModeSpec]  # instrumented and never seen
     uninstrumented: list[ModeSpec]  # no detector — reported as such, never as zero
     unknown: list[str] = field(default_factory=list)  # recorded but not in the taxonomy
+    # Beyond SPEC §3: AgentGuard's own extension, reported in its own section so it can
+    # never be read as a SPEC bullet (census/taxonomy.py EXTENDED_TAXONOMY).
+    extended_observed: list[ModeObservation] = field(default_factory=list)
+    extended_silent: list[ModeSpec] = field(default_factory=list)
+    extended_uninstrumented: list[ModeSpec] = field(default_factory=list)
 
     @property
     def has_data(self) -> bool:
@@ -87,6 +98,35 @@ class Census:
                 for s in self.uninstrumented
             ],
             "unrecognised_modes": self.unknown,
+            "beyond_spec_3": {
+                "note": "AgentGuard's own extension; not part of SPEC §3",
+                "observed": [
+                    {
+                        "mode": str(o.spec.mode),
+                        "text": o.spec.spec_text,
+                        "detector": o.spec.detector,
+                        "proves": o.spec.proves,
+                        "occurrences": o.occurrences,
+                        "tasks": o.tasks,
+                        "distinct_subjects": o.distinct_subjects,
+                        "last_seen": o.last_seen,
+                        "examples": o.examples,
+                    }
+                    for o in self.extended_observed
+                ],
+                "instrumented_never_observed": [
+                    {"mode": str(s.mode), "text": s.spec_text, "detector": s.detector}
+                    for s in self.extended_silent
+                ],
+                "not_instrumented": [
+                    {
+                        "mode": str(s.mode),
+                        "text": s.spec_text,
+                        "because": NOT_INSTRUMENTED_BECAUSE.get(s.mode, ""),
+                    }
+                    for s in self.extended_uninstrumented
+                ],
+            },
         }
 
 
@@ -95,11 +135,44 @@ def collect(store: ProjectStore, days: int = 14, examples: int = 2) -> Census:
     since = time.time() - days * 86400
     counts = {row["failure_mode"]: row for row in store.failure_mode_counts(since)}
 
+    observed, silent, uninstrumented = _observe(TAXONOMY, counts, store, since, examples)
+    ext_observed, ext_silent, ext_uninstrumented = _observe(
+        EXTENDED_TAXONOMY, counts, store, since, examples
+    )
+
+    # Recorded modes with no taxonomy entry — a row written by a newer version, or a
+    # detector added without one. Reported rather than dropped: quietly discarding data
+    # you do not recognise is how a census starts lying.
+    known = {str(spec.mode) for spec in ALL_MODES}
+    unknown = sorted(name for name in counts if name not in known)
+
+    return Census(
+        root=store.identity.root,
+        days=days,
+        activity=store.activity(since),
+        observed=observed,
+        silent=silent,
+        uninstrumented=uninstrumented,
+        unknown=unknown,
+        extended_observed=ext_observed,
+        extended_silent=ext_silent,
+        extended_uninstrumented=ext_uninstrumented,
+    )
+
+
+def _observe(
+    specs: tuple[ModeSpec, ...],
+    counts: dict[str, Any],
+    store: ProjectStore,
+    since: float,
+    examples: int,
+) -> tuple[list[ModeObservation], list[ModeSpec], list[ModeSpec]]:
+    """Split one taxonomy into observed / instrumented-but-silent / uninstrumented."""
     observed: list[ModeObservation] = []
     silent: list[ModeSpec] = []
     uninstrumented: list[ModeSpec] = []
 
-    for spec in TAXONOMY:
+    for spec in specs:
         if not spec.instrumented:
             uninstrumented.append(spec)
             continue
@@ -125,22 +198,7 @@ def collect(store: ProjectStore, days: int = 14, examples: int = 2) -> Census:
     # Ranked by breadth first: a mode that touched nine separate tasks matters more than
     # one that fired thirty times inside a single stubborn afternoon.
     observed.sort(key=lambda o: (-o.tasks, -o.occurrences, str(o.spec.mode)))
-
-    # Recorded modes with no taxonomy entry — a row written by a newer version, or a
-    # detector added without one. Reported rather than dropped: quietly discarding data
-    # you do not recognise is how a census starts lying.
-    known = {str(spec.mode) for spec in TAXONOMY}
-    unknown = sorted(name for name in counts if name not in known)
-
-    return Census(
-        root=store.identity.root,
-        days=days,
-        activity=store.activity(since),
-        observed=observed,
-        silent=silent,
-        uninstrumented=uninstrumented,
-        unknown=unknown,
-    )
+    return observed, silent, uninstrumented
 
 
 def render(census: Census) -> str:
@@ -228,7 +286,36 @@ def render(census: Census) -> str:
         "These modes are absent from the table above rather than reported as zero. A zero\n"
         "would say 'this does not happen'; the truth is 'nothing here looks for it'."
     )
+    add("")
+    _render_extension(census, add, tasks)
     return "\n".join(lines)
+
+
+def _render_extension(census: Census, add: Any, tasks: int) -> None:
+    """Beyond SPEC §3 — AgentGuard's own extension, in its own section, never mixed in."""
+    add("beyond SPEC §3 — AgentGuard's own extension, not part of the SPEC")
+    if census.extended_observed:
+        width = max(len(o.spec.spec_text) for o in census.extended_observed) + 2
+        add(f"  {'#':<3}{'failure mode':<{width}}{'tasks':>7}{'occurrences':>13}{'  rate':>8}")
+        for rank, o in enumerate(census.extended_observed, start=1):
+            rate = f"{o.tasks / tasks * 100:.1f}%" if tasks else "—"
+            add(
+                f"  {rank:<3}{o.spec.spec_text:<{width}}{o.tasks:>7}{o.occurrences:>13}{rate:>8}"
+            )
+    # Same rule as the §3 table: "never observed" claims we looked, which is only true
+    # when there was recorded activity to look at.
+    silent = (
+        "instrumented, never observed"
+        if census.has_data
+        else "instrumented — but there was nothing to observe"
+    )
+    for spec in census.extended_silent:
+        add(f"  · {spec.spec_text} — {silent}")
+    for spec in census.extended_uninstrumented:
+        add(f"  · {spec.spec_text} — not instrumented")
+        because = NOT_INSTRUMENTED_BECAUSE.get(spec.mode, "")
+        if because:
+            add(f"      {because}")
 
 
 def render_detectors() -> str:
@@ -239,7 +326,7 @@ def render_detectors() -> str:
     bullet it is filed under.
     """
     lines = ["what each observation actually establishes", ""]
-    for spec in TAXONOMY:
+    for spec in ALL_MODES:
         if not spec.instrumented:
             continue
         lines.append(f"  {spec.spec_text}")

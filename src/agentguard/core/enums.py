@@ -177,6 +177,16 @@ class FailureMode(StrEnum):
     UNVERIFIED_CHANGE = "unverified_change"  # "fail to verify their own changes"
     CONTINUED_ON_BAD_ASSUMPTION = "continued_on_bad_assumption"  # "confidently continue after ..."
 
+    # -- Beyond SPEC §3 -------------------------------------------------------------
+    # AgentGuard's own extension, NOT part of the SPEC (whose §3 list is pinned verbatim
+    # by tests/spec/test_s03_failure_census.py). These are the failures modern agents are
+    # documented to commit that §3 has no bullet for — see docs/IMPROVEMENTS.md §4.1.
+    # Kept in a separately-reported `EXTENDED_TAXONOMY` so a census can never pass one off
+    # as a SPEC bullet. Whether §3 itself should grow is the SPEC owner's decision.
+    DESTRUCTIVE_ACTION = "destructive_action"  # irreversible command needing sign-off
+    VERIFICATION_TAMPERING = "verification_tampering"  # weakening/skipping the checks
+    SECRET_EXPOSURE = "secret_exposure"  # a credential written into tracked content
+
     NOT_A_FAILURE = "not_a_failure"
 
 
