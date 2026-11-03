@@ -105,6 +105,26 @@ class TestScanner:
         with pytest.raises(ValueError):
             forward.loads(text)
 
+    def test_a_changed_private_scanner_falls_back_to_json(self, monkeypatch):
+        """CPython 3.15 added a field the private scanner reads; uv installs the newest
+        CPython where none is present, and the runtime must still work there."""
+        import _json
+        import importlib
+
+        def refuse(context):
+            raise AttributeError("'_Ctx' object has no attribute 'something_new'")
+
+        monkeypatch.setattr(_json, "make_scanner", refuse)
+        fallback = importlib.reload(forward)
+        try:
+            assert fallback._scan is None
+            assert fallback.loads('{"a": [1, true]}') == {"a": [1, True]}
+            with pytest.raises(ValueError):
+                fallback.loads("{")
+        finally:
+            monkeypatch.undo()
+            importlib.reload(forward)
+
     def test_imports_nothing_slow(self):
         """`json` pulls in `re` (~7 ms) and `socket` pulls in `enum` (~2 ms)."""
         probe = subprocess.run(

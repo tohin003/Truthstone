@@ -50,11 +50,16 @@ _TRUE = ("1", "true", "yes", "on")
 
 
 class _Ctx:
-    """The attribute bag ``_json.make_scanner`` reads; json.decoder's defaults."""
+    """The attribute bag ``_json.make_scanner`` reads: ``json.decoder``'s defaults.
+
+    This is a private CPython interface and it does change — 3.15 added ``array_hook`` —
+    so construction is guarded below and falls back to the public ``json`` module.
+    """
 
     strict = True
     object_hook = None
     object_pairs_hook = None
+    array_hook = None
     parse_float = float
     parse_int = int
     memo: dict = {}  # noqa: RUF012 - read by the C scanner, never mutated here
@@ -64,11 +69,18 @@ class _Ctx:
         return {"-Infinity": float("-inf"), "Infinity": float("inf"), "NaN": float("nan")}[name]
 
 
-_scan = _json.make_scanner(_Ctx())
+try:
+    _scan = _json.make_scanner(_Ctx())
+except Exception:  # noqa: BLE001 - a newer CPython's scanner wants more; use the public API
+    _scan = None
 
 
 def loads(text: str) -> object:
     """Parse one JSON document with the C scanner. Raises ``ValueError`` on bad input."""
+    if _scan is None:
+        import json  # ~7 ms, only on a CPython whose private scanner contract moved
+
+        return json.loads(text)
     start = len(text) - len(text.lstrip(" \t\n\r"))
     try:
         value, end = _scan(text, start)
