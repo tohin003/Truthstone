@@ -1,0 +1,23 @@
+{
+  "session_id": "sess-captured",
+  "transcript_path": "/workspace/.transcript.jsonl",
+  "cwd": "/workspace",
+  "prompt_id": "6de121ef-ab9d-473a-b5b2-965f06c1260c",
+  "permission_mode": "acceptEdits",
+  "effort": {
+    "level": "low"
+  },
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "I added the docstring `\"\"\"Return the sum of a and b.\"\"\"` to `add` in `app.py`, and `pytest -q` passed both tests. The `sleep 25` command is running in the background and I didn't wait for it.",
+  "background_tasks": [
+    {
+      "id": "bajc5zwrv",
+      "type": "shell",
+      "status": "running",
+      "description": "Sleep 25 seconds in background",
+      "command": "sleep 25"
+    }
+  ],
+  "session_crons": []
+}

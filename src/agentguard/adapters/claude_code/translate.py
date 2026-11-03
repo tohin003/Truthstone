@@ -150,6 +150,16 @@ def reset_session_modes() -> None:
 
 # -- inbound -------------------------------------------------------------------------------
 
+# Claude Code re-enters the conversation with a synthetic prompt when a background task
+# finishes (captured live, 2.1.317: tests/fixtures/hook_payloads/
+# UserPromptSubmit.task_notification.json).
+_HOST_NOTIFICATIONS = ("<task-notification>",)
+
+
+def is_host_notification(prompt: Any) -> bool:
+    """Whether a UserPromptSubmit carries Claude Code's own message, not the developer's."""
+    return isinstance(prompt, str) and prompt.lstrip().startswith(_HOST_NOTIFICATIONS)
+
 
 def failure_result(payload: dict[str, Any]) -> dict[str, Any]:
     """``PostToolUseFailure`` -> the tool-result dict the core reads.
@@ -204,6 +214,13 @@ def to_event(payload: dict[str, Any]) -> AgentEvent | None:
     if session_mode(session_id) == "disabled":
         if event_type is EventType.SESSION_END:
             _session_modes.pop(session_id, None)
+        return None
+
+    if event_type is EventType.USER_PROMPT and is_host_notification(payload.get("prompt")):
+        # Not a request. Read as one, it opened a new task — so the completion gate
+        # forgot the real task's unverified edits — and injected a planning budget for
+        # an XML block, which Claude itself called out as not fitting. The turn belongs
+        # to the task already running.
         return None
 
     if event_type is EventType.POST_TOOL_FAILURE:
