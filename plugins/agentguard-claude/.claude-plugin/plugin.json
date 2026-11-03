@@ -1,0 +1,14 @@
+{
+  "name": "agentguard",
+  "displayName": "AgentGuard",
+  "version": "0.1.0",
+  "description": "Reliability guard for Claude Code: grounds the agent's claims in repository evidence, sends risky and out-of-scope actions back for review, and holds unverified \"done\" claims at a completion gate. Deterministic and local; never grants permissions; fails open.",
+  "author": {
+    "name": "tohin003",
+    "url": "https://github.com/tohin003"
+  },
+  "homepage": "https://github.com/tohin003/AgentGuard/blob/master/docs/CLAUDE-PLUGIN.md",
+  "repository": "https://github.com/tohin003/AgentGuard",
+  "license": "Apache-2.0",
+  "keywords": ["guardrails", "reliability", "hooks", "completion-gate", "verification"]
+}
