@@ -1,21 +1,30 @@
 """Command-hook shim: stdin JSON -> daemon -> stdout JSON.
 
-Two jobs:
+Jobs:
 
 1. **Fallback transport.** Where `http` hooks are unavailable, this runs as a `command`
    hook and forwards to the daemon. It pays Python interpreter startup (~30-80ms), which
-   is why it is the fallback and not the default.
+   is why it is the fallback and not the default. (The plugin's hot path uses the far
+   leaner ``forward.py`` instead.)
 2. **`--ensure-daemon`.** Installed on `SessionStart` only — once per session, where a
    process spawn is invisible — so the daemon is guaranteed warm before the hot-path
    `http` hooks start firing.
+3. **`--health`.** Once per prompt: revive a dead daemon, and tell the developer —
+   once per session — when it cannot be revived, or when it is running in a mode that
+   guards nothing (switched off, observe-only, degraded).
+
+It also reports the session's own mode. ``AGENTGUARD_DISABLE`` / ``AGENTGUARD_OBSERVE``
+are per-session switches, but the shared daemon cannot see this session's environment,
+so its `http` hooks would keep guarding regardless (R10). The shim can, and registers the
+mode with the daemon; the adapter applies it.
 
 Deliberately stdlib-only, with no import of `agentguard.core` or `agentguard.daemon`
 (those pull in pydantic/fastapi and would triple startup time). The handshake-reading
 code below is duplicated from `daemon/app.py` for exactly that reason.
 
 Transport failures return no decision and exit 0. The one intentional exception is an
-unrecoverable SessionStart health check, which emits a once-per-session warning so the
-developer knows the session is running unguarded.
+unrecoverable health check, which emits a once-per-session warning so the developer knows
+the session is running unguarded.
 """
 
 from __future__ import annotations
@@ -26,6 +35,9 @@ import json
 import math
 import os
 import sys
+import time
+
+from agentguard.adapters.claude_code import protocol
 
 DEFAULT_TIMEOUT_S = 2.0
 DAEMON_START_TIMEOUT_S = 8.0
@@ -33,6 +45,7 @@ DAEMON_START_TIMEOUT_S = 8.0
 HEALTH_TIMEOUT_S = 1.0
 MAX_STDIN_BYTES = 1_000_000
 MAX_RESPONSE_BYTES = 64_000
+NOTICE_RETENTION_S = 7 * 86400
 
 
 def _endpoint(hs: dict) -> tuple[str, int] | None:
@@ -99,46 +112,55 @@ def _alive(hs: dict | None) -> bool:
     The PID check stays as a free pre-filter for the common case where the daemon is
     simply gone.
     """
+    return health_body(hs) is not None
+
+
+def health_body(hs: dict | None) -> dict | None:
+    """The daemon's ``/health`` body, if the handshake names a live daemon; else ``None``."""
     if not hs:
-        return False
+        return None
     pid = hs.get("pid")
     if type(pid) is not int or pid <= 0:
-        return False
+        return None
     try:
         os.kill(pid, 0)
     except (OSError, OverflowError, ValueError):
-        return False
-    return _answers_health(hs, pid)
+        return None
+    body = _health_request(hs)
+    if body is None or body.get("pid") != pid:
+        return None
+    return body
 
 
 def _answers_health(hs: dict, pid: int) -> bool:
-    """Ask the endpoint who it is.
+    """Ask the endpoint who it is (kept for callers that check a specific pid)."""
+    body = _health_request(hs)
+    return body is not None and body.get("pid") == pid
 
-    Matching the reported pid against the handshake's does double duty: it proves the
-    daemon is listening, and it proves the thing on that port is *our* daemon rather than
-    whatever else may have claimed a fixed port (8787) since.
-    """
+
+def _health_request(hs: dict) -> dict | None:
+    """``GET /health``. Matching the reported pid against the handshake's (done by the
+    callers) proves both that the daemon is listening and that the thing on that port is
+    *our* daemon rather than whatever else may have claimed a fixed port since."""
     import http.client
 
     endpoint = _endpoint(hs)
     if endpoint is None:
-        return False
+        return None
     try:
         conn = http.client.HTTPConnection(*endpoint, timeout=HEALTH_TIMEOUT_S)
     except (TypeError, ValueError):
-        return False
+        return None
     try:
         conn.request("GET", "/health")
         response = conn.getresponse()
         if response.status != 200:
-            return False
+            return None
         body = json.loads(response.read(MAX_RESPONSE_BYTES).decode("utf-8", "replace"))
-        return isinstance(body, dict) and body.get("pid") == pid
+        return body if isinstance(body, dict) else None
     except Exception:  # noqa: BLE001 - unreachable, wrong service, garbage body: all "no"
-        return False
+        return None
     finally:
-        import contextlib
-
         with contextlib.suppress(OSError):
             conn.close()
 
@@ -154,7 +176,7 @@ def _post(hs: dict, payload: dict, timeout: float = DEFAULT_TIMEOUT_S) -> dict:
     try:
         conn.request(
             "POST",
-            "/hook/claude-code",
+            protocol.HOOK_PATH,
             body=body,
             headers={
                 "Content-Type": "application/json",
@@ -171,10 +193,29 @@ def _post(hs: dict, payload: dict, timeout: float = DEFAULT_TIMEOUT_S) -> dict:
         conn.close()
 
 
+def post(hs: dict, payload: dict, timeout: float = DEFAULT_TIMEOUT_S) -> dict:
+    """Forward one event; ``{}`` on any transport failure (fail open)."""
+    try:
+        return _post(hs, payload, timeout)
+    except Exception:  # noqa: BLE001 - fail open: any transport failure means "no decision"
+        return {}
+
+
+def register_session_mode(hs: dict | None, session_id: str, mode: str) -> None:
+    """Tell a running daemon this session's mode (R10). Best effort; never starts one."""
+    if not hs or not session_id or mode not in protocol.SESSION_MODES:
+        return
+    post(hs, protocol.session_mode_message(session_id, mode), timeout=HEALTH_TIMEOUT_S)
+
+
+def daemon_python_argv() -> list[str]:
+    # `-P`: the daemon starts from a hook process whose working directory is the
+    # developer's repository; never let that directory onto sys.path.
+    return [sys.executable, "-P", "-m", "agentguard.daemon", "run"]
+
+
 def ensure_daemon(timeout: float | None = None) -> dict | None:
     """Start the daemon if it is not already running. Returns the handshake, or None."""
-    import time
-
     timeout = _start_timeout() if timeout is None else timeout
 
     hs = _handshake()
@@ -182,6 +223,7 @@ def ensure_daemon(timeout: float | None = None) -> dict | None:
         return hs
 
     import subprocess
+
     # SessionStart can run concurrently for multiple host sessions. Claiming a small
     # inter-process startup lock makes the check/start/wait sequence one operation: the
     # second hook waits for the first daemon to publish its handshake, then reuses it
@@ -215,10 +257,11 @@ def ensure_daemon(timeout: float | None = None) -> dict | None:
 
         try:
             subprocess.Popen(
-                [sys.executable, "-m", "agentguard.daemon", "run"],
+                daemon_python_argv(),
                 stdout=log_file,
                 stderr=log_file,
                 stdin=subprocess.DEVNULL,
+                cwd=log_dir,
                 start_new_session=True,  # survives the hook process exiting
             )
         except OSError:
@@ -244,27 +287,89 @@ HEALTH_NOTICE = (
 )
 
 
-def _notice_marker(session_id: str) -> str:
+def _notices_dir() -> str:
+    return os.path.join(_home(), "notices")
+
+
+def _notice_marker(session_id: str, kind: str = "unguarded") -> str:
     safe = "".join(c for c in (session_id or "unknown") if c.isalnum() or c in "-_")[:64]
-    return os.path.join(_home(), f"notified-{safe}")
+    if kind == "unguarded":
+        # The original location, so an upgrade does not re-warn a running session.
+        return os.path.join(_home(), f"notified-{safe}")
+    return os.path.join(_notices_dir(), f"{kind}-{safe}")
 
 
-def _already_notified(session_id: str) -> bool:
-    """Warn once per session.
+def _prune_notices() -> None:
+    """Markers only need to outlive a session; keep the home directory from filling up."""
+    cutoff = time.time() - NOTICE_RETENTION_S
+    for directory, prefix in ((_notices_dir(), ""), (_home(), "notified-")):
+        with contextlib.suppress(OSError):
+            for entry in os.scandir(directory):
+                if entry.name.startswith(prefix) and entry.is_file(follow_symlinks=False):
+                    with contextlib.suppress(OSError):
+                        if entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                            os.unlink(entry.path)
+
+
+def notify_once(session_id: str, kind: str = "unguarded") -> bool:
+    """True the first time ``kind`` is raised for this session; False after that.
 
     A true warning repeated on every prompt is still nagging, and nagging is what gets
     AgentGuard uninstalled (SPEC §39).
     """
-    marker = _notice_marker(session_id)
+    marker = _notice_marker(session_id, kind)
     if os.path.exists(marker):
-        return True
+        return False
     try:
         from agentguard.daemon.lifecycle import create_private_marker
 
-        return not create_private_marker(marker, str(os.getpid()))
+        created = create_private_marker(marker, str(os.getpid()))
     except OSError:
-        pass
-    return False
+        return True
+    if created:
+        _prune_notices()
+    return created
+
+
+def _already_notified(session_id: str) -> bool:
+    return not notify_once(session_id)
+
+
+def daemon_notices(body: dict, mode: str) -> list[tuple[str, str]]:
+    """``[(kind, message)]``: states in which a live daemon still guards nothing (R9)."""
+    notices: list[tuple[str, str]] = []
+    if body.get("enabled") is False:
+        notices.append(
+            (
+                "switched-off",
+                "AgentGuard is switched OFF, so this session is not guarded "
+                "(`agentguard on` turns it back on).",
+            )
+        )
+    elif body.get("observing") is True and mode != "observe":
+        notices.append(
+            (
+                "observe-only",
+                "AgentGuard's daemon is in OBSERVE-ONLY mode: it records findings but says "
+                "nothing, so this session is not guarded (`agentguard observe off`, then "
+                "restart the daemon).",
+            )
+        )
+    degraded = body.get("degraded")
+    if isinstance(degraded, list):
+        import zlib
+
+        for reason in degraded[:5]:
+            if isinstance(reason, str) and reason.strip():
+                # A stable key per reason (``hash()`` is randomised per process, which
+                # would re-raise the same notice on every prompt).
+                kind = f"degraded-{zlib.crc32(reason.strip().encode('utf-8')):08x}"
+                notices.append((kind, f"AgentGuard: {reason.strip()}"))
+    return notices
+
+
+def pending_notices(body: dict, session_id: str, mode: str) -> list[str]:
+    return [text for kind, text in daemon_notices(body, mode) if notify_once(session_id, kind)]
 
 
 def health_check(payload: dict) -> int:
@@ -275,33 +380,56 @@ def health_check(payload: dict) -> int:
     revival and, if that fails, writes to stderr and exits non-zero-non-2 — which Claude
     Code surfaces in the transcript as a hook error and treats as **non-blocking**.
 
+    A daemon that answers but guards nothing — switched off, observe-only, degraded — is
+    reported too, once per session, as a ``systemMessage``.
+
     The developer sees it. The work continues. Whether to carry on unguarded is their call.
     """
-    if _alive(ensure_daemon()):
+    session_id = str(payload.get("session_id") or "")
+    mode = protocol.session_mode_from_env(os.environ)
+    hs = ensure_daemon()
+    body = health_body(hs)
+    if body is not None:
+        if mode == "observe":
+            register_session_mode(hs, session_id, mode)
+        notices = pending_notices(body, session_id, mode)
+        if notices:
+            sys.stdout.write(json.dumps({"systemMessage": "\n".join(notices)}))
         return 0
 
-    if _already_notified(payload.get("session_id", "")):
+    if _already_notified(session_id):
         return 0
 
     sys.stderr.write(HEALTH_NOTICE + "\n")
     return 1  # non-zero, non-2: reported to the developer, blocks nothing
 
 
-def main() -> int:
-    args = set(sys.argv[1:])
+def read_payload() -> dict | None:
     try:
         raw = sys.stdin.read(MAX_STDIN_BYTES + 1)
         if len(raw.encode("utf-8", "surrogatepass")) > MAX_STDIN_BYTES:
-            return 0
+            return None
         payload = json.loads(raw) if raw.strip() else {}
     except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def main() -> int:
+    args = set(sys.argv[1:])
+    payload = read_payload()
+    if payload is None:
         return 0
 
-    if not isinstance(payload, dict):
+    mode = protocol.session_mode_from_env(os.environ)
+    if mode == "disabled":
+        # Deliberately off: say nothing. A daemon that is already running still has to
+        # be told, or this session's http hooks keep being judged (R10).
+        if args & {"--ensure-daemon", "--health"}:
+            hs = _handshake()
+            if _alive(hs):
+                register_session_mode(hs, str(payload.get("session_id") or ""), mode)
         return 0
-
-    if os.environ.get("AGENTGUARD_DISABLE", "").strip().lower() in {"1", "true", "yes", "on"}:
-        return 0  # deliberately off: say nothing
 
     if "--health" in args:
         return health_check(payload)
@@ -310,11 +438,10 @@ def main() -> int:
     if not _alive(hs):
         return 0  # fail open
 
-    try:
-        out = _post(hs, payload)
-    except Exception:  # noqa: BLE001 - fail open: any transport failure means "no decision"
-        return 0
+    if mode == "observe":
+        register_session_mode(hs, str(payload.get("session_id") or ""), mode)
 
+    out = post(hs, payload)
     if out:
         sys.stdout.write(json.dumps(out))
     return 0

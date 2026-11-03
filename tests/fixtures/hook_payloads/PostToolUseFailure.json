@@ -1,0 +1,20 @@
+{
+  "session_id": "sess-captured",
+  "transcript_path": "/workspace/.transcript.jsonl",
+  "cwd": "/workspace",
+  "prompt_id": "2e259a6a-2e24-4055-b03a-acd32a7f3dd7",
+  "permission_mode": "acceptEdits",
+  "effort": {
+    "level": "low"
+  },
+  "hook_event_name": "PostToolUseFailure",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "python3 -m pytest -q tests/test_app.py",
+    "description": "Run app tests"
+  },
+  "tool_use_id": "toolu_01435GpmzxpNrDt6LGi3HRPD",
+  "error": "Exit code 1\n.F                                                                       [100%]\n=================================== FAILURES ===================================\n_________________________________ test_helper __________________________________\n\n    def test_helper():\n>       assert helper(2) == 5  # known failure\n        ^^^^^^^^^^^^^^^^^^^^^\nE       assert 4 == 5\nE        +  where 4 = helper(2)\n\ntests/test_app.py:9: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_app.py::test_helper - assert 4 == 5\n1 failed, 1 passed in 0.01s",
+  "is_interrupt": false,
+  "duration_ms": 847
+}
