@@ -1,0 +1,14 @@
+{
+  "session_id": "01a1a2f3-8845-71e0-9045-2f4407280685",
+  "turn_id": "01a1a2f3-8c14-7a71-85fa-d1107afb7781",
+  "transcript_path": "/codex-home/sessions/2026/11/04/rollout-2026-11-04T01-17-12-01a1a2f3-8845-71e0-9045-2f4407280685.jsonl",
+  "cwd": "/workspace",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-6-luna",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "rm -rf build ."
+  },
+  "tool_use_id": "exec-5b961993-1ba0-4a29-8d31-65cc788d10c8"
+}

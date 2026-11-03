@@ -1,0 +1,14 @@
+{
+  "session_id": "01a1a2f6-6476-7483-a77f-3f2b508166bd",
+  "turn_id": "01a1a2f6-6554-7580-8a89-27b9a9fe3517",
+  "transcript_path": "/codex-home/sessions/2026/11/04/rollout-2026-11-04T01-20-19-01a1a2f6-6476-7483-a77f-3f2b508166bd.jsonl",
+  "cwd": "/workspace",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-6-luna",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: c.txt\n*** Move to: d.txt\n@@\n-cee\n+see\n*** End Patch"
+  },
+  "tool_use_id": "exec-01c0d17a-c70c-4453-9804-e23c26f2fde8"
+}
