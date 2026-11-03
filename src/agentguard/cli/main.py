@@ -178,14 +178,21 @@ def daemon_status() -> None:
 
 @app.command("install")
 def install_cmd(
-    agent: str = typer.Argument("claude", help="Which agent to attach to (currently: claude)."),
-    project: bool = typer.Option(False, "--project", help="Install into ./.claude/settings.local.json"),
-    global_: bool = typer.Option(False, "--global", help="Install into ~/.claude/settings.json (default)"),
+    agent: str = typer.Argument("claude", help="Which agent to attach to: claude or codex."),
+    project: bool = typer.Option(
+        False, "--project", help="This repository only: ./.claude/settings.local.json or ./.codex/hooks.json"
+    ),
+    global_: bool = typer.Option(
+        False, "--global", help="Every project (default): ~/.claude/settings.json or ~/.codex/hooks.json"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change; write nothing."),
 ) -> None:
     """Attach AgentGuard to a coding agent."""
+    if agent == "codex":
+        _install_codex(project, global_, dry_run)
+        return
     if agent != "claude":
-        _bad(f"unknown agent '{agent}' (Cursor and Codex adapters arrive in Phase 9)")
+        _bad(f"unknown agent '{agent}' (supported: claude, codex)")
         raise typer.Exit(2)
 
     from agentguard.adapters.claude_code import install as inst
@@ -215,6 +222,57 @@ def install_cmd(
     _echo("  agentguard daemon start")
 
 
+def _install_codex(project: bool, global_: bool, dry_run: bool) -> None:
+    """`agentguard install codex`: write AgentGuard's hooks into Codex's hooks.json."""
+    from agentguard.adapters.codex import install as codex_inst
+
+    try:
+        path = codex_inst.hooks_path(project=project, global_=global_)
+    except ValueError as exc:
+        _bad(str(exc))
+        raise typer.Exit(2) from exc
+    try:
+        result, changed = codex_inst.install(path, dry_run=dry_run)
+    except RuntimeError as exc:
+        _bad(str(exc))
+        raise typer.Exit(1) from exc
+
+    _echo(f"hooks file: {path}")
+    if dry_run:
+        _echo(json.dumps(result.get("hooks", {}), indent=2))
+        _warn("dry run — nothing written")
+        return
+    _ok("hooks installed" if changed else "hooks already up to date")
+    get_or_create_token()
+    _echo()
+    _echo("Next:")
+    _echo("  1. In Codex, open /hooks and trust the AgentGuard hooks. Codex skips untrusted hooks.")
+    if project:
+        _echo("     Codex reads ./.codex/ only in a project you have marked as trusted.")
+    _echo("  2. agentguard daemon start   (or just start a Codex session; SessionStart does it)")
+    _echo("  3. agentguard doctor         (confirms the hooks are installed and trusted)")
+    if project:
+        _warn("this file names this machine's Python interpreter; keep it out of version control")
+
+
+def _uninstall_codex(project: bool, global_: bool, dry_run: bool) -> None:
+    from agentguard.adapters.codex import install as codex_inst
+
+    try:
+        path = codex_inst.hooks_path(project=project, global_=global_)
+        result, changed = codex_inst.uninstall(path, dry_run=dry_run)
+    except (RuntimeError, ValueError) as exc:
+        _bad(str(exc))
+        raise typer.Exit(1 if isinstance(exc, RuntimeError) else 2) from exc
+    _echo(f"hooks file: {path}")
+    if dry_run:
+        if changed:
+            _echo(json.dumps(result.get("hooks", {}), indent=2))
+        _warn("dry run — nothing written")
+    else:
+        _ok("hooks removed" if changed else "nothing to remove")
+
+
 @app.command("uninstall")
 def uninstall_cmd(
     agent: str = typer.Argument("claude"),
@@ -223,6 +281,9 @@ def uninstall_cmd(
     dry_run: bool = typer.Option(False, "--dry-run"),
 ) -> None:
     """Detach AgentGuard, leaving any hooks you wrote yourself untouched."""
+    if agent == "codex":
+        _uninstall_codex(project, global_, dry_run)
+        return
     from agentguard.adapters.claude_code import install as inst
 
     try:
@@ -325,8 +386,11 @@ def doctor() -> None:
         inst.is_installed(path)
         for path in (inst.global_settings_path(), inst.project_settings_path())
     )
-    if not installed_anywhere:
-        _bad("no Claude Code hooks installed — this project is currently unguarded")
+
+    codex_attached, codex_problems = _doctor_codex()
+    problems += codex_problems
+    if not installed_anywhere and not codex_attached:
+        _bad("no Claude Code or Codex hooks installed — this project is currently unguarded")
         problems += 1
 
     _echo()
@@ -334,6 +398,76 @@ def doctor() -> None:
         _bad(f"{problems} problem(s) found")
         raise typer.Exit(1)
     _ok("ready")
+
+
+def _doctor_codex() -> tuple[bool, int]:
+    """The Codex part of `doctor`. Returns (AgentGuard is attached to Codex, problems)."""
+    import shutil
+
+    from agentguard.adapters.codex import install as codex_inst
+    from agentguard.adapters.codex import status as codex_status
+
+    problems = 0
+    _echo("\ncodex")
+    version = codex_status.codex_version()
+    if version:
+        _ok(f"{version} ({shutil.which('codex')})")
+    else:
+        _echo("  · codex not found on PATH")
+
+    attached = False
+    for label, path in (
+        ("global", codex_inst.global_hooks_path()),
+        ("project", codex_inst.project_hooks_path()),
+    ):
+        if codex_inst.is_installed(path):
+            _ok(f"{label} hooks installed ({path})")
+            attached = True
+        else:
+            _echo(f"  · {label} hooks not installed ({path})")
+
+    plugin_id = codex_status.plugin_id()
+    enabled = codex_status.plugin_enabled()
+    if enabled is False:
+        _warn(f"plugin {plugin_id} is installed but disabled")
+    elif enabled or codex_status.plugin_installed():
+        _ok(f"plugin {plugin_id} installed")
+        attached = True
+    else:
+        _echo(f"  · plugin {plugin_id} not installed")
+
+    if not attached:
+        return False, problems
+
+    runtime = shutil.which("agentguard-codex-hook")
+    if runtime:
+        _ok(f"runtime: {runtime}")
+    else:
+        _echo("  · agentguard-codex-hook not on PATH (the plugin installs a private copy with uv)")
+
+    from agentguard.adapters.codex.hook import _health
+    from agentguard.daemon.app import read_handshake
+
+    health = _health(read_handshake())
+    if health is not None and "codex" not in (health.get("adapters") or []):
+        _bad("the running daemon predates Codex support: agentguard daemon stop && agentguard daemon start")
+        problems += 1
+
+    if version:
+        report = codex_status.hook_trust(Path.cwd())
+        if report.error:
+            _warn(f"could not ask Codex about hook trust: {report.error}")
+        elif not report.hooks:
+            _warn("Codex lists no AgentGuard hooks here (a --project install needs a trusted project)")
+        elif report.needs_review:
+            _bad(
+                f"{len(report.needs_review)} of {len(report.hooks)} AgentGuard hooks need review — "
+                "Codex skips them until you trust them in /hooks"
+            )
+            problems += 1
+        else:
+            _ok(f"all {len(report.hooks)} AgentGuard hooks are trusted in Codex")
+    return True, problems
 
 
 @app.command("log")
