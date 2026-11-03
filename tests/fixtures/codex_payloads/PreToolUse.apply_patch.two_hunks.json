@@ -1,0 +1,14 @@
+{
+  "session_id": "01a1a2f6-6476-7483-a77f-3f2b508166bd",
+  "turn_id": "01a1a2f6-6554-7580-8a89-27b9a9fe3517",
+  "transcript_path": "/codex-home/sessions/2026/11/04/rollout-2026-11-04T01-20-19-01a1a2f6-6476-7483-a77f-3f2b508166bd.jsonl",
+  "cwd": "/workspace",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-6-luna",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: README.md\n@@\n line one\n-line two\n+line 2\n line three\n@@\n line five\n-line six\n+line 6\n line seven\n*** End Patch"
+  },
+  "tool_use_id": "exec-0d2dccb6-4fe5-4993-9cd8-6c8d93d6dd35"
+}

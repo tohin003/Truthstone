@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from agentguard.adapters.claude_code import translate as claude
+from agentguard.adapters.codex import translate as codex
 from agentguard.core.config import (
     DaemonSettings,
     Settings,
@@ -45,7 +46,7 @@ from agentguard.daemon.lifecycle import handshake_lock_path, interprocess_lock
 
 log = logging.getLogger(__name__)
 
-ADAPTERS = {"claude-code": claude}
+ADAPTERS = {"claude-code": claude, "codex": codex}
 MAX_HOOK_BODY_BYTES = 1_000_000
 MAX_HEALTH_BODY_BYTES = 64_000
 
@@ -210,6 +211,10 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
             # and forgot to restart has no other way to find out which one is live — and
             # the two differ in whether anything is being guarded at all.
             "observing": app.state.guard.settings.observe_only,
+            # Which host routes this daemon serves. A daemon started by an older release
+            # keeps running across upgrades; a hook for a host it cannot route would get
+            # "no opinion" forever, so clients check this before trusting the silence.
+            "adapters": sorted(ADAPTERS),
         }
 
     @app.get("/metrics")
@@ -260,6 +265,12 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
             return JSONResponse({}, status_code=200)
 
         try:
+            # An adapter whose one host payload can stand for several actions (a Codex
+            # patch editing several files) routes and combines them itself.
+            handle_payload = getattr(adapter, "handle_payload", None)
+            if handle_payload is not None:
+                out = await run_in_threadpool(handle_payload, app.state.guard, payload)
+                return JSONResponse(out, status_code=200)
             event = adapter.to_event(payload)
             if event is None:
                 return JSONResponse({}, status_code=200)
