@@ -88,7 +88,11 @@ def build_hooks(command_for: Any) -> dict[str, list[dict[str, Any]]]:
 def build_hook_config(python_exe: str | None = None) -> dict[str, list[dict[str, Any]]]:
     """The hooks ``agentguard install codex`` writes: this interpreter, this package."""
     py = python_exe or sys.executable
-    return build_hooks(lambda spec: shlex.join([py, "-m", HOOK_MODULE, spec.arg]))
+    # `-P`: Codex runs hooks in the session's directory, i.e. the developer's repository, and
+    # `python -m` would put it first on sys.path, so a repository file such as `json.py` could
+    # shadow a module the hook imports. Ownership detection matches the trailing
+    # `-m <module> <arg>`, so entries written without `-P` are still recognised and upgraded.
+    return build_hooks(lambda spec: shlex.join([py, "-P", "-m", HOOK_MODULE, spec.arg]))
 
 
 # -- locations ----------------------------------------------------------------------

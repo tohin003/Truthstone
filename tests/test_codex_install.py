@@ -46,8 +46,19 @@ class TestHookConfig:
     def test_commands_are_shell_safe_argv(self):
         config = inst.build_hook_config(python_exe="/opt/py with space/bin/python")
         command = config["PreToolUse"][0]["hooks"][0]["command"]
-        expected = ["/opt/py with space/bin/python", "-m", inst.HOOK_MODULE, "pre-tool-use"]
+        expected = ["/opt/py with space/bin/python", "-P", "-m", inst.HOOK_MODULE, "pre-tool-use"]
         assert shlex.split(command) == expected
+
+    def test_hook_commands_never_put_the_repository_on_sys_path(self):
+        # Codex runs hooks in the developer's repository; without -P, `python -m` would let a
+        # repository file such as json.py shadow a module the hook imports.
+        for groups in inst.build_hook_config(python_exe="/py").values():
+            argv = shlex.split(groups[0]["hooks"][0]["command"])
+            assert argv.index("-P") < argv.index("-m")
+
+    def test_entries_written_before_dash_p_are_still_ours(self):
+        old = {"type": "command", "command": shlex.join(["/py", "-m", inst.HOOK_MODULE, "stop"])}
+        assert inst._is_ours_hook(old), "an upgrade must recognise and replace its own old entries"
 
     def test_every_command_is_recognised_as_ours(self):
         for groups in inst.build_hook_config().values():

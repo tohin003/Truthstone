@@ -82,14 +82,20 @@ def daemon_start(timeout: float = typer.Option(10.0, help="Seconds to wait for r
             _echo(f"already running (pid {hs.get('pid')}) on {hs.get('host')}:{hs.get('port')}")
             raise typer.Exit(0)
 
+        from agentguard.adapters.claude_code.shim import daemon_python_argv
+
         home.mkdir(parents=True, exist_ok=True)
         log_file = open_private_append(home / "daemon.log")
         try:
+            # `-P` plus a cwd of AGENTGUARD_HOME: this command is usually typed inside a
+            # repository, and `python -m` would otherwise put that directory first on the
+            # daemon's sys.path, letting a repository file shadow a module the daemon imports.
             subprocess.Popen(
-                [sys.executable, "-m", "agentguard.daemon", "run"],
+                daemon_python_argv(),
                 stdout=log_file,
                 stderr=log_file,
                 stdin=subprocess.DEVNULL,
+                cwd=home,
                 start_new_session=True,
             )
         finally:
