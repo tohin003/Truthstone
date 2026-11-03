@@ -1,0 +1,48 @@
+{
+  "name": "agentguard",
+  "version": "0.1.0-dev.0",
+  "description": "Deterministic, LLM-free reliability layer for Codex. It grounds the agent's claims in repository evidence, sizes planning to the task, watches scope, and holds an unverified 'done' until tests back it. Silent unless it has evidence.",
+  "author": {
+    "name": "AgentGuard",
+    "url": "https://github.com/tohin003/AgentGuard"
+  },
+  "homepage": "https://github.com/tohin003/AgentGuard",
+  "repository": "https://github.com/tohin003/AgentGuard",
+  "license": "Apache-2.0",
+  "keywords": [
+    "reliability",
+    "guardrails",
+    "hooks",
+    "verification",
+    "testing",
+    "evidence",
+    "scope",
+    "code-review"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "requires_local_executor": true,
+  "interface": {
+    "displayName": "AgentGuard",
+    "shortDescription": "Evidence checks for agent work",
+    "longDescription": "AgentGuard sits beside Codex through lifecycle hooks and checks what the agent is about to do against the repository itself: symbols that do not exist, edits that wander far outside the task, irreversible shell commands, and a finished turn whose changes no test has exercised. When it finds evidence of a problem it hands the evidence back to Codex as a challenge, so the agent's own reasoning fixes it. Otherwise it says nothing.\n\nIt has no model of its own and makes no network calls: everything runs in a local daemon on 127.0.0.1, with decisions recorded under ~/.agentguard. It never grants permissions — it can only stay silent, object, or ask for your confirmation — and if it is unavailable Codex simply continues unguarded.\n\nRequires the AgentGuard runtime (Python 3.12+). If it is not installed, the plugin installs a private copy with uv on first use, or tells you how to install it. Codex runs plugin hooks only after you review and trust them in /hooks. Works in the Codex CLI and in local threads of the ChatGPT desktop app; hooks do not run in the IDE extension, web, mobile or cloud tasks.",
+    "developerName": "AgentGuard",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://github.com/tohin003/AgentGuard",
+    "privacyPolicyURL": "https://github.com/tohin003/AgentGuard/blob/master/docs/CODEX.md#placeholder-privacy-policy",
+    "termsOfServiceURL": "https://github.com/tohin003/AgentGuard/blob/master/docs/CODEX.md#placeholder-terms-of-service",
+    "defaultPrompt": [
+      "Explain why AgentGuard blocked my last action and how to resolve it",
+      "Check whether AgentGuard is guarding this repository and fix the setup",
+      "Summarize what AgentGuard has caught in this project this week"
+    ],
+    "brandColor": "#0F766E",
+    "composerIcon": "./assets/agentguard-icon.svg",
+    "logo": "./assets/agentguard-logo.svg",
+    "logoDark": "./assets/agentguard-logo-dark.svg",
+    "screenshots": []
+  }
+}
