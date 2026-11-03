@@ -1,0 +1,23 @@
+{
+  "name": "agentguard-practices",
+  "displayName": "AgentGuard Practices",
+  "version": "1.0.0",
+  "description": "Six instruction-only skills that guide a coding agent to show evidence before saying a task is done: a requirement ledger, file:line grounding, scope checks, proportional planning, a pre-flight for irreversible shell commands, and a review of the diff against the request.",
+  "author": {
+    "name": "AgentGuard project",
+    "url": "https://github.com/tohin003/AgentGuard"
+  },
+  "homepage": "https://github.com/tohin003/AgentGuard/tree/master/plugins/agentguard-practices",
+  "repository": "https://github.com/tohin003/AgentGuard",
+  "license": "Apache-2.0",
+  "keywords": [
+    "verification",
+    "testing",
+    "code-review",
+    "scope",
+    "planning",
+    "shell-safety",
+    "requirements",
+    "skills"
+  ]
+}
