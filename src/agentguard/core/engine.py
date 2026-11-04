@@ -508,6 +508,13 @@ class Guard:
         # Its place on the task's timeline (G2a): the latest run decides, and a change
         # made after it leaves it stale.
         outcome.seq = state.next_seq()
+        if outcome.background or event.arg("run_in_background") is True:
+            # Launched, not finished: pending rather than an unreadable run. Stop asks the
+            # host whether it is still running (G7).
+            outcome.passed, outcome.background = None, True
+            outcome.summary = "launched in the background; no result yet"
+            state.verification.background.append(outcome)
+            return
         state.verification.commands_seen.append(command.strip()[:200])
         if outcome.passed is None:
             state.verification.inconclusive.append(outcome)
@@ -541,6 +548,7 @@ class Guard:
             stop_hook_active=bool(event.raw.get("stop_hook_active")),
             max_blocks=self.settings.challenge.max_stop_blocks_per_task,
             message=event.last_assistant_message,
+            pending_tasks=event.pending_tasks,
         )
         if not verdict.should_block:
             # Still carries findings: the gate can pass and have seen something worth

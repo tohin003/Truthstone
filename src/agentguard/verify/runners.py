@@ -54,6 +54,7 @@ class TestOutcome:
     key: str = ""  # the normalised command: what makes two runs "the same run"
     scope: tuple[str, ...] = ()  # what narrowed it (paths, -k, --lf, ...); () = everything
     failing_files: tuple[str, ...] = ()  # test files the output names as failing (G4a)
+    background: bool = False  # launched to run on after the command returned (G7)
 
     @property
     def is_failure(self) -> bool:
@@ -77,6 +78,9 @@ class VerificationState:
     outcomes: list[TestOutcome] = field(default_factory=list)
     commands_seen: list[str] = field(default_factory=list)
     inconclusive: list[TestOutcome] = field(default_factory=list)
+    # Runs launched into the background (`run_in_background`, a trailing `&`): pending,
+    # not unreadable. Whether one is still running is the host's to say at Stop (G7).
+    background: list[TestOutcome] = field(default_factory=list)
 
     @property
     def ran_tests(self) -> bool:
@@ -275,6 +279,10 @@ def outcome_from_result(command: str, result: Any) -> TestOutcome | None:
     text, exit_code, interrupted = result_fields(result)
     outcome = parse_output(command, text)
     outcome.exit_code = exit_code
+    if invocation.background:
+        outcome.passed, outcome.background = None, True
+        outcome.summary = "launched in the background; no result yet"
+        return outcome
     if interrupted:
         outcome.passed = None
         outcome.summary = "the run was interrupted" + (f" ({outcome.summary})" if outcome.summary else "")
@@ -406,7 +414,11 @@ def assess_timeline(
         return Timeline(open_failure=failure, narrower_pass=narrower, latest_pass=latest_pass)
     if any(outcome.seq is None for outcome in runs):
         return Timeline(latest_pass=latest_pass)  # runs recorded without a position
-    seen = [outcome.seq for outcome in verification.inconclusive if outcome.seq is not None]
+    seen = [
+        outcome.seq
+        for outcome in (*verification.inconclusive, *verification.background)
+        if outcome.seq is not None
+    ]
     last_run = max([*(outcome.seq for outcome in passes if outcome.seq is not None), *seen])
     stale = sorted(path for path in candidates if last_change_seq.get(path, 0) > last_run)
     return Timeline(stale=stale, latest_pass=latest_pass)

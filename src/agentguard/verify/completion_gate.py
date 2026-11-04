@@ -51,7 +51,7 @@ from agentguard.core.enums import (
 from agentguard.core.models import EvidenceRef, Finding
 from agentguard.core.taskstate import TaskState
 from agentguard.repo.index import RepoIndex
-from agentguard.verify import claims, runners, static
+from agentguard.verify import claims, commands, runners, static
 
 log = logging.getLogger(__name__)
 
@@ -79,17 +79,21 @@ def evaluate(
     stop_hook_active: bool = False,
     max_blocks: int = 2,
     message: str | None = None,
+    pending_tasks: list[dict] | None = None,
 ) -> GateVerdict:
     """Decide whether this turn may end. Never raises.
 
     ``message`` is the agent's final message. A turn that hands back honestly — asks a
     question, or says what is not done or not verified, without claiming completion —
     is not a false completion and is not held (G4a).
+
+    ``pending_tasks`` is what the host says is still running (``AgentEvent.
+    pending_tasks``): a test run still in flight is not a result yet (G7).
     """
     if state is None:
         return GateVerdict(GateResult.PASS)
 
-    verdict = _assess(state, index)
+    verdict = _assess(state, index, pending_tasks or [])
     if verdict.should_block:
         verdict = _hand_back(state, verdict, message) or verdict
 
@@ -110,7 +114,7 @@ def _muted_reason(state: TaskState, stop_hook_active: bool, max_blocks: int) -> 
     return ""
 
 
-def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
+def _assess(state: TaskState, index: RepoIndex, pending_tasks: list[dict] | None = None) -> GateVerdict:
     """What the evidence says, before any question of whether to say it."""
     changed = {path for path in state.changed_files if _is_source(path, index)}
     if not changed:
@@ -156,7 +160,13 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
             ],
         )
 
-    # 2. What do the agent's own test runs say, read in order (G2a)? The latest run of
+    # 2. Is a test run still going? Then there is no result to finish on yet (G7). The
+    #    host reports what is still running; a watch mode is never a test run.
+    running = _tests_in_flight(pending_tasks or [])
+    if running:
+        return _in_flight(running, observations)
+
+    # 3. What do the agent's own test runs say, read in order (G2a)? The latest run of
     #    each suite decides; a failure it fixed is history, and a pass the agent edited
     #    past is stale.
     verification = state.verification
@@ -173,7 +183,7 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
     if timeline.stale:
         return _stale(timeline, observations)
 
-    # 3. The developer asked for tests (G6). Not writing any is not done, whatever ran:
+    # 4. The developer asked for tests (G6). Not writing any is not done, whatever ran:
     #    "…has no tests; fix it and add tests" used to waive the gate instead (probe G).
     if state.spec.tests_requested and not _wrote_tests(state, index):
         return _requested_tests_missing(observations)
@@ -181,7 +191,7 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
     if timeline.latest_pass is not None:
         return GateVerdict(GateResult.PASS, "tests ran and passed", findings=observations)
 
-    # 3. Nothing was run. Only a problem if there was something to run *and* the
+    # 5. Nothing was run. Only a problem if there was something to run *and* the
     #    developer did not say not to.
     if state.spec.tests_waived:
         return GateVerdict(
@@ -205,6 +215,12 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
         # A test command ran but its result was unreadable. Unclear is not failed.
         return GateVerdict(
             GateResult.PASS, "test output could not be interpreted", findings=observations
+        )
+    if verification.background:
+        # Launched into the background and no longer running (the host would have said),
+        # but its result was never seen here. Could not tell is never failed.
+        return GateVerdict(
+            GateResult.PASS, "a background test run finished unseen", findings=observations
         )
 
     command = runners.suggested_command(available, covering)
@@ -333,6 +349,50 @@ def _stale(timeline: runners.Timeline, observations: list[Finding]) -> GateVerdi
                 summary=f"{len(stale)} file(s) changed after the last passing test run",
                 detail=", ".join(stale[:6]) + ("…" if len(stale) > 6 else ""),
                 evidence=evidence,
+            ),
+            *observations,
+        ],
+    )
+
+
+# -- runs still in flight (G7) -----------------------------------------------------------
+
+_IN_FLIGHT = frozenset({"running", "pending", "started", "in_progress", "queued"})
+_SHELL_TASKS = frozenset({"shell", "bash", "local_bash", "powershell"})
+
+
+def _tests_in_flight(pending_tasks: list[dict]) -> list[str]:
+    """Commands of host background tasks that are test or typecheck runs still going."""
+    running = []
+    for task in pending_tasks:
+        if not isinstance(task, dict):
+            continue
+        status, kind, command = task.get("status"), task.get("type"), task.get("command")
+        if str(status).lower() not in _IN_FLIGHT or not isinstance(command, str):
+            continue
+        if kind is not None and str(kind).lower() not in _SHELL_TASKS:
+            continue
+        if commands.test_invocation(command) or commands.typecheck_invocation(command):
+            running.append(command.strip()[:200])
+    return running
+
+
+def _in_flight(running: list[str], observations: list[Finding]) -> GateVerdict:
+    shown = ", ".join(f"`{command}`" for command in running[:3])
+    return GateVerdict(
+        GateResult.INCOMPLETE,
+        reason=(
+            f"Tests are still running in the background ({shown}); wait for the result and "
+            "report what it said before finishing."
+        ),
+        evidence=[EvidenceRef(source="runtime", note=f"still running: {command}") for command in running[:5]],
+        findings=[
+            _finding(
+                FailureMode.UNVERIFIED_CHANGE,
+                Severity.MEDIUM,
+                subject="tests-in-flight",
+                summary=f"finished while {len(running)} test run(s) were still running",
+                detail=", ".join(running[:5]),
             ),
             *observations,
         ],

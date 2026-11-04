@@ -248,8 +248,29 @@ def to_event(payload: dict[str, Any]) -> AgentEvent | None:
         result=result,
         prompt_text=payload.get("prompt") or payload.get("prompt_text"),
         last_assistant_message=payload.get("last_assistant_message"),
+        pending_tasks=pending_tasks(payload),
         raw=payload,
     )
+
+
+_TASK_FIELDS = ("id", "type", "status", "command")
+
+
+def pending_tasks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Stop's ``background_tasks`` -> the core's ``pending_tasks`` (G7).
+
+    Captured live (``Stop.background_tasks.json``): ``{"id", "type": "shell", "status":
+    "running", "description", "command"}``. Only the four canonical fields are kept, as
+    strings; anything malformed is dropped rather than guessed at.
+    """
+    tasks = payload.get("background_tasks")
+    if not isinstance(tasks, list):
+        return []
+    return [
+        {key: task[key] for key in _TASK_FIELDS if isinstance(task.get(key), str)}
+        for task in tasks[:64]
+        if isinstance(task, dict)
+    ]
 
 
 # -- outbound ------------------------------------------------------------------------------

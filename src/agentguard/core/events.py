@@ -60,6 +60,12 @@ class AgentEvent(BaseModel):
     prompt_text: str | None = None
     last_assistant_message: str | None = None
 
+    # Stop: work the host is still running in the background, one dict per task with
+    # `id`, `type` ("shell", ...), `status` ("running", ...) and `command`. A test run
+    # still in flight is not a verified finish (G7). Adapters fill it where the host
+    # reports it (Claude Code: Stop's `background_tasks`).
+    pending_tasks: list[dict[str, Any]] = Field(default_factory=list)
+
     # Host-specific extras kept verbatim so adapters can round-trip without loss.
     raw: dict[str, Any] = Field(default_factory=dict)
 
