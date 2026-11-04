@@ -30,14 +30,34 @@ from agentguard.core.enums import ChallengeCategory, Severity, Verdict
 from agentguard.core.models import Finding
 
 HEADER = "AgentGuard — evidence check"
+# A review request is read by the developer, in their own permission prompt — not by the
+# agent (IMPROVEMENTS.md A10, D2 R5). It gets its own header and no closing addressed to
+# an agent: "confirm this against the repository" asked the developer to do the agent's job.
+REVIEW_HEADER = "AgentGuard — needs your sign-off"
+# The only override that works, stated plainly (A10, D2 R1). Challenges used to ask the
+# agent to "explain" or "say so", but nothing reads the reply; what actually happens is
+# that the ledger raises each concern once per task (`max_per_fingerprint = 1`), so an
+# identical retry proceeds. Never said on a review request, which is asked every time.
+OVERRIDE = (
+    "If this is intentional, re-issue the same action; AgentGuard will not raise this "
+    "concern again in this task."
+)
+
+AGENT = "agent"
+HUMAN = "human"
 
 
-def render(findings: list[Finding]) -> str:
-    """The message the host agent receives as its denial reason."""
+def render(findings: list[Finding], audience: str = AGENT) -> str:
+    """The message for whoever has to act on these findings.
+
+    `audience="agent"` (the default): a challenge, the host agent's denial reason.
+    `audience="human"`: a review request, shown to the developer to approve or refuse.
+    """
     if not findings:
         return ""
 
-    lines = [HEADER, ""]
+    human = audience == HUMAN
+    lines = [REVIEW_HEADER if human else HEADER, ""]
 
     for index, finding in enumerate(findings, start=1):
         prefix = f"{index}. " if len(findings) > 1 else ""
@@ -53,7 +73,9 @@ def render(findings: list[Finding]) -> str:
             lines.append(f"   {finding.suggestion}")
         lines.append("")
 
-    lines.append(_closing(findings))
+    if not human:
+        lines.append(_closing(findings))
+        lines.append(OVERRIDE)
     return "\n".join(lines).strip()
 
 
@@ -68,10 +90,11 @@ def _closing(findings: list[Finding]) -> str:
     dependency = any(f.category is ChallengeCategory.DEPENDENCY for f in findings)
 
     if dependency and not contradicted:
+        # No "add it to the manifest" here: `uv add`, `npm install <pkg>` and the like
+        # already do (A10). Where an installer does not, the finding's own suggestion says so.
         return (
             "Adding a dependency is a permanent decision. Either use what the repository "
-            "already has, or state what this dependency provides that existing code does "
-            "not, and add it to the project manifest rather than installing it ad hoc."
+            "already has, or state what this dependency provides that existing code does not."
         )
 
     if contradicted:

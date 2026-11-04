@@ -22,18 +22,24 @@ Which decision a finding produces is a judgement about *authority*, not severity
 from __future__ import annotations
 
 import logging
+import re
 
 from agentguard import evidence
 from agentguard.challenge import render as render_challenge
 from agentguard.challenge.ledger import ChallengeLedger
-from agentguard.core.enums import DecisionAction, EscalationLevel, Verdict
+from agentguard.challenge.renderer import HUMAN
+from agentguard.core.enums import ChallengeCategory, DecisionAction, EscalationLevel, Verdict
 from agentguard.core.events import AgentEvent
 from agentguard.core.models import Decision, Finding
 from agentguard.core.taskstate import TaskState
+from agentguard.evidence import extractors
 from agentguard.repo.index import RepoIndex
 from agentguard.validate import checks, modify
 
 log = logging.getLogger(__name__)
+
+# Said only where the installer leaves the manifest alone (`pip install`, `npm i -g`).
+AD_HOC_INSTALL = "If it is needed, declare it in the project manifest rather than installing it ad hoc."
 
 
 def validate(
@@ -92,6 +98,7 @@ def validate(
     if path:
         findings.extend(checks.pattern_consistency(event, index, path))
         findings.extend(checks.dependency_added(event, index, path))
+    findings = _dependencies_in_context(findings, event, state)
 
     # Scope is about the files a task writes, so it is judged on the edit that writes one —
     # never on a Bash command. It used to run on every non-read-only action, so the deny
@@ -147,7 +154,7 @@ def _review(findings: list[Finding], human: list[Finding], safer: str | None = N
     `safer` is a guarded form of the command, offered when one is sound but could not be
     applied automatically (A5) — the developer, or the agent, can take it instead.
     """
-    reason = render_challenge(human)
+    reason = render_challenge(human, audience=HUMAN)
     if safer:
         reason = f"{reason}\n\nSafer form: `{safer}`"
     return Decision(
@@ -160,6 +167,51 @@ def _review(findings: list[Finding], human: list[Finding], safer: str | None = N
         # than letting it through (core/hosts.py, H1).
         signoff_required=True,
     )
+
+
+def _dependencies_in_context(
+    findings: list[Finding], event: AgentEvent, state: TaskState | None
+) -> list[Finding]:
+    """Dependency findings, read against what was asked and how it is being installed
+    (IMPROVEMENTS.md A10, D2 R2).
+
+    * A package the developer's prompt names was asked for: "add httpx and use it" is not
+      an unnecessary dependency, so its finding is dropped (word boundaries, `-`/`_`/`.`
+      treated alike, case-insensitive).
+    * `uv add httpx` was told to "add it to the project manifest" — which `uv add` had
+      just done. Only an installer that leaves the manifest alone gets that advice.
+    """
+    dependency = [f for f in findings if f.category is ChallengeCategory.DEPENDENCY]
+    if not dependency:
+        return findings
+    prompt = _normalised(state.spec.prompt) if state is not None else ""
+    ad_hoc: set[str] = set()
+    command = event.arg("command") if event.tool == "Bash" else None
+    if isinstance(command, str):
+        ad_hoc = {i.name for i in extractors.installs(command) if not i.writes_manifest}
+
+    kept: list[Finding] = []
+    for finding in findings:
+        if finding.category is not ChallengeCategory.DEPENDENCY:
+            kept.append(finding)
+            continue
+        if prompt and _named(prompt, finding.subject):
+            continue
+        if finding.subject in ad_hoc and not finding.suggestion:
+            finding = finding.model_copy(update={"suggestion": AD_HOC_INSTALL})
+        kept.append(finding)
+    return kept
+
+
+def _normalised(text: str) -> str:
+    """PEP 503-style: `Python_Dateutil` and `python-dateutil` are one package. Only
+    separators between word characters, so a full stop after a name stays one."""
+    return re.sub(r"(?<=\w)[-_.]+(?=\w)", "-", text.lower())
+
+
+def _named(prompt: str, package: str) -> bool:
+    name = _normalised(package)
+    return bool(name) and re.search(rf"(?<![\w@/-]){re.escape(name)}(?![\w-])", prompt) is not None
 
 
 def _writes_a_file(event: AgentEvent) -> bool:

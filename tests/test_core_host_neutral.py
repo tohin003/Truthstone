@@ -74,6 +74,8 @@ ALLOWED: dict[tuple[str, str], int] = {
     ("agentguard.validate.checks", "MultiEdit"): 1,
     ("agentguard.validate.checks", "Write"): 2,
     ("agentguard.validate.modify", "Bash"): 1,
+    # A10: dependency advice depends on whether the installer was a shell command.
+    ("agentguard.validate.validator", "Bash"): 1,
     ("agentguard.validate.validator", "file_path"): 1,
     ("agentguard.validate.validator", "notebook_path"): 1,
 }
