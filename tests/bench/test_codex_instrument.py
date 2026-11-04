@@ -482,3 +482,28 @@ def test_recorder_hooks_config(tmp_path):
     pre = config["hooks"]["PreToolUse"][0]
     assert pre["matcher"] == "*" and pre["hooks"][0]["timeout"] == 15
     assert pre["hooks"][0]["command"].startswith("/py/bin/python -I -S /state/rec.py")
+
+
+def _developer(text: str) -> dict:
+    return {
+        "type": "response_item",
+        "payload": {
+            "type": "message",
+            "role": "developer",
+            "content": [{"type": "input_text", "text": text}],
+        },
+    }
+
+
+def test_the_skills_listing_is_not_a_leak(tmp_path):
+    """Smoke run 1 halted on Codex's own skills listing, which names the plugin in both arms."""
+    rollout = _write_lines(
+        tmp_path / "rollout.jsonl",
+        [
+            _developer("<skills_instructions>\n- agentguard:agentguard: Resolve AgentGuard challenges."),
+            _developer("[AgentGuard] complexity 5/100 · direct implementation"),
+            _developer("AgentGuard: this command is risky as written."),
+        ],
+    )
+    assert transcript.read_rollout(rollout).guard_context_messages == 2
+    assert not transcript.is_guard_context("<skills_instructions> AgentGuard </skills_instructions>")

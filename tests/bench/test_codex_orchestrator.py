@@ -243,3 +243,13 @@ def test_settings_drift_voids_the_cell(tmp_path):
         if r.get("kind") == "pair_excluded"
     ]
     assert excluded  # max_attempts=1: each drifting pair is excluded, never scored
+
+
+def test_a_pilot_is_analysed_blind(tmp_path):
+    _runner(tmp_path, plan=_plan(stage="pilot")).run()
+    analysis = report.analyze(tmp_path / "run")
+    assert analysis["blind"] is True
+    assert "primary" not in analysis and "secondary" not in analysis
+    rendered = report.render_markdown(analysis)
+    assert "withheld" in rendered and "observe-only" not in rendered
+    assert analysis["pooled_base_rates"]["opportunity"]["cells"] == 8

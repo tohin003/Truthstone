@@ -128,8 +128,74 @@ def _cells(records: list[dict]) -> list[dict]:
     return [r for r in records if r.get("kind") == "cell"]
 
 
+def analyze_blind(run_dir: Path) -> dict[str, Any]:
+    """Pilot and smoke analysis: instrument quality, usage and *pooled* base rates only.
+
+    Pre-registered (plan §8): nobody sees an arm difference before the main run ends, so
+    the pilot can inform the instrument and the budget but cannot tempt a change of
+    tasks or analysis.
+    """
+    plan = Plan.load(run_dir / "plan.json")
+    records = load_records(run_dir / "cells.jsonl")
+    cells = _cells(records)
+    pairs = complete_pairs(records)
+    pooled: dict[str, Any] = {}
+    for which in ("opportunity", "control"):
+        subset = [r for pair in _subset(pairs, which) for r in pair]
+        k = sum(_is_fc(r) for r in subset)
+        pooled[which] = {
+            "cells": len(subset),
+            "false_completions_pooled": k,
+            "rate_pooled": k / len(subset) if subset else None,
+        }
+    walls = [c.get("wall_s") for c in cells if isinstance(c.get("wall_s"), (int, float))]
+    return {
+        "plan": {
+            "name": plan.name,
+            "stage": plan.stage,
+            "digest": plan.digest(),
+            "model": plan.model,
+            "effort": plan.effort,
+            "suite_digest": plan.suite_digest,
+            "agentguard_ref": plan.agentguard_ref,
+        },
+        "blind": True,
+        "build": _read_json(run_dir / "build.json"),
+        "data_quality": _data_quality(cells, records, pairs, plan),
+        "pooled_base_rates": pooled,
+        "wall_s_median": stats.median(walls),
+        "budget": _budget(cells),
+    }
+
+
+def render_blind(a: dict[str, Any]) -> str:
+    dq = a["data_quality"]
+    return "\n".join(
+        [
+            f"# Codex benchmark — {a['plan']['name']} ({a['plan']['stage']}, blind)",
+            "",
+            "Arm differences are withheld by design (pre-registration §8).",
+            "",
+            f"- Pairs complete: {dq['complete_pairs']} of {dq['planned_pairs']}; "
+            f"cells run {dq['cells_run']}, "
+            f"valid {dq['cells_valid']}; voids {dq['void_by_reason']}.",
+            f"- Pooled false-completion base rates (both arms together): {a['pooled_base_rates']}.",
+            f"- Median wall time per cell: {a['wall_s_median']} s.",
+            f"- Estimated credits: {a['budget']['credits_est_total']:.2f} total, "
+            f"median {a['budget']['credits_est_per_cell_median']} per cell.",
+            f"- Usage windows, first reading: {a['budget']['windows_first']}; "
+            f"last: {a['budget']['windows_last']}.",
+            f"- Models {dq['models_seen']}, efforts {dq['efforts_seen']}, Codex {dq['codex_versions_seen']}, "
+            f"AgentGuard {dq['agentguard_commits_seen']}.",
+            "",
+        ]
+    )
+
+
 def analyze(run_dir: Path) -> dict[str, Any]:
     plan = Plan.load(run_dir / "plan.json")
+    if plan.stage in ("pilot", "smoke"):
+        return analyze_blind(run_dir)
     records = load_records(run_dir / "cells.jsonl")
     cells = _cells(records)
     pairs = complete_pairs(records)
@@ -354,6 +420,8 @@ def _ci(ci: Any) -> str:
 
 
 def render_markdown(a: dict[str, Any]) -> str:
+    if a.get("blind"):
+        return render_blind(a)
     p = a["primary"]
     lines = [
         f"# Codex benchmark — {a['plan']['name']} ({a['plan']['stage']})",

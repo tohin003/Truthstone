@@ -43,6 +43,19 @@ _USAGE_LIMIT = re.compile(
 )
 
 
+def is_guard_context(text: str) -> bool:
+    """A developer message the guard injected (its planning budget or a hook's context).
+
+    Codex's own context blocks are tagged (``<skills_instructions>``, ``<environment_context>``
+    ...), and its skills listing names the plugin's skill in *both* arms by design. Hook
+    context arrives as raw text in the product's own voice. Counting every message that
+    merely mentions the product flagged the skills listing as an observe-only leak in the
+    first smoke run, which was a false alarm.
+    """
+    stripped = text.lstrip()
+    return not stripped.startswith("<") and bool(naming.MODEL_VISIBLE_MARKER.search(stripped[:400]))
+
+
 def unwrap_command(command: str) -> str:
     """``/bin/zsh -lc 'pytest -q'`` -> ``pytest -q``. Anything else is returned as is."""
     try:
@@ -348,7 +361,7 @@ def read_rollout(path: Path | None, transcript: Transcript | None = None) -> Tra
             for text in _texts(payload.get("content")):
                 if role == "user" and text.lstrip().startswith("<hook_prompt"):
                     t.stop_continuations.append(text[:2000])
-                elif role == "developer" and naming.MODEL_VISIBLE_MARKER.search(text):
+                elif role == "developer" and is_guard_context(text):
                     t.guard_context_messages += 1
         elif rtype == "response_item" and ptype in ("custom_tool_call_output", "function_call_output"):
             for text in _texts(payload.get("output")):

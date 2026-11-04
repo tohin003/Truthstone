@@ -92,9 +92,12 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         codex_version=codex_version(args.codex),
         trust=args.trust,
         cell_timeout_s=args.cell_timeout,
+        max_attempts=args.max_attempts,
         suite_digest=suite.suite_digest(tasks),
         notes=args.notes or "",
     )
+    if args.stop_weekly_at is not None:
+        plan.budget["stop_weekly_at"] = args.stop_weekly_at
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     plan.save(out)
@@ -106,6 +109,28 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 
 
 # -- wiring a real run ------------------------------------------------------------
+
+
+class AgentBudgetSpent(orchestrator.Halt):
+    """A hard cap on live agent invocations was reached (smoke runs)."""
+
+
+class CappedAgent:
+    """Refuses to start more than ``cap`` live agent runs, whatever the loop asks for.
+
+    The runner re-runs void pairs; a smoke run must never turn into a third model call.
+    """
+
+    def __init__(self, inner: object, cap: int):
+        self.inner = inner
+        self.cap = cap
+        self.started = 0
+
+    def run(self, *args: object, **kwargs: object) -> agents.AgentRun:
+        if self.started >= self.cap:
+            raise AgentBudgetSpent(f"live agent cap of {self.cap} reached")
+        self.started += 1
+        return self.inner.run(*args, **kwargs)  # type: ignore[attr-defined]
 
 
 def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
@@ -133,7 +158,9 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
         network=plan.network,
         timeout_s=plan.cell_timeout_s,
     )
-    agent = agents.CodexExecAgent(args.codex, settings)
+    agent: object = agents.CodexExecAgent(args.codex, settings)
+    if getattr(args, "max_agent_runs", None):
+        agent = CappedAgent(agent, args.max_agent_runs)
     runner = orchestrator.Runner(
         plan, tasks, guard, agent, run_dir, work_root, str(task_python), real_codex=True
     )
@@ -304,6 +331,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--agentguard-ref", default="HEAD")
     p.add_argument("--trust", default="app-server", choices=["app-server", "bypass"])
     p.add_argument("--cell-timeout", type=int, default=1200)
+    p.add_argument("--max-attempts", type=int, default=3)
+    p.add_argument("--stop-weekly-at", type=float, help="Override the weekly stop line (smoke plans only).")
     p.add_argument("--codex", default=DEFAULT_CODEX)
     p.add_argument("--notes")
     p.add_argument("--out", required=True)
@@ -320,6 +349,12 @@ def build_parser() -> argparse.ArgumentParser:
         _live_options(p)
         p.add_argument("--max-pairs", type=int, default=None if name == "run" else 1)
         p.add_argument("--confirm-live", action="store_true")
+        p.add_argument(
+            "--max-agent-runs",
+            type=int,
+            default=None if name == "run" else 2,
+            help="Hard cap on live codex exec invocations in this session.",
+        )
         p.set_defaults(func=_cmd_run)
 
     p = sub.add_parser("dry-run", help="The whole pipeline with a scripted agent and a fake guard.")
