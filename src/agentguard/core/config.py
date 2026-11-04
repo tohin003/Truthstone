@@ -22,8 +22,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 
+from agentguard import names
 from agentguard.daemon import private_paths
 
+# Read through `names.env`, which also honours these settings under a former product name.
 ENV_DISABLE = "AGENTGUARD_DISABLE"
 ENV_HOME = "AGENTGUARD_HOME"
 ENV_OBSERVE = "AGENTGUARD_OBSERVE"
@@ -75,6 +77,9 @@ def agentguard_home() -> Path:
     (``environ.get(...) or default``): ``Path("")`` is the current directory, which put
     the token in the project, chmod-ed it 0700, and disagreed with the shim's home.
 
+    Former product names count (see `names`): the setting under a former name is the
+    fallback, and a former name's directory is used while only that one exists.
+
     A symlinked ancestor — Silverblue's `/home -> var/home`, a dotfiles manager's link —
     is resolved once, here, when root or this user placed it where nobody else can change
     it; everything downstream sees the canonical path and keeps refusing symlinks. Any
@@ -82,8 +87,8 @@ def agentguard_home() -> Path:
     shim, the Codex hook and the lifecycle helpers apply the same rule
     (``daemon/private_paths.py``), so every entry point finds the same home (R11).
     """
-    raw = os.environ.get(ENV_HOME, "")
-    home = Path(raw).expanduser() if raw else Path.home() / ".agentguard"
+    raw = names.env(ENV_HOME) or ""
+    home = Path(raw).expanduser() if raw else Path(names.migrated(str(Path.home() / ".agentguard")))
     return Path(private_paths.canonical_home(str(home)))
 
 
@@ -161,7 +166,7 @@ def database_path() -> Path:
     one maintenance schedule and one place for cross-session project memory, at the cost
     of requiring project scoping on every query — which `ProjectStore` makes structural.
     """
-    return agentguard_home() / "agentguard.db"
+    return Path(names.migrated(str(agentguard_home() / "agentguard.db")))
 
 
 def project_cache_dir(project_id: str) -> Path:
@@ -174,7 +179,7 @@ def workspace_state_dir(workspace: str | Path) -> Path:
 
 
 def _flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+    return names.env_flag(name)
 
 
 def is_globally_disabled() -> bool:
@@ -275,7 +280,7 @@ class IndexSettings(BaseModel):
             ".git", ".hg", ".svn", "node_modules", ".venv", "venv", "env",
             "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
             "dist", "build", "target", ".next", ".nuxt", "out", "coverage",
-            ".terraform", ".gradle", "vendor", ".idea", ".vscode", ".agentguard",
+            ".terraform", ".gradle", "vendor", ".idea", ".vscode", *names.variants(".agentguard"),
             ".tox", "site-packages", ".eggs", "htmlcov",
         ]
     )

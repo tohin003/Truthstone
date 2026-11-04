@@ -30,6 +30,8 @@ import os
 import socket
 import sys
 
+from agentguard import names
+
 # `os` and `stat` only (no pathlib): where the home is, by the rule every entry point shares.
 from agentguard.daemon import private_paths
 
@@ -63,12 +65,12 @@ STALE_DAEMON_NOTICE = (
 
 def _home() -> str:
     """The home the daemon uses: resolved through trusted symlinks, by the rule every
-    entry point shares (R11)."""
+    entry point shares (R11); configured as `names.data_dir` says (former names included)."""
     return private_paths.home()
 
 
 def _disabled() -> bool:
-    return os.environ.get("AGENTGUARD_DISABLE", "").strip().lower() in {"1", "true", "yes", "on"}
+    return names.env_flag("AGENTGUARD_DISABLE")
 
 
 def _handshake() -> dict | None:

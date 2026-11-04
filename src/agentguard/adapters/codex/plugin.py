@@ -37,6 +37,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from agentguard import names
 from agentguard.adapters.codex.install import build_hooks
 
 # -- identity: change these, then regenerate ---------------------------------------
@@ -214,7 +215,7 @@ LAUNCHER_TEMPLATE = """#!/bin/sh
 # It always exits 0. Codex reads exit code 2 as "block this", and a launcher problem must
 # never block the developer's work.
 
-event="${{1:-}}"
+{former_settings}event="${{1:-}}"
 case "${{AGENTGUARD_DISABLE:-}}" in 1|true|TRUE|True|yes|on) exit 0 ;; esac
 
 runtime_source="${{AGENTGUARD_SOURCE:-{source}}}"
@@ -267,14 +268,19 @@ def launcher_script() -> str:
     notice = missing_runtime_notice()
     if "'" in notice:  # it is embedded in a single-quoted shell string
         raise ValueError("the missing-runtime notice must not contain a single quote")
-    return LAUNCHER_TEMPLATE.format(
-        notice=notice,
-        display=DISPLAY_NAME,
-        launcher=LAUNCHER,
-        command=RUNTIME_COMMAND,
-        source=RUNTIME_SOURCE,
-        hint=INSTALL_HINT,
-    )
+    fields = {
+        "notice": notice,
+        "display": DISPLAY_NAME,
+        "launcher": LAUNCHER,
+        "command": RUNTIME_COMMAND,
+        "source": RUNTIME_SOURCE,
+        "hint": INSTALL_HINT,
+    }
+    script = LAUNCHER_TEMPLATE.format(former_settings="", **fields)
+    # After a product rename, settings made under the former name keep working; until then
+    # this is empty and the launcher (and so the plugin's trust hash) is unchanged.
+    former_settings = names.shell_fallbacks(script)
+    return LAUNCHER_TEMPLATE.format(former_settings=former_settings, **fields) if former_settings else script
 
 
 def _dump(data: dict[str, Any]) -> str:

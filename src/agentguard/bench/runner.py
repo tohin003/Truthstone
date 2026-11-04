@@ -19,6 +19,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 
+from agentguard import names
 from agentguard.bench import tasks as task_module
 from agentguard.bench.tasks import BenchTask, Outcome
 
@@ -48,7 +49,8 @@ def run_once(task: BenchTask, repo: Path, arm: str, settings: Path, timeout: int
         task.setup(repo)
 
     env = dict(os.environ)
-    env.pop("AGENTGUARD_DISABLE", None)
+    for variable in names.variants("AGENTGUARD_DISABLE"):  # incl. its former names
+        env.pop(variable, None)
 
     # The control arm gets a settings file with **no AgentGuard hooks in it**.
     #

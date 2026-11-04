@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agentguard import names
 from agentguard.adapters.codex import plugin as plugin_meta
 from agentguard.adapters.codex.install import HOOK_MODULE, codex_home
 
@@ -77,11 +78,24 @@ def plugin_installed(home: Path | None = None) -> bool:
     return cache.is_dir() and any(cache.iterdir())
 
 
+def former_plugin_ids(home: Path | None = None) -> list[str]:
+    """The plugin under a former product name, wherever Codex still has it installed."""
+    cache = (home or codex_home()) / "plugins" / "cache"
+    found = []
+    for former in names.FORMER:
+        marketplace = names.as_former(plugin_meta.MARKETPLACE_NAME, former)
+        plugin = names.as_former(plugin_meta.PLUGIN_NAME, former)
+        directory = cache / marketplace / plugin
+        if directory.is_dir() and any(directory.iterdir()):
+            found.append(f"{plugin}@{marketplace}")
+    return found
+
+
 def _is_agentguard(hook: dict[str, Any]) -> bool:
-    if hook.get("pluginId") == plugin_id():
+    if hook.get("pluginId") in names.variants(plugin_id()):
         return True
     command = hook.get("command")
-    return isinstance(command, str) and HOOK_MODULE in command
+    return isinstance(command, str) and any(module in command for module in names.variants(HOOK_MODULE))
 
 
 def hook_trust(cwd: Path, timeout: float = 30.0, executable: str | None = None) -> TrustReport:

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import typer
 
+from agentguard import names
 from agentguard.core.config import (
     Settings,
     agentguard_home,
@@ -516,6 +517,8 @@ def _files_needing_treesitter(root: Path, excluded: set[str], budget: int = 20_0
 
 def _doctor_config(report: _DoctorReport, settings: Settings) -> None:
     _echo(f"  home: {agentguard_home()}")
+    for note in names.migration_notes():  # data or settings still under a former product name
+        _warn(note)
     _echo(f"  daemon: {settings.daemon.base_url}")
     for warning in settings.config_warnings:
         _warn(warning)
@@ -743,6 +746,9 @@ def _doctor_claude_hooks(report: _DoctorReport, settings: Settings) -> bool:
             )
         else:
             _ok(f"{label} hooks installed ({path})")
+        markers = (inst.settings_scan.OWNERSHIP_HEADER, inst.settings_scan.SHIM_MODULE)
+        if names.written_under_former_name(path.read_text(encoding="utf-8"), *markers):
+            _warn(f"written under a former name — `agentguard install claude --{label}` refreshes them")
     return installed_anywhere
 
 
@@ -810,8 +816,13 @@ def _doctor_codex() -> tuple[bool, int]:
         if codex_inst.is_installed(path):
             _ok(f"{label} hooks installed ({path})")
             attached = True
+            if names.written_under_former_name(path.read_text(encoding="utf-8"), codex_inst.HOOK_MODULE):
+                _warn(f"written under a former name — `agentguard install codex --{label}` refreshes them")
         else:
             _echo(f"  · {label} hooks not installed ({path})")
+
+    for former_id in codex_status.former_plugin_ids():
+        _warn(f"plugin {former_id} (a former name) is still installed — `codex plugin remove {former_id}`")
 
     plugin_id = codex_status.plugin_id()
     enabled = codex_status.plugin_enabled()
@@ -873,7 +884,7 @@ def _doctor_plugin(settings_hooks: bool) -> bool:
             f"plugin {install.plugin_id} installed ({install.scope} scope"
             + (f", version {install.version})" if install.version else ")")
         )
-    plugin_data = os.environ.get("AGENTGUARD_PLUGIN_DATA")
+    plugin_data = names.env("AGENTGUARD_PLUGIN_DATA")
     if plugin_data:
         _ok(f"plugin runtime: {sys.executable} (data: {plugin_data})")
     active = bool(installs or plugin_data)

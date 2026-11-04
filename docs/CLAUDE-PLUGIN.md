@@ -365,7 +365,8 @@ The user-facing name lives in these places:
 - the `/agentguard:` command names, which follow the plugin name automatically.
 
 The Python package and module names (`agentguard.adapters.claude_code`) are a separate,
-mechanical rename.
+mechanical rename. `scripts/rename_product.py` performs both in one pass, including this
+list (see `docs/RENAME.md`); use the list to review its result.
 
 ## Limitations
 

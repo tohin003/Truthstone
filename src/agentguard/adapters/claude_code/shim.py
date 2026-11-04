@@ -38,6 +38,7 @@ import os
 import sys
 import time
 
+from agentguard import names
 from agentguard.adapters.claude_code import protocol
 
 # `os` and `stat` only: where the home is, by the rule every entry point shares.
@@ -75,7 +76,7 @@ def _start_timeout() -> float:
     filesystem takes longer than the default, and a developer who would rather fail fast
     than wait can say so.
     """
-    raw = os.environ.get("AGENTGUARD_START_TIMEOUT", "")
+    raw = names.env("AGENTGUARD_START_TIMEOUT") or ""
     try:
         value = float(raw)
     except ValueError:
@@ -87,7 +88,8 @@ def _home() -> str:
     """The same home the daemon and the CLI use: resolved through trusted symlinks (R11).
 
     Unresolved, a symlinked ancestor such as Silverblue's `/home -> var/home` made the
-    lifecycle helpers refuse the startup lock, so no daemon was ever started.
+    lifecycle helpers refuse the startup lock, so no daemon was ever started. Where it is
+    configured follows `names.data_dir` (former product names included).
     """
     return private_paths.home()
 

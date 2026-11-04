@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentguard import names
 from agentguard.core.config import write_private_text
 
 HOOK_MODULE = "agentguard.adapters.codex.hook"
@@ -124,7 +125,8 @@ def _is_ours_hook(hook: Any) -> bool:
     """An AgentGuard entry runs our forwarder module with one of our event arguments.
 
     Matched on the parsed argv, never on a substring: a user's own hook that merely
-    mentions "agentguard" is not ours to remove.
+    mentions "agentguard" is not ours to remove. Entries written under a former product
+    name are ours too (`names.variants`), so a reinstall replaces them.
     """
     if not isinstance(hook, dict) or hook.get("type") != "command":
         return False
@@ -135,7 +137,12 @@ def _is_ours_hook(hook: Any) -> bool:
         argv = shlex.split(command)
     except ValueError:
         return False
-    return len(argv) >= 4 and argv[-3:-1] == ["-m", HOOK_MODULE] and argv[-1] in HOOK_ARGS
+    return (
+        len(argv) >= 4
+        and argv[-3] == "-m"
+        and argv[-2] in names.variants(HOOK_MODULE)
+        and argv[-1] in HOOK_ARGS
+    )
 
 
 def _remove_ours_from_group(group: Any) -> Any:
@@ -171,6 +178,8 @@ def merge_hooks(existing: dict[str, Any], new_hooks: dict[str, Any]) -> dict[str
     for event, groups in new_hooks.items():
         hooks[event] = _clean(hooks.get(event)) + list(groups)
     out["hooks"] = hooks
+    if out.get("description") in names.variants(HOOKS_FILE_DESCRIPTION):
+        out["description"] = HOOKS_FILE_DESCRIPTION  # ours, possibly written under a former name
     out.setdefault("description", HOOKS_FILE_DESCRIPTION)
     return out
 
@@ -229,7 +238,7 @@ def uninstall(path: Path, dry_run: bool = False) -> tuple[dict[str, Any], bool]:
     if changed and not dry_run:
         if not stripped["hooks"] and set(stripped) <= {"description", "hooks"} and stripped.get(
             "description", HOOKS_FILE_DESCRIPTION
-        ) == HOOKS_FILE_DESCRIPTION:
+        ) in names.variants(HOOKS_FILE_DESCRIPTION):
             path.unlink(missing_ok=True)
         else:
             _save(path, stripped)

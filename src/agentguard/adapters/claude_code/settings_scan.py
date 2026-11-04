@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentguard import names
+
 # The plugin's name in its manifest and marketplace entry. A product rename changes this,
 # plugins/agentguard-claude/.claude-plugin/plugin.json and .claude-plugin/marketplace.json.
 PLUGIN_NAME = "agentguard"
@@ -86,15 +88,18 @@ def is_ours_hook(hook: Any) -> bool:
     HTTP hooks carry an explicit header marker. Command hooks are recognised by the shim
     module plus one of its two flags; older releases emitted ``command`` + ``args`` and
     that shape is still recognised, so reinstall/uninstall stays reversible after an
-    upgrade. A user hook that merely mentions the word "agentguard" is not ours.
+    upgrade. A user hook that merely mentions the word "agentguard" is not ours. Hooks
+    written under a former product name are ours too (`names.variants`), so a reinstall
+    replaces them instead of duplicating them.
     """
     if not isinstance(hook, dict):
         return False
     headers = hook.get("headers")
-    if isinstance(headers, dict) and headers.get(OWNERSHIP_HEADER) == "1":
+    if isinstance(headers, dict) and any(headers.get(h) == "1" for h in names.variants(OWNERSHIP_HEADER)):
         return True
     argv = command_argv(hook)
-    return SHIM_MODULE in argv and ("--ensure-daemon" in argv or "--health" in argv)
+    shims = names.variants(SHIM_MODULE)
+    return any(shim in argv for shim in shims) and ("--ensure-daemon" in argv or "--health" in argv)
 
 
 def is_ours_group(group: Any) -> bool:
@@ -149,7 +154,8 @@ def plugin_installs(environ: Mapping[str, str] | None = None) -> list[PluginInst
         return []
     found: list[PluginInstall] = []
     for plugin_id, entries in plugins.items():
-        if not isinstance(plugin_id, str) or plugin_id.split("@", 1)[0] != PLUGIN_NAME:
+        # Under a former product name too: that plugin would handle every event as well.
+        if not isinstance(plugin_id, str) or plugin_id.split("@", 1)[0] not in names.variants(PLUGIN_NAME):
             continue
         for entry in entries if isinstance(entries, list) else [entries]:
             if not isinstance(entry, dict):

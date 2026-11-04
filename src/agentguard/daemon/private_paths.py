@@ -19,14 +19,16 @@ it with their usual error; readers refuse to take a handshake from behind it.
 
 ``core/config.py`` (the daemon and the CLI), ``daemon/lifecycle.py`` (locks, markers and
 logs), the Claude shim and the Codex hook all ask this module, so they cannot disagree
-about where the home is. Stdlib only, and only ``os`` and ``stat``: the Codex hook imports
-it on every tool call.
+about where the home is. Stdlib only, and only ``os`` and ``stat`` (plus ``agentguard.names``,
+itself stdlib-only): the Codex hook imports it on every tool call.
 """
 
 from __future__ import annotations
 
 import os
 import stat
+
+from agentguard import names
 
 ENV_HOME = "AGENTGUARD_HOME"
 DEFAULT_HOME = "~/.agentguard"
@@ -120,9 +122,16 @@ def canonical_home(home: str) -> str:
 
 
 def configured_home(environ: dict[str, str] | None = None) -> str:
-    """``AGENTGUARD_HOME`` (empty means unset) or ``~/.agentguard``, as configured."""
-    env = os.environ if environ is None else environ
-    return os.path.expanduser(env.get(ENV_HOME) or DEFAULT_HOME)
+    """``AGENTGUARD_HOME`` (empty means unset) or ``~/.agentguard``, as configured.
+
+    Former product names count, by `names.data_dir`'s rule: the same setting under a
+    former name is the fallback, and a former name's directory is used while only that
+    one exists.
+    """
+    explicit = names.env(ENV_HOME, environ)
+    if explicit:
+        return os.path.expanduser(explicit)
+    return names.migrated(os.path.expanduser(DEFAULT_HOME))
 
 
 def home(environ: dict[str, str] | None = None) -> str:
