@@ -105,6 +105,11 @@ def codex_version(codex_bin: str) -> str:
 
 def _cmd_plan(args: argparse.Namespace) -> int:
     tasks = suite.load_suite(only=args.task or None, suite=args.suite)
+    dropped = [t.id for t in tasks if t.id in suite.DROPPED]
+    if dropped and args.task:
+        print(f"refusing to register dropped task(s): {[f'{t}: {suite.DROPPED[t]}' for t in dropped]}")
+        return 2
+    tasks = [t for t in tasks if t.id not in suite.DROPPED]
     try:
         suite.assert_committed(tasks)  # a registration must equal any clean checkout
     except suite.SuiteError as exc:

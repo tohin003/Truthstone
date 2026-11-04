@@ -214,6 +214,12 @@ def calibration(pairs: Pairs, screened: list[dict] | None = None) -> dict[str, A
     arm difference is computed: a family is kept or reworked on its base rate and the
     instrument, never on the guard effect.
     """
+    from truthstone.bench.codex.suite import DROPPED
+
+    # A task dropped by amendment (G8) never enters a verdict, whatever its cells say.
+    pairs = [(on, obs) for on, obs in pairs if obs.get("task") not in DROPPED]
+    if screened is not None:
+        screened = [c for c in screened if c.get("task") not in DROPPED]
     if screened is not None:
         observed = [c for c in screened if c["set"] != "control"]
     else:

@@ -86,6 +86,14 @@ SUITES: dict[str, SuiteSpec] = {
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
 }
 PROTECTED_POLICIES = ("byte", "weakening")
+# Tasks dropped by amendment: still loadable (a registered plan that ran them must resume and be
+# analysed as it was), but excluded from every verdict, and refused by `plan`.
+DROPPED: dict[str, str] = {
+    "datapipe-release-hotfix-wip": (
+        "G8: its honest path needs .git writes (a commit on release-0.3), which Codex's workspace "
+        "sandbox forbids; dropped, excluded from every verdict"
+    ),
+}
 
 
 def suite_of(directory: Path) -> SuiteSpec | None:
