@@ -19,14 +19,13 @@ Running the suite independently remains available for Level-3 verification
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from agentguard.repo.index import RepoIndex
 from agentguard.repo.paths import relative_path
-from agentguard.verify import commands
+from agentguard.verify import commands, parsers
 
 
 @dataclass(slots=True)
@@ -146,16 +145,6 @@ def runner_for_command(command: str) -> str:
 
 # -- parsing output ---------------------------------------------------------------
 
-_PYTEST_SUMMARY = re.compile(
-    r"={2,}\s*(?P<body>[^=\n]*?(?:passed|failed|error|no tests ran)[^=\n]*?)\s*={2,}",
-    re.IGNORECASE,
-)
-_PYTEST_COUNTS = re.compile(r"(\d+)\s+(passed|failed|error|errors|skipped|xfailed)", re.IGNORECASE)
-_JEST_TESTS = re.compile(r"Tests:\s+(?P<body>.+)")
-_JEST_COUNTS = re.compile(r"(\d+)\s+(passed|failed|skipped|todo)", re.IGNORECASE)
-_CARGO = re.compile(r"test result:\s*(?P<status>ok|FAILED)\.\s*(?P<counts>[^\n]*)")
-_GO_FAIL = re.compile(r"^(FAIL|ok)\s+\S+", re.MULTILINE)
-
 
 def output_text(result: Any) -> str:
     """Flatten a tool result into the text a test runner printed.
@@ -176,70 +165,25 @@ def output_text(result: Any) -> str:
 def parse_output(command: str, output: str) -> TestOutcome:
     """Read a test command's output. `passed=None` means we could not tell.
 
-    Never guesses. An unrecognised format yields `None`, and the Completion Gate treats
-    "could not tell" as "not verified" rather than as a failure — accusing an agent of
-    breaking tests on the strength of an unparsed string would be worse than silence.
+    Never guesses (G3b). Only a framework's own summary line counts, the last one wins,
+    and a run that ran no tests says so in its summary while staying ``passed=None`` —
+    "no tests" is never a failure, and never a pass. The Completion Gate treats "could
+    not tell" as "not verified" rather than as a failure: accusing an agent of breaking
+    tests on the strength of an unparsed string would be worse than silence.
     """
+    command = command or ""
     runner = runner_for_command(command)
-    text = output or ""
     outcome = TestOutcome(runner=runner, passed=None, command=command.strip()[:200])
-
-    if runner in ("pytest", "unittest"):
-        counts = {kind.lower(): int(n) for n, kind in _PYTEST_COUNTS.findall(text)}
-        summary_match = _PYTEST_SUMMARY.search(text)
-        if summary_match:
-            outcome.summary = summary_match.group("body").strip()[:200]
-        if counts:
-            outcome.failed = counts.get("failed", 0) + counts.get("error", 0) + counts.get("errors", 0)
-            outcome.total = sum(counts.values())
-            # A run containing only skipped/xfail tests did execute a command, but it
-            # did not establish a passing test result.  Treating ``5 skipped`` as a
-            # pass would let the completion gate rubber-stamp an unverified change.
-            outcome.passed = False if outcome.failed else (True if counts.get("passed", 0) else None)
-        elif "no tests ran" in text.lower():
-            outcome.passed = None
-            outcome.summary = outcome.summary or "no tests ran"
+    summary = parsers.parse(runner, output or "")
+    if summary is None:
         return outcome
-
-    if runner in ("jest", "vitest", "npm", "mocha"):
-        tests_line = _JEST_TESTS.search(text)
-        if tests_line:
-            body = tests_line.group("body")
-            outcome.summary = body.strip()[:200]
-            counts = {kind.lower(): int(n) for n, kind in _JEST_COUNTS.findall(body)}
-            outcome.failed = counts.get("failed", 0)
-            outcome.total = sum(counts.values())
-            outcome.passed = False if outcome.failed else (True if counts.get("passed", 0) else None)
-        elif "FAIL" in text:
-            outcome.passed = False
-            outcome.summary = "reported FAIL"
+    outcome.total = summary.total
+    outcome.failed = summary.failed + summary.errors
+    if summary.status == "no_tests":
+        outcome.summary = f"no tests ran ({summary.line})" if summary.line else "no tests ran"
         return outcome
-
-    if runner == "cargo":
-        match = _CARGO.search(text)
-        if match:
-            passed_match = re.search(r"(\d+)\s+passed", match.group("counts"), re.IGNORECASE)
-            passed_count = int(passed_match.group(1)) if passed_match else 0
-            outcome.passed = (
-                False
-                if match.group("status") != "ok"
-                else (True if passed_count else None)
-            )
-            outcome.summary = match.group("counts").strip()[:200]
-        return outcome
-
-    if runner == "go":
-        results = _GO_FAIL.findall(text)
-        if results:
-            outcome.passed = "FAIL" not in results
-            outcome.summary = f"{results.count('ok')} package(s) ok, {results.count('FAIL')} failed"
-        return outcome
-
-    # Unknown runner: look only for signals strong enough to be unambiguous.
-    lowered = text.lower()
-    if "traceback (most recent call last)" in lowered or re.search(r"\b\d+ failed\b", lowered):
-        outcome.passed = False
-        outcome.summary = "failure reported in output"
+    outcome.passed = summary.status == "passed"
+    outcome.summary = summary.line
     return outcome
 
 

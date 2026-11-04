@@ -1,0 +1,443 @@
+[
+ {
+  "id": "pytest-plain-pass",
+  "command": "pytest tests/",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 9 items\n\ntests/test_pass.py .....sxxX                                             [100%]\n\n============== 5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s ==============\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-q-pass",
+  "command": "pytest -q tests/",
+  "stdout": ".....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-qq-pass",
+  "command": "pytest -qq tests/",
+  "stdout": ".....sxxX                                                                [100%]\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-plain-fail",
+  "command": "pytest failing/tests",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 3 items\n\nfailing/tests/test_fail.py .F.                                           [100%]\n\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n========================= 1 failed, 2 passed in 0.02s ==========================\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-q-fail",
+  "command": "pytest -q failing/tests",
+  "stdout": ".F.                                                                      [100%]\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n1 failed, 2 passed in 0.01s\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-qq-fail",
+  "command": "pytest -qq failing/tests",
+  "stdout": ".F.                                                                      [100%]\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-x-fail",
+  "command": "pytest -x failing/tests",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 3 items\n\nfailing/tests/test_fail.py .F\n\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n========================= 1 failed, 1 passed in 0.01s ==========================\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-tbno-fail",
+  "command": "pytest -q --tb=no failing/tests",
+  "stdout": ".F.                                                                      [100%]\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n1 failed, 2 passed in 0.00s\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-collect-error",
+  "command": "pytest collerr/tests",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 0 items / 1 error\n\n==================================== ERRORS ====================================\n________________ ERROR collecting collerr/tests/test_broken.py _________________\nImportError while importing test module '/work/proj_py/collerr/tests/test_broken.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/Users/xyx/.local/share/uv/python/cpython-3.13.16-macos-aarch64-none/lib/python3.13/importlib/__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ncollerr/tests/test_broken.py:1: in <module>\n    import does_not_exist_module\nE   ModuleNotFoundError: No module named 'does_not_exist_module'\n=========================== short test summary info ============================\nERROR collerr/tests/test_broken.py\n!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n=============================== 1 error in 0.07s ===============================\n",
+  "stderr": "",
+  "exit_code": 2,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-q-collect-error",
+  "command": "pytest -q collerr/tests",
+  "stdout": "\n==================================== ERRORS ====================================\n________________ ERROR collecting collerr/tests/test_broken.py _________________\nImportError while importing test module '/work/proj_py/collerr/tests/test_broken.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n/Users/xyx/.local/share/uv/python/cpython-3.13.16-macos-aarch64-none/lib/python3.13/importlib/__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\ncollerr/tests/test_broken.py:1: in <module>\n    import does_not_exist_module\nE   ModuleNotFoundError: No module named 'does_not_exist_module'\n=========================== short test summary info ============================\nERROR collerr/tests/test_broken.py\n!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.05s\n",
+  "stderr": "",
+  "exit_code": 2,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-no-tests-exit5",
+  "command": "pytest empty/tests",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 0 items\n\n============================ no tests ran in 0.00s =============================\n",
+  "stderr": "",
+  "exit_code": 5,
+  "expected": null,
+  "source": "real"
+ },
+ {
+  "id": "pytest-fixture-error",
+  "command": "pytest errfix/tests",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 2 items\n\nerrfix/tests/test_err.py E.                                              [100%]\n\n==================================== ERRORS ====================================\n_______________________ ERROR at setup of test_uses_boom _______________________\n\n    @pytest.fixture\n    def boom():\n>       raise RuntimeError(\"fixture failed\")\nE       RuntimeError: fixture failed\n\nerrfix/tests/test_err.py:5: RuntimeError\n=========================== short test summary info ============================\nERROR errfix/tests/test_err.py::test_uses_boom - RuntimeError: fixture failed\n========================== 1 passed, 1 error in 0.02s ==========================\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-warnings-pass",
+  "command": "pytest warn/tests",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 2 items\n\nwarn/tests/test_warn.py ..                                               [100%]\n\n=============================== warnings summary ===============================\nwarn/tests/test_warn.py::test_w\n  /work/proj_py/warn/tests/test_warn.py:4: DeprecationWarning: deprecated thing\n    warnings.warn(\"deprecated thing\", DeprecationWarning)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n========================= 2 passed, 1 warning in 0.01s =========================\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-k-deselected",
+  "command": "pytest -k add2 tests/",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 9 items / 8 deselected / 1 selected\n\ntests/test_pass.py .                                                     [100%]\n\n======================= 1 passed, 8 deselected in 0.01s ========================\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-lf-fail",
+  "command": "pytest --lf failing/tests",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 1 item\nrun-last-failure: rerun previous 1 failure\n\nfailing/tests/test_fail.py F                                             [100%]\n\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n============================== 1 failed in 0.01s ===============================\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-s-pass-noisy-log",
+  "command": "pytest -s printy/tests",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 1 item\n\nprinty/tests/test_print.py batch report: 2 errors, 3 failed rows (simulated app log)\n.\n\n============================== 1 passed in 0.00s ===============================\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-collect-only",
+  "command": "pytest --collect-only tests/",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 9 items\n\n<Dir proj_py>\n  <Dir tests>\n    <Module test_pass.py>\n      <Function test_add>\n      <Function test_add2>\n      <Function test_add3>\n      <Function test_add4>\n      <Function test_add5>\n      <Function test_skipped>\n      <Function test_xfail>\n      <Function test_xfail2>\n      <Function test_xpass>\n\n========================== 9 tests collected in 0.01s ==========================\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": null,
+  "source": "real"
+ },
+ {
+  "id": "pytest-co-q",
+  "command": "pytest --co -q tests/",
+  "stdout": "tests/test_pass.py::test_add\ntests/test_pass.py::test_add2\ntests/test_pass.py::test_add3\ntests/test_pass.py::test_add4\ntests/test_pass.py::test_add5\ntests/test_pass.py::test_skipped\ntests/test_pass.py::test_xfail\ntests/test_pass.py::test_xfail2\ntests/test_pass.py::test_xpass\n\n9 tests collected in 0.00s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": null,
+  "source": "real"
+ },
+ {
+  "id": "pytest-version",
+  "command": "pytest --version",
+  "stdout": "pytest 9.1.1\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": null,
+  "source": "real"
+ },
+ {
+  "id": "pytest-fail-pipe-tail5",
+  "command": "pytest -q failing/tests | tail -5",
+  "stdout": "\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n1 failed, 2 passed in 0.01s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-fail-pipe-grep",
+  "command": "pytest failing/tests 2>&1 | grep -E 'passed|failed'",
+  "stdout": "========================= 1 failed, 2 passed in 0.02s ==========================\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-fail-pipe-head3",
+  "command": "pytest -q failing/tests | head -3",
+  "stdout": ".F.                                                                      [100%]\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-pass-pipe-tail3",
+  "command": "pytest -q tests/ 2>&1 | tail -3",
+  "stdout": ".....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-color-fail",
+  "command": "pytest --color=yes failing/tests",
+  "stdout": "\u001b[1m============================= test session starts ==============================\u001b[0m\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function\ncollected 3 items\n\nfailing/tests/test_fail.py \u001b[32m.\u001b[0m\u001b[31mF\u001b[0m\u001b[32m.\u001b[0m\u001b[31m                                           [100%]\u001b[0m\n\n=================================== FAILURES ===================================\n\u001b[31m\u001b[1m___________________________________ test_bad ___________________________________\u001b[0m\n\n    \u001b[0m\u001b[94mdef\u001b[39;49;00m\u001b[90m \u001b[39;49;00m\u001b[92mtest_bad\u001b[39;49;00m():\u001b[90m\u001b[39;49;00m\n>       \u001b[94massert\u001b[39;49;00m \u001b[94m1\u001b[39;49;00m == \u001b[94m2\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\n\u001b[1m\u001b[31mE       assert 1 == 2\u001b[0m\n\n\u001b[1m\u001b[31mfailing/tests/test_fail.py\u001b[0m:5: AssertionError\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m failing/tests/test_fail.py::\u001b[1mtest_bad\u001b[0m - assert 1 == 2\n\u001b[31m========================= \u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m2 passed\u001b[0m\u001b[31m in 0.03s\u001b[0m\u001b[31m ==========================\u001b[0m\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "pytest-color-pass",
+  "command": "pytest --color=yes -q tests/",
+  "stdout": "\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[32m.\u001b[0m\u001b[33ms\u001b[0m\u001b[33mx\u001b[0m\u001b[33mx\u001b[0m\u001b[33mX\u001b[0m\u001b[33m                                                                [100%]\u001b[0m\n\u001b[33m\u001b[32m5 passed\u001b[0m, \u001b[33m\u001b[1m1 skipped\u001b[0m, \u001b[33m\u001b[1m2 xfailed\u001b[0m, \u001b[33m\u001b[1m1 xpassed\u001b[0m\u001b[33m in 0.02s\u001b[0m\u001b[0m\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "python-m-pytest-pass",
+  "command": "python -m pytest -q tests/",
+  "stdout": ".....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-single-node-pass",
+  "command": "pytest -q tests/test_pass.py::test_add",
+  "stdout": ".                                                                        [100%]\n1 passed in 0.01s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "pytest-fail-or-true",
+  "command": "pytest -q failing/tests || true",
+  "stdout": ".F.                                                                      [100%]\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n1 failed, 2 passed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "make-test-pass",
+  "command": "make test",
+  "stdout": "pytest -q tests/\n.....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "make-test-fail",
+  "command": "make test-fail",
+  "stdout": "pytest -q failing/tests\n.F.                                                                      [100%]\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n1 failed, 2 passed in 0.01s\n",
+  "stderr": "make: *** [test-fail] Error 1\n",
+  "exit_code": 2,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "unittest-pass-skipped",
+  "command": "python -m unittest discover -s ut",
+  "stdout": "",
+  "stderr": ".ss\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK (skipped=2)\n",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "unittest-fail",
+  "command": "python -m unittest discover -s utf",
+  "stdout": "",
+  "stderr": ".EF\n======================================================================\nERROR: test_e (test_ut_fail.T.test_e)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/proj_py/utf/test_ut_fail.py\", line 11, in test_e\n    raise RuntimeError(\"boom\")\nRuntimeError: boom\n\n======================================================================\nFAIL: test_f (test_ut_fail.T.test_f)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/work/proj_py/utf/test_ut_fail.py\", line 8, in test_f\n    self.assertEqual(1, 2)\n    ~~~~~~~~~~~~~~~~^^^^^^\nAssertionError: 1 != 2\n\n----------------------------------------------------------------------\nRan 3 tests in 0.004s\n\nFAILED (failures=1, errors=1)\n",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "unittest-v-pass",
+  "command": "python -m unittest discover -s ut -v",
+  "stdout": "",
+  "stderr": "test_a (test_ut_pass.T.test_a) ... ok\ntest_s1 (test_ut_pass.T.test_s1) ... skipped 'x'\ntest_s2 (test_ut_pass.T.test_s2) ... skipped 'y'\n\n----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK (skipped=2)\n",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "go-pass",
+  "command": "go test ./...",
+  "stdout": "ok  \texample.com/demo/calc\t(cached)\n?   \texample.com/demo/notests\t[no test files]\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "go-v-pass",
+  "command": "go test -v ./...",
+  "stdout": "=== RUN   TestAdd\n--- PASS: TestAdd (0.00s)\nPASS\nok  \texample.com/demo/calc\t(cached)\n?   \texample.com/demo/notests\t[no test files]\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "go-fail",
+  "command": "go test ./...",
+  "stdout": "--- FAIL: TestAdd (0.00s)\n    calc_test.go:7: Add(1,2) = -1, want 3\nFAIL\nFAIL\texample.com/demofail/calc\t0.131s\nok  \texample.com/demofail/ok\t(cached)\nFAIL\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "go-v-fail",
+  "command": "go test -v ./...",
+  "stdout": "=== RUN   TestAdd\n    calc_test.go:7: Add(1,2) = -1, want 3\n--- FAIL: TestAdd (0.00s)\n=== RUN   TestOther\n--- PASS: TestOther (0.00s)\nFAIL\nFAIL\texample.com/demofail/calc\t0.072s\n=== RUN   TestOne\n--- PASS: TestOne (0.00s)\nPASS\nok  \texample.com/demofail/ok\t(cached)\nFAIL\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "go-run-nomatch",
+  "command": "go test -run TestNothingMatches ./...",
+  "stdout": "ok  \texample.com/demo/calc\t(cached) [no tests to run]\n?   \texample.com/demo/notests\t[no test files]\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": null,
+  "source": "real"
+ },
+ {
+  "id": "go-run-subset-fail",
+  "command": "go test -run TestOther ./calc",
+  "stdout": "ok  \texample.com/demofail/calc\t(cached)\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "go-fail-grep-v",
+  "command": "go test ./... 2>&1 | grep -v 'no test files'",
+  "stdout": "--- FAIL: TestAdd (0.00s)\n    calc_test.go:7: Add(1,2) = -1, want 3\nFAIL\nFAIL\texample.com/demofail/calc\t0.068s\nok  \texample.com/demofail/ok\t(cached)\nFAIL\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "go-fail-tail2",
+  "command": "go test ./... 2>&1 | tail -2",
+  "stdout": "ok  \texample.com/demofail/ok\t(cached)\nFAIL\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "go-json-pass",
+  "command": "go test -json ./calc",
+  "stdout": "{\"Time\":\"2026-11-04T01:12:04.541477+05:30\",\"Action\":\"start\",\"Package\":\"example.com/demo/calc\"}\n{\"Time\":\"2026-11-04T01:12:04.543289+05:30\",\"Action\":\"run\",\"Package\":\"example.com/demo/calc\",\"Test\":\"TestAdd\"}\n{\"Time\":\"2026-11-04T01:12:04.543292+05:30\",\"Action\":\"output\",\"Package\":\"example.com/demo/calc\",\"Test\":\"TestAdd\",\"Output\":\"=== RUN   TestAdd\\n\"}\n{\"Time\":\"2026-11-04T01:12:04.5433+05:30\",\"Action\":\"output\",\"Package\":\"example.com/demo/calc\",\"Test\":\"TestAdd\",\"Output\":\"--- PASS: TestAdd (0.00s)\\n\"}\n{\"Time\":\"2026-11-04T01:12:04.543302+05:30\",\"Action\":\"pass\",\"Package\":\"example.com/demo/calc\",\"Test\":\"TestAdd\",\"Elapsed\":0}\n{\"Time\":\"2026-11-04T01:12:04.543305+05:30\",\"Action\":\"output\",\"Package\":\"example.com/demo/calc\",\"Output\":\"PASS\\n\"}\n{\"Time\":\"2026-11-04T01:12:04.543307+05:30\",\"Action\":\"output\",\"Package\":\"example.com/demo/calc\",\"Output\":\"ok  \\texample.com/demo/calc\\t(cached)\\n\"}\n{\"Time\":\"2026-11-04T01:12:04.543309+05:30\",\"Action\":\"pass\",\"Package\":\"example.com/demo/calc\",\"Elapsed\":0.002}\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "bun-pass",
+  "command": "bun test",
+  "stdout": "bun test v1.3.11 (af24e281)\n",
+  "stderr": "\n 2 pass\n 1 skip\n 0 fail\n 2 expect() calls\nRan 3 tests across 1 file. [164.00ms]\n",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "bun-fail",
+  "command": "bun test",
+  "stdout": "bun test v1.3.11 (af24e281)\n",
+  "stderr": "\nsum.test.ts:\n1 | import { expect, test } from \"bun:test\";\n2 | import { sum } from \"./sum\";\n3 | \n4 | test(\"adds\", () => { expect(sum(1, 2)).toBe(3); });\n                                           ^\nerror: expect(received).toBe(expected)\n\nExpected: 3\nReceived: -1\n\n      at <anonymous> (/work/proj_bun_fail/sum.test.ts:4:40)\n(fail) adds [4.91ms]\n\n 1 pass\n 1 fail\n 2 expect() calls\nRan 2 tests across 1 file. [12.00ms]\n",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "bun-fail-pipe",
+  "command": "bun test 2>&1 | tail -6",
+  "stdout": "(fail) adds [0.17ms]\n\n 1 pass\n 1 fail\n 2 expect() calls\nRan 2 tests across 1 file. [7.00ms]\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "node-test-pass",
+  "command": "node --test",
+  "stdout": "✔ adds (0.376083ms)\n✔ adds2 (0.077209ms)\nℹ tests 2\nℹ suites 0\nℹ pass 2\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 82.524834\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "node-test-fail",
+  "command": "node --test",
+  "stdout": "✔ adds (0.370667ms)\n✖ bad (0.5675ms)\nℹ tests 2\nℹ suites 0\nℹ pass 1\nℹ fail 1\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 47.0095\n\n✖ failing tests:\n\ntest at sum.test.mjs:5:1\n✖ bad (0.5675ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  \n  3 !== 4\n  \n      at TestContext.<anonymous> (file:///work/proj_node_fail/sum.test.mjs:5:28)\n      at Test.runInAsyncScope (node:async_hooks:228:14)\n      at Test.run (node:internal/test_runner/test:1118:25)\n      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)\n      at Test.postRun (node:internal/test_runner/test:1247:19)\n      at Test.run (node:internal/test_runner/test:1175:12)\n      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {\n    generatedMessage: true,\n    code: 'ERR_ASSERTION',\n    actual: 3,\n    expected: 4,\n    operator: 'strictEqual',\n    diff: 'simple'\n  }\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ },
+ {
+  "id": "ruby-minitest-pass",
+  "command": "ruby test_calc.rb",
+  "stdout": "Run options: --seed 47390\n\n# Running:\n\n.S\n\nFinished in 0.000283s, 7067.1378 runs/s, 3533.5689 assertions/s.\n\n2 runs, 1 assertions, 0 failures, 0 errors, 1 skips\n\nYou have skipped tests. Run with --verbose for details.\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real"
+ },
+ {
+  "id": "ruby-minitest-fail",
+  "command": "ruby test_calc.rb",
+  "stdout": "Run options: --seed 43548\n\n# Running:\n\nF.\n\nFinished in 0.000372s, 5376.3441 runs/s, 5376.3441 assertions/s.\n\n  1) Failure:\nTestCalc#test_add [test_calc.rb:5]:\nExpected: 4\n  Actual: 3\n\n2 runs, 2 assertions, 1 failures, 0 errors, 0 skips\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "real"
+ }
+]

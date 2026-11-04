@@ -433,7 +433,9 @@ class TestOutputParsing:
             ("pytest", "===== 3 passed, 1 skipped in 0.4s =====\n", True),
             ("pytest", "===== 3 skipped in 0.4s =====\n", None),
             ("pytest", "==== 2 errors in 0.1s ====\n", False),  # collection errors are failures
-            ("npx vitest run", "Tests:  4 passed (4)\n", True),
+            # vitest's own format: no colon, " | " between counts (G3b; the old fixture
+            # "Tests:  4 passed (4)" is a line vitest never prints).
+            ("npx vitest run", "      Tests  4 passed (4)\n", True),
             ("npx jest", "Tests:       1 failed, 3 passed, 4 total\n", False),
             ("cargo test", "test result: ok. 7 passed; 0 failed;\n", True),
             ("cargo test", "test result: ok. 0 passed; 0 failed; 4 ignored;\n", None),

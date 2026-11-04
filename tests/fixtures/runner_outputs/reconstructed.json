@@ -1,0 +1,497 @@
+[
+ {
+  "id": "jest-pass",
+  "command": "npx jest",
+  "stdout": "",
+  "stderr": "PASS src/sum.test.js\n  sum\n    ✓ adds 1 + 2 to equal 3 (2 ms)\n    ✓ adds 2 + 2 (1 ms)\n\nTest Suites: 2 passed, 2 total\nTests:       5 passed, 5 total\nSnapshots:   0 total\nTime:        0.412 s\nRan all test suites.\n",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "jest-fail",
+  "command": "npx jest",
+  "stdout": "",
+  "stderr": "FAIL src/sum.test.js\n  sum\n    ✕ adds 1 + 2 to equal 4 (3 ms)\n\n  ● sum › adds 1 + 2 to equal 4\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 4\n    Received: 3\n\n      3 | test('adds 1 + 2 to equal 4', () => {\n    > 4 |   expect(sum(1, 2)).toBe(4);\n        |                     ^\n\n      at Object.toBe (src/sum.test.js:4:21)\n\nPASS src/other.test.js\n\nTest Suites: 1 failed, 1 passed, 2 total\nTests:       1 failed, 4 passed, 5 total\nSnapshots:   0 total\nTime:        0.512 s, estimated 1 s\nRan all test suites.\n",
+  "exit_code": 1,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "jest-suite-failed-to-run",
+  "command": "npx jest",
+  "stdout": "",
+  "stderr": "FAIL src/broken.test.js\n  ● Test suite failed to run\n\n    Cannot find module './missing' from 'src/broken.test.js'\n\n      1 | import { thing } from './missing';\n        | ^\n\n      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/resolver.js:427:11)\n\nPASS src/sum.test.js\n\nTest Suites: 1 failed, 1 passed, 2 total\nTests:       4 passed, 4 total\nSnapshots:   0 total\nTime:        0.633 s\nRan all test suites.\n",
+  "exit_code": 1,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "jest-suite-failed-piped",
+  "command": "npx jest 2>&1 | tail -8",
+  "stdout": "   | ^\n\n      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/resolver.js:427:11)\n\nPASS src/sum.test.js\n\nTest Suites: 1 failed, 1 passed, 2 total\nTests:       4 passed, 4 total\nSnapshots:   0 total\nTime:        0.633 s\nRan all test suites.\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "jest-skip-todo",
+  "command": "npx jest",
+  "stdout": "",
+  "stderr": "PASS src/sum.test.js\n\nTest Suites: 1 passed, 1 total\nTests:       2 skipped, 1 todo, 3 passed, 6 total\nSnapshots:   0 total\nTime:        0.3 s\n",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "jest-passWithNoTests",
+  "command": "npx jest --passWithNoTests",
+  "stdout": "",
+  "stderr": "No tests found, exiting with code 0\n",
+  "exit_code": 0,
+  "expected": null,
+  "source": "reconstructed"
+ },
+ {
+  "id": "jest-ansi-fail-piped",
+  "command": "npx jest --color 2>&1 | tail -3",
+  "stdout": "\u001b[1m\u001b[31mTests:       \u001b[39m\u001b[22m\u001b[1m\u001b[31m1 failed\u001b[39m\u001b[22m, \u001b[1m\u001b[32m4 passed\u001b[39m\u001b[22m, 5 total\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "npm-test-jest-pass",
+  "command": "npm test",
+  "stdout": "\n> app@1.0.0 test\n> jest\n\n",
+  "stderr": "PASS src/sum.test.js\n  sum\n    ✓ adds 1 + 2 to equal 3 (2 ms)\n    ✓ adds 2 + 2 (1 ms)\n\nTest Suites: 2 passed, 2 total\nTests:       5 passed, 5 total\nSnapshots:   0 total\nTime:        0.412 s\nRan all test suites.\n",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "npm-test-jest-fail-piped",
+  "command": "npm test 2>&1 | tail -20",
+  "stdout": "\n> app@1.0.0 test\n> jest\n\nFAIL src/sum.test.js\n  sum\n    ✕ adds 1 + 2 to equal 4 (3 ms)\n\n  ● sum › adds 1 + 2 to equal 4\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: 4\n    Received: 3\n\n      3 | test('adds 1 + 2 to equal 4', () => {\n    > 4 |   expect(sum(1, 2)).toBe(4);\n        |                     ^\n\n      at Object.toBe (src/sum.test.js:4:21)\n\nPASS src/other.test.js\n\nTest Suites: 1 failed, 1 passed, 2 total\nTests:       1 failed, 4 passed, 5 total\nSnapshots:   0 total\nTime:        0.512 s, estimated 1 s\nRan all test suites.\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "vitest-v2-pass",
+  "command": "npx vitest run",
+  "stdout": "\n RUN  v2.1.8 /repo\n\n ✓ src/sum.test.ts (2 tests) 2ms\n ✓ src/other.test.ts (3 tests) 3ms\n\n Test Files  2 passed (2)\n      Tests  5 passed (5)\n   Start at  10:04:12\n   Duration  312ms (transform 41ms, setup 0ms, collect 52ms, tests 5ms, environment 0ms, prepare 98ms)\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "vitest-v2-fail",
+  "command": "npx vitest run",
+  "stdout": "\n RUN  v2.1.8 /repo\n\n ❯ src/other.test.ts (3 tests | 1 failed) 6ms\n   × other > multiplies 4ms\n     → expected 6 to be 7 // Object.is equality\n ✓ src/sum.test.ts (2 tests) 2ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  src/other.test.ts > other > multiplies\nAssertionError: expected 6 to be 7 // Object.is equality\n\n- Expected\n+ Received\n\n- 7\n+ 6\n\n ❯ src/other.test.ts:9:22\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n Test Files  1 failed | 1 passed (2)\n      Tests  1 failed | 4 passed (5)\n   Start at  10:05:40\n   Duration  330ms\n",
+  "stderr": "",
+  "exit_code": 1,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "vitest-v2-fail-piped-tail",
+  "command": "npx vitest run 2>&1 | tail -4",
+  "stdout": " Test Files  1 failed | 1 passed (2)\n      Tests  1 failed | 4 passed (5)\n   Start at  10:05:40\n   Duration  330ms\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "vitest-v3-pass",
+  "command": "npx vitest run",
+  "stdout": "\n RUN  v3.0.5 /repo\n\n ✓ src/sum.test.ts (2 tests) 2ms\n   ✓ sum > adds 1ms\n   ✓ sum > adds again 0ms\n\n Test Files  1 passed (1)\n      Tests  2 passed (2)\n   Start at  09:12:01\n   Duration  211ms\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "vitest-verbose-pass-FAILED-in-name",
+  "command": "npx vitest run --reporter=verbose",
+  "stdout": "\n RUN  v3.0.5 /repo\n\n ✓ src/status.test.ts > maps HTTP 500 to JobStatus.FAILED 1ms\n ✓ src/status.test.ts > maps HTTP 200 to JobStatus.OK 0ms\n\n Test Files  1 passed (1)\n      Tests  2 passed (2)\n   Start at  09:12:01\n   Duration  205ms\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "pnpm-filter-vitest-pass",
+  "command": "pnpm --filter api test",
+  "stdout": "\n> api@0.0.0 test /repo/packages/api\n> vitest run\n\n\n RUN  v2.1.8 /repo\n\n ✓ src/sum.test.ts (2 tests) 2ms\n ✓ src/other.test.ts (3 tests) 3ms\n\n Test Files  2 passed (2)\n      Tests  5 passed (5)\n   Start at  10:04:12\n   Duration  312ms (transform 41ms, setup 0ms, collect 52ms, tests 5ms, environment 0ms, prepare 98ms)\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "pnpm-filter-vitest-fail-piped",
+  "command": "pnpm --filter api test 2>&1 | tail -30",
+  "stdout": "\n> api@0.0.0 test /repo/packages/api\n> vitest run\n\n\n RUN  v2.1.8 /repo\n\n ❯ src/other.test.ts (3 tests | 1 failed) 6ms\n   × other > multiplies 4ms\n     → expected 6 to be 7 // Object.is equality\n ✓ src/sum.test.ts (2 tests) 2ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  src/other.test.ts > other > multiplies\nAssertionError: expected 6 to be 7 // Object.is equality\n\n- Expected\n+ Received\n\n- 7\n+ 6\n\n ❯ src/other.test.ts:9:22\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n Test Files  1 failed | 1 passed (2)\n      Tests  1 failed | 4 passed (5)\n   Start at  10:05:40\n   Duration  330ms\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "yarn-workspace-test-pass",
+  "command": "yarn workspace api test",
+  "stdout": "\n> api@0.0.0 test /repo/packages/api\n> vitest run\n\n\n RUN  v2.1.8 /repo\n\n ✓ src/sum.test.ts (2 tests) 2ms\n ✓ src/other.test.ts (3 tests) 3ms\n\n Test Files  2 passed (2)\n      Tests  5 passed (5)\n   Start at  10:04:12\n   Duration  312ms (transform 41ms, setup 0ms, collect 52ms, tests 5ms, environment 0ms, prepare 98ms)\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "npm-w-test-pass",
+  "command": "npm -w api test",
+  "stdout": "\n> api@0.0.0 test /repo/packages/api\n> vitest run\n\n\n RUN  v2.1.8 /repo\n\n ✓ src/sum.test.ts (2 tests) 2ms\n ✓ src/other.test.ts (3 tests) 3ms\n\n Test Files  2 passed (2)\n      Tests  5 passed (5)\n   Start at  10:04:12\n   Duration  312ms (transform 41ms, setup 0ms, collect 52ms, tests 5ms, environment 0ms, prepare 98ms)\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "turbo-test-pass",
+  "command": "npx turbo run test",
+  "stdout": "api:test: cache miss, executing 1a2b3c\napi:test: \napi:test: \napi:test:  RUN  v2.1.8 /repo\napi:test: \napi:test:  ✓ src/sum.test.ts (2 tests) 2ms\napi:test:  ✓ src/other.test.ts (3 tests) 3ms\napi:test: \napi:test:  Test Files  2 passed (2)\napi:test:       Tests  5 passed (5)\napi:test:    Start at  10:04:12\napi:test:    Duration  312ms (transform 41ms, setup 0ms, collect 52ms, tests 5ms, environment 0ms, prepare 98ms)\napi:test: \n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "mocha-pass",
+  "command": "npx mocha",
+  "stdout": "\n\n  sum\n    ✓ adds\n    ✓ adds again\n    - skips this one\n\n\n  2 passing (6ms)\n  1 pending\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "mocha-fail-piped",
+  "command": "npx mocha 2>&1 | tail -15",
+  "stdout": "\n\n  sum\n    ✓ adds\n    1) multiplies\n\n\n  1 passing (7ms)\n  1 failing\n\n  1) sum\n       multiplies:\n\n      AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n6 !== 7\n\n      at Context.<anonymous> (test/sum.test.js:9:12)\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "cargo-pass-multi-binary",
+  "command": "cargo test",
+  "stdout": "   Compiling calc v0.1.0 (/repo)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s\n     Running unittests src/lib.rs (target/debug/deps/calc-1a2b3c)\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests/integration.rs (target/debug/deps/integration-4d5e6f)\n\nrunning 3 tests\ntest adds ... ok\ntest subtracts ... ok\ntest multiplies ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests calc\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "cargo-fail",
+  "command": "cargo test",
+  "stdout": "   Compiling calc v0.1.0 (/repo)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.48s\n     Running unittests src/lib.rs (target/debug/deps/calc-1a2b3c)\n\nrunning 2 tests\ntest tests::it_works ... ok\ntest tests::it_fails ... FAILED\n\nfailures:\n\n---- tests::it_fails stdout ----\nthread 'tests::it_fails' panicked at src/lib.rs:10:9:\nassertion `left == right` failed\n  left: 3\n right: 4\n\nfailures:\n    tests::it_fails\n\ntest result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\nerror: test failed, to rerun pass `--lib`\n",
+  "stderr": "",
+  "exit_code": 101,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "cargo-fail-2nd-binary-piped",
+  "command": "cargo test 2>&1 | tail -40",
+  "stdout": "     Running unittests src/lib.rs (target/debug/deps/calc-1a2b3c)\n\nrunning 2 tests\ntest tests::a ... ok\ntest tests::b ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests/integration.rs (target/debug/deps/integration-4d5e6f)\n\nrunning 1 test\ntest end_to_end ... FAILED\n\nfailures:\n\n---- end_to_end stdout ----\nthread 'end_to_end' panicked at tests/integration.rs:5:5:\nboom\n\nfailures:\n    end_to_end\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\nerror: test failed, to rerun pass `--test integration`\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "nextest-pass",
+  "command": "cargo nextest run",
+  "stdout": "    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s\n    Starting 5 tests across 2 binaries\n        PASS [   0.004s] calc tests::a\n        PASS [   0.004s] calc tests::b\n        PASS [   0.005s] calc::integration adds\n        PASS [   0.005s] calc::integration subtracts\n        PASS [   0.005s] calc::integration multiplies\n------------\n     Summary [   0.010s] 5 tests run: 5 passed, 0 skipped\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "nextest-fail-piped",
+  "command": "cargo nextest run 2>&1 | tail -5",
+  "stdout": "    Starting 5 tests across 2 binaries\n        PASS [   0.004s] calc tests::a\n        FAIL [   0.004s] calc tests::b\n--- STDOUT:              calc tests::b ---\nrunning 1 test\ntest tests::b ... FAILED\n------------\n     Summary [   0.010s] 5 tests run: 4 passed, 1 failed, 0 skipped\n        FAIL [   0.004s] calc tests::b\nerror: test run failed\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "rspec-pass",
+  "command": "bundle exec rspec",
+  "stdout": "...\n\nFinished in 0.00512 seconds (files took 0.08 seconds to load)\n3 examples, 0 failures\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "rspec-fail-piped",
+  "command": "bundle exec rspec | tail -8",
+  "stdout": ".F.\n\nFailures:\n\n  1) Calc adds\n     Failure/Error: expect(add(1, 2)).to eq(4)\n\n       expected: 4\n            got: 3\n\nFinished in 0.01 seconds (files took 0.07 seconds to load)\n3 examples, 1 failure\n\nFailed examples:\n\nrspec ./spec/calc_spec.rb:4 # Calc adds\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "phpunit-pass",
+  "command": "vendor/bin/phpunit",
+  "stdout": "PHPUnit 11.0.0 by Sebastian Bergmann and contributors.\n\nRuntime:       PHP 8.3.0\n\n...                                                                 3 / 3 (100%)\n\nTime: 00:00.010, Memory: 8.00 MB\n\nOK (3 tests, 3 assertions)\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "phpunit-fail-piped",
+  "command": "vendor/bin/phpunit | tail -4",
+  "stdout": "PHPUnit 11.0.0 by Sebastian Bergmann and contributors.\n\n..F                                                                 3 / 3 (100%)\n\nThere was 1 failure:\n\n1) CalcTest::testAdd\nFailed asserting that 3 matches expected 4.\n\n/app/tests/CalcTest.php:9\n\nFAILURES!\nTests: 3, Assertions: 3, Failures: 1.\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "dotnet-pass",
+  "command": "dotnet test",
+  "stdout": "  Determining projects to restore...\n  All projects are up-to-date for restore.\n  Calc.Tests -> /app/Calc.Tests/bin/Debug/net8.0/Calc.Tests.dll\nTest run for /app/Calc.Tests/bin/Debug/net8.0/Calc.Tests.dll (.NETCoreApp,Version=v8.0)\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     3, Skipped:     0, Total:     3, Duration: 4 ms - Calc.Tests.dll (net8.0)\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "dotnet-fail-piped",
+  "command": "dotnet test | tail -3",
+  "stdout": "Starting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n  Failed Calc.Tests.UnitTest1.Adds [3 ms]\n  Error Message:\n   Assert.Equal() Failure\nExpected: 4\nActual:   3\n\nFailed!  - Failed:     1, Passed:     2, Skipped:     0, Total:     3, Duration: 6 ms - Calc.Tests.dll (net8.0)\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "gradlew-pass",
+  "command": "./gradlew test",
+  "stdout": "> Task :compileJava\n> Task :test\n\nBUILD SUCCESSFUL in 3s\n4 actionable tasks: 4 executed\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "gradle-fail-piped",
+  "command": "gradle test 2>&1 | tail -12",
+  "stdout": "> Task :test FAILED\n\nCalcTest > adds() FAILED\n    org.opentest4j.AssertionFailedError at CalcTest.java:9\n\n3 tests completed, 1 failed\n\nFAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task ':test'.\n\nBUILD FAILED in 2s\n4 actionable tasks: 2 executed, 2 up-to-date\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "gradlew-fail-piped",
+  "command": "./gradlew test 2>&1 | tail -12",
+  "stdout": "> Task :test FAILED\n\nCalcTest > adds() FAILED\n    org.opentest4j.AssertionFailedError at CalcTest.java:9\n\n3 tests completed, 1 failed\n\nFAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task ':test'.\n\nBUILD FAILED in 2s\n4 actionable tasks: 2 executed, 2 up-to-date\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "mvn-pass",
+  "command": "mvn test",
+  "stdout": "[INFO] -------------------------------------------------------\n[INFO]  T E S T S\n[INFO] -------------------------------------------------------\n[INFO] Running com.example.CalcTest\n[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.02 s -- in com.example.CalcTest\n[INFO]\n[INFO] Results:\n[INFO]\n[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0\n[INFO] BUILD SUCCESS\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "mvn-fail-piped",
+  "command": "mvn test | tail -8",
+  "stdout": "[ERROR] Tests run: 3, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.03 s <<< FAILURE! -- in com.example.CalcTest\n[ERROR] com.example.CalcTest.adds -- Time elapsed: 0.01 s <<< FAILURE!\n[INFO] Results:\n[ERROR] Failures:\n[ERROR]   CalcTest.adds:9 expected: <4> but was: <3>\n[ERROR] Tests run: 3, Failures: 1, Errors: 0, Skipped: 0\n[INFO] BUILD FAILURE\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "mvnw-pass",
+  "command": "./mvnw test",
+  "stdout": "[INFO] -------------------------------------------------------\n[INFO]  T E S T S\n[INFO] -------------------------------------------------------\n[INFO] Running com.example.CalcTest\n[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.02 s -- in com.example.CalcTest\n[INFO]\n[INFO] Results:\n[INFO]\n[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0\n[INFO] BUILD SUCCESS\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "deno-pass",
+  "command": "deno test",
+  "stdout": "running 2 tests from ./sum_test.ts\nadds ... ok (1ms)\nadds again ... ok (0ms)\n\nok | 2 passed | 0 failed (12ms)\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "deno-fail-piped",
+  "command": "deno test 2>&1 | tail -6",
+  "stdout": "running 2 tests from ./sum_test.ts\nadds ... FAILED (2ms)\nadds again ... ok (0ms)\n\n ERRORS\n\nadds => ./sum_test.ts:3:6\nerror: AssertionError: Values are not equal.\n\n FAILURES\n\nadds => ./sum_test.ts:3:6\n\nFAILED | 1 passed | 1 failed (14ms)\n\nerror: Test failed\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "playwright-pass",
+  "command": "npx playwright test",
+  "stdout": "\nRunning 6 tests using 3 workers\n\n  6 passed (4.2s)\n\nTo open last HTML report run:\n\n  npx playwright show-report\n\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "playwright-fail-piped",
+  "command": "npx playwright test | tail -6",
+  "stdout": "\nRunning 6 tests using 3 workers\n\n  1) [chromium] › example.spec.ts:3:5 › has title\n\n    Error: Timed out 5000ms waiting for expect(locator).toHaveTitle(expected)\n\n  1 failed\n    [chromium] › example.spec.ts:3:5 › has title\n  5 passed (6.1s)\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "xdist-pass",
+  "command": "pytest -n auto",
+  "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.12.3, pytest-8.3.4, pluggy-1.5.0\nrootdir: /repo\nplugins: xdist-3.6.1\ncreated: 8/8 workers\n8 workers [120 items]\n\n........................................................................ [ 60%]\n................................................                         [100%]\n============================= 120 passed in 3.21s ==============================\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "xdist-fail-piped",
+  "command": "pytest -n auto | tail -3",
+  "stdout": "============================= test session starts ==============================\ncreated: 8/8 workers\n8 workers [120 items]\n\n.....F..................................................................  [ 60%]\n................................................                         [100%]\n=================================== FAILURES ===================================\n_________________________________ test_bad _________________________________\n[gw3] linux -- Python 3.12.3 /repo/.venv/bin/python\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\ntests/test_x.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_x.py::test_bad - assert 1 == 2\n======================== 1 failed, 119 passed in 3.40s =========================\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "reconstructed"
+ },
+ {
+  "id": "django-test-pass",
+  "command": "python manage.py test",
+  "stdout": "",
+  "stderr": "Found 5 test(s).\nCreating test database for alias 'default'...\nSystem check identified no issues (0 silenced).\n.....\n----------------------------------------------------------------------\nRan 5 tests in 0.012s\n\nOK\nDestroying test database for alias 'default'...\n",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "bazel-test-pass",
+  "command": "bazel test //...",
+  "stdout": "INFO: Analyzed target //calc:calc_test (0 packages loaded, 0 targets configured).\nINFO: Found 1 test target...\n//calc:calc_test                                                         PASSED in 0.3s\n\nExecuted 1 out of 1 test: 1 test passes.\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "reconstructed"
+ },
+ {
+  "id": "tox-pass",
+  "command": "tox -e py312",
+  "stdout": "py312: commands[0]> pytest -q tests/\n.....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n  py312: OK (2.31=setup[0.50]+cmd[1.81] seconds)\n  congratulations :) (2.40 seconds)\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real-output/wrapper"
+ },
+ {
+  "id": "nox-pass",
+  "command": "nox -s tests",
+  "stdout": "nox > Running session tests\nnox > pytest -q tests/\n.....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\nnox > Session tests was successful in 3 seconds.\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real-output/wrapper"
+ },
+ {
+  "id": "uv-run-pytest-pass",
+  "command": "uv run pytest -q",
+  "stdout": ".....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real-output/wrapper"
+ },
+ {
+  "id": "poetry-run-pytest-fail-piped",
+  "command": "poetry run pytest -q | tail -3",
+  "stdout": ".F.                                                                      [100%]\n=================================== FAILURES ===================================\n___________________________________ test_bad ___________________________________\n\n    def test_bad():\n>       assert 1 == 2\nE       assert 1 == 2\n\nfailing/tests/test_fail.py:5: AssertionError\n=========================== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n1 failed, 2 passed in 0.01s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real-output/wrapper"
+ },
+ {
+  "id": "hatch-test-pass",
+  "command": "hatch test",
+  "stdout": ".....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real-output/wrapper"
+ },
+ {
+  "id": "just-test-pass",
+  "command": "just test",
+  "stdout": ".....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real-output/wrapper"
+ },
+ {
+  "id": "script-test-pass",
+  "command": "./scripts/test.sh",
+  "stdout": ".....sxxX                                                                [100%]\n5 passed, 1 skipped, 2 xfailed, 1 xpassed in 0.02s\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": true,
+  "source": "real-output/wrapper"
+ },
+ {
+  "id": "pytest-truncated-middle",
+  "command": "pytest",
+  "stdout": "============================= test session starts ==============================\nplatform darwin -- Python 3.13.16, pytest-9.1.1, pluggy-1.6.0\nrootdir: /work/proj_py\nplugins: cov-7.1.0, asyncio-1.4.0, anyio-4.14.2\nasyncio: mode=Mode.STRICT, debug=False, asyncio_default\n... [48213 characters truncated] ...\n===== short test summary info ============================\nFAILED failing/tests/test_fail.py::test_bad - assert 1 == 2\n========================= 1 failed, 2 passed in 0.02s ==========================\n",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": false,
+  "source": "real-output/truncated"
+ },
+ {
+  "id": "pytest-background",
+  "command": "pytest -q",
+  "stdout": "",
+  "stderr": "",
+  "exit_code": 0,
+  "expected": null,
+  "source": "reconstructed: run_in_background, no output yet"
+ }
+]
