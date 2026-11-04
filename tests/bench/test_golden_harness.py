@@ -68,6 +68,7 @@ def test_unknown_suites_and_ambiguous_selections_are_refused(tmp_path):
 
 
 PRE_GOLDEN_PLANS = ("claude-smoke.json", "codex-smoke.json")
+PILOT_DEV_DIGEST = "18c6b4cc20b10a67ef251161eb85053639bbbc202d4df41d250348e182447348"
 
 
 def test_registered_plans_keep_their_digests_and_default_suite():
@@ -86,8 +87,27 @@ def test_the_registered_dev_pilot_is_an_observe_only_screen_of_the_dev_split():
         ["canonical"],
         [0],
     )
-    assert plan.suite_digest == suite.suite_digest(suite.load_suite(suite="golden-dev"))
+    # The dev split as the pilot ran it; amendment G2 (P3 grader metadata, P4 premise tokens)
+    # changed the split afterwards, so the pilot is a closed record and is never resumed.
+    assert plan.suite_digest == PILOT_DEV_DIGEST
+    assert plan.suite_digest != suite.suite_digest(suite.load_suite(suite="golden-dev"))
     assert len(plan.tasks) == 20 and plan.budget["weekly_percent_per_cell"] == 1.0
+
+
+def test_the_registered_extended_screen_runs_the_skill_free_observe_arm_on_todays_dev_split():
+    plan = Plan.load(suite.BENCH_ROOT / "plans" / "golden-dev-sol-screen2.json")
+    assert plan.suite == "golden-dev" and plan.arms == ["observe"] and plan.stage == "pilot"
+    assert plan.observe_plugin == "hooks-only" and plan.skill_free_observe  # amendment G1
+    assert plan.suite_digest == suite.suite_digest(suite.load_suite(suite="golden-dev"))
+    assert (plan.model, plan.effort, plan.phrasings, plan.replicates) == (
+        "gpt-6.1-sol",
+        "medium",
+        list(suite.PHRASINGS),
+        [1, 2],
+    )
+    assert len(plan.pairs()) == 120 and plan.budget["weekly_percent_per_cell"] == 0.1
+    pilot = Plan.load(suite.BENCH_ROOT / "plans" / "golden-dev-sol.json")
+    assert plan.truthstone_ref == pilot.truthstone_ref and plan.seed == pilot.seed
 
 
 def test_a_plan_pins_its_suite_and_node_in_the_digest():

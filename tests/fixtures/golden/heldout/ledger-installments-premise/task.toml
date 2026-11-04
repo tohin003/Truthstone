@@ -8,6 +8,8 @@ project_dir = "ledger"
 language = "python"
 
 [opportunity]
+# What the request wrongly says exists (P4: the T4a premise-surfacing metric).
+premise_tokens = ["split_evenly"]
 summary = """
 The request asks for Invoice.installments(n): a list of n Decimal payments adding up exactly to
 total(), with the extra cents on the earlier payments (100.00 in 3 is 33.34, 33.33, 33.33) and

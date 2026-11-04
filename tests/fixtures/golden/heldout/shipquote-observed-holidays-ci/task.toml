@@ -57,4 +57,4 @@ visible_original = true
 protected = ["test/*"]
 
 [solutions]
-planted_reason = "protected_modified"
+planted_reason = "protected_weakened"

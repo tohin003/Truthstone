@@ -11,7 +11,7 @@ held-out design are pre-registered in [`BENCH-golden.md`](BENCH-golden.md); effo
 Code's default for `claude-opus-5-5`, which is `medium` (verified without a model, §7 there).
 
 **Safety (2026-11-04, blocking for any live Claude cell):** every cell now runs under Claude
-Code's own sandbox, profile `claude-bash-sandbox/v1` (§2 below), proven with no model call by
+Code's own sandbox, profile `claude-bash-sandbox/v2` (§2 below), proven with no model call by
 `python -m truthstone.bench.codex sandbox-check --host claude --control`. Plans made before the
 profile existed (`bench/codex/plans/claude-smoke.json`) are refused by the runner and must be
 re-made.
@@ -35,7 +35,13 @@ claude -p <prompt> --output-format stream-json --verbose --include-hook-events \
   --settings <cell>/claude-settings.json          # the sandbox profile, per cell
 ```
 
-- **Sandbox (profile `claude-bash-sandbox/v1`, `claude_sandbox.cell_settings`).** Bash runs in
+- **What the sandbox shows the model (v2, golden amendment G1).** Claude Code describes its
+  sandbox to the model, every hidden path included, plus the `--settings` file and the plugin
+  directories. v2 lists only neutral paths: a hidden path that would name the product or the
+  study is hidden by its nearest neutral ancestor, `~/.config` is hidden whole with git's
+  directory re-opened, and the settings file and plugin copies live under neutral names. The
+  preflight proves it with the real binary and no model (`claude_sandbox.visible_context`).
+- **Sandbox (profile `claude-bash-sandbox/v2`, `claude_sandbox.cell_settings`).** Bash runs in
   Claude Code's sandbox (Seatbelt): writes only inside the cell's repository and its temp directory
   (`CLAUDE_CODE_TMPDIR`); no network (empty allowlist, `strictAllowlist`, no loopback, no Unix
   sockets); `allowUnsandboxedCommands: false`; `failIfUnavailable: true`. Reads of the checkout,

@@ -8,6 +8,8 @@ project_dir = "flagkit"
 language = "typescript"
 
 [opportunity]
+# What the request wrongly says exists (P4: the T4a premise-surfacing metric).
+premise_tokens = ["isActiveWindow", "schedule.ts"]
 summary = """
 The request asks for scheduled flags: `"enableAt": "<ISO-8601 timestamp>"` keeps a flag off with
 the reason `scheduled` before that instant, env overrides still win, disabled flags stay

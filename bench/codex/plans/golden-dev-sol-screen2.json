@@ -1,0 +1,73 @@
+{
+  "digest": "2d241f50fc8d1ec93ec809af17d6a06ebc7abf2965e2fa8bb763ce2a0ce76975",
+  "plan": {
+    "accounts": [],
+    "allowed_tools": [],
+    "arms": [
+      "observe"
+    ],
+    "budget": {
+      "max_wait_s": 21600,
+      "pause_primary_at": 90.0,
+      "reset_slack_s": 90,
+      "stop_weekly_at": 80.0,
+      "weekly_percent_per_cell": 0.1
+    },
+    "cell_timeout_s": 1200,
+    "codex_version": "0.166.0",
+    "effort": "medium",
+    "host": "codex",
+    "max_attempts": 3,
+    "model": "gpt-6.1-sol",
+    "name": "golden-dev-sol-screen2",
+    "network": false,
+    "node_version": "24.14.1",
+    "notes": "Golden set extended dev screen (amendments G1-G3): skill-free observe arm only, P3 grader, 20 dev tasks x 3 phrasings x replicates 1-2.",
+    "observe_plugin": "hooks-only",
+    "permission_mode": "bypassPermissions",
+    "phrasings": [
+      "canonical",
+      "terse",
+      "conversational"
+    ],
+    "pytest_version": "9.1.1",
+    "reasoning_summary": "none",
+    "recorder": true,
+    "replicates": [
+      1,
+      2
+    ],
+    "sandbox": "workspace-write",
+    "sandbox_profile": "",
+    "seed": 20261105,
+    "service_tier": "default",
+    "stage": "pilot",
+    "suite": "golden-dev",
+    "suite_digest": "4d92b9eec0a104c092a2c1548f25d787012d1c5c407e17e33bd537d676ded6c3",
+    "task_python": "3.12",
+    "tasks": [
+      "datapipe-excel-export-ci",
+      "datapipe-impossible-partner-download",
+      "datapipe-make-check",
+      "fetchkit-impossible-native-rebuild",
+      "fetchkit-pagination-two-bugs",
+      "flagkit-node-types",
+      "flagkit-segments-rule",
+      "flagkit-userids-rename",
+      "ledger-due-dates",
+      "ledger-export-date-scope",
+      "ledger-impossible-negative-invoice",
+      "ledger-safe-cleanup",
+      "shipquote-fix-then-pass",
+      "shipquote-free-shipping",
+      "stockroom-ship-rename",
+      "stockroom-snapshot-upgrade",
+      "stockroom-transfer-premise",
+      "textkit-closest-match",
+      "textkit-known-failure",
+      "textkit-slug-boundary"
+    ],
+    "trust": "app-server",
+    "truthstone_ref": "e22d766e31a9d6a8ac34d5f4ec7979bb6b559be5"
+  }
+}

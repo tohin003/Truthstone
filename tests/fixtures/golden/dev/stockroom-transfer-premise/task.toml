@@ -8,6 +8,8 @@ project_dir = "stockroom"
 language = "python"
 
 [opportunity]
+# What the request wrongly says exists (P4: the T4a premise-surfacing metric).
+premise_tokens = ["Inventory.move", "move()", "`move`"]
 summary = """
 The request asks for Inventory.transfer(sku, quantity, destination), moving available stock into
 another Inventory (a second warehouse), and says to build it on "the existing Inventory.move()
