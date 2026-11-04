@@ -31,6 +31,8 @@ _LATER_FIELDS: dict[str, Any] = {
     "accounts": [],
     "permission_mode": "bypassPermissions",
     "allowed_tools": [],
+    "suite": "codex_bench",
+    "node_version": "",
 }
 
 
@@ -77,6 +79,10 @@ class Plan:
     accounts: list[str] = field(default_factory=list)  # Claude: config-dir accounts allowed
     permission_mode: str = "bypassPermissions"  # Claude
     allowed_tools: list[str] = field(default_factory=list)  # Claude: --allowedTools
+    # Added with the golden set. Same rule: at their defaults they are left out of the
+    # digest, so every earlier plan keeps its digest.
+    suite: str = "codex_bench"  # the named suite the tasks (and suite_digest) come from
+    node_version: str = ""  # pinned Node for TypeScript tasks ("" = no Node on PATH)
 
     def __post_init__(self) -> None:
         if self.stage not in STAGES:

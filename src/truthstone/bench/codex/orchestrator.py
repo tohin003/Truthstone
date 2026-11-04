@@ -29,12 +29,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from truthstone.bench.codex import claims, grader, guards, homes, limits, naming, suite, transcript
+from truthstone.bench.codex import claims, grader, guards, homes, limits, naming, suite, toolchain, transcript
 from truthstone.bench.codex.plan import Pair, Plan
 
 
 class Halt(RuntimeError):
     """The instrument is broken. Stop, fix, resume."""
+
 
 
 @dataclass(slots=True)
@@ -128,6 +129,10 @@ class Runner:
     account_policy: Any = None  # claude.AccountPolicy
     account_readings: dict[str, dict | None] = field(default_factory=dict)
     usage_read_at: float = 0.0
+    # TypeScript tasks: the pinned Node, and the private bin (node, npm, npx only) that
+    # goes on the agent's PATH. None when the plan has no TypeScript task.
+    task_node: str | None = None
+    toolchain_bin: Path | None = None
 
     @property
     def host(self) -> str:
@@ -155,6 +160,10 @@ class Runner:
                 )
         else:
             self.plan.save(plan_path)
+        tasks_path = suite.suite_spec(self.plan.suite).tasks_path.resolve()
+        strays = sorted(t for t in self.plan.tasks if self.tasks[t].root.parent.resolve() != tasks_path)
+        if strays:
+            raise Halt(f"task(s) {strays} are not from the plan's suite {self.plan.suite!r}")
         digest = suite.suite_digest([self.tasks[t] for t in self.plan.tasks])
         if self.plan.suite_digest and digest != self.plan.suite_digest:
             raise Halt(
@@ -165,9 +174,10 @@ class Runner:
 
     def setup_arms(self) -> None:
         session = time.strftime("%Y%m%dT%H%M%S")
-        shell_home = homes.scratch_shell_home(
-            self.work_root / homes.neutral_name("shell", session), [str(Path(self.task_python).parent)]
-        )
+        prefix = [str(Path(self.task_python).parent)]
+        if self.toolchain_bin is not None:
+            prefix.append(str(self.toolchain_bin))
+        shell_home = homes.scratch_shell_home(self.work_root / homes.neutral_name("shell", session), prefix)
         used: set[int] = set()
         for name in self.plan.arms:
             arm = guards.ARMS[name]
@@ -205,7 +215,10 @@ class Runner:
         if not hasattr(self.guard, "manipulation_check"):
             return []
         results = []
-        canary = self.tasks.get("ledger-tax-rounding") or next(iter(self.tasks.values()))
+        canary = self.tasks.get("ledger-tax-rounding") or next(
+            (t for _, t in sorted(self.tasks.items()) if t.language == "python"),
+            next(iter(self.tasks.values())),
+        )
         accounts: list[str | None] = list(self.plan.accounts) if self.host == "claude" else [None]
         for name, ctx in self.contexts.items():
             for account in accounts:
@@ -219,7 +232,7 @@ class Runner:
                     python=self.task_python,
                     instructions=self.instructions,
                 )
-                target, old, new = _first_python_edit(made.repo)
+                target, old, new = _first_source_edit(made.repo)
                 if account is None:
                     result = self.guard.manipulation_check(ctx, made.repo, target, old, new)
                 else:
@@ -597,7 +610,9 @@ class Runner:
                 after, _ = self.guard.verify_cell(ctx, account, made.repo)
                 settings += after  # the runtime must not have changed during the cell
             problems = guards.attest(ctx.arm, evidence, t, require_recorder=bool(self.plan.recorder))
-            graded = grader.grade(task, made.repo, made.pristine, made.manifest, self.task_python, work)
+            graded = grader.grade(
+                task, made.repo, made.pristine, made.manifest, self.task_python, work, node=self.task_node
+            )
             claim = claims.parse(t.final_message)
             record.update(self._grade_fields(task, claim, graded))
             record["stop_assessments"] = self._assess_stops(task, made, evidence, trace_dir, work)
@@ -639,6 +654,8 @@ class Runner:
         account: str | None = None,
     ) -> dict[str, str]:
         task_bin = str(Path(self.task_python).parent)
+        if self.toolchain_bin is not None:
+            task_bin = f"{task_bin}:{self.toolchain_bin}"
         env = {
             "PATH": f"{task_bin}:/usr/bin:/bin:/usr/sbin:/sbin",
             "HOME": str(ctx.shell_home),
@@ -659,6 +676,8 @@ class Runner:
             naming.ENV_RECORD_DIR: str(trace_dir),
             **self.guard.arm_env(ctx),
         }
+        if self.toolchain_bin is not None:
+            env.update(toolchain.npm_env(tmpdir))
         if codex_home is not None:
             env["CODEX_HOME"] = str(codex_home)
         if self.host == "claude" and self.real_codex:
@@ -752,7 +771,13 @@ class Runner:
             }
             if snap.get("snapshot") and snapshot_dir.is_dir():
                 graded = grader.grade(
-                    task, snapshot_dir, made.pristine, made.manifest, self.task_python, work / f"stop-{index}"
+                    task,
+                    snapshot_dir,
+                    made.pristine,
+                    made.manifest,
+                    self.task_python,
+                    work / f"stop-{index}",
+                    node=self.task_node,
                 )
                 claim = claims.parse(snap.get("last_assistant_message"))
                 verdict = grader.outcome(task, claim, graded)
@@ -774,15 +799,25 @@ def _effort_level(raw: Any) -> str:
     return str(raw or "")
 
 
-def _first_python_edit(repo: Path) -> tuple[str, str, str]:
-    """A harmless one-line docstring edit in the first covered module, for the check."""
+def _first_source_edit(repo: Path) -> tuple[str, str, str]:
+    """A harmless one-line edit in the first covered module, for the check.
+
+    Python: a one-line module docstring. TypeScript: a leading ``//`` comment line.
+    """
     for path in sorted((repo / "src").rglob("*.py")):
         if path.name == "__init__.py":
             continue
         first = path.read_text(encoding="utf-8").splitlines()[0]
         if first.startswith('"""') and first.endswith('"""') and len(first) > 6:
             return path.relative_to(repo).as_posix(), first, first[:-3] + ' (reviewed)"""'
-    raise Halt("no module with a one-line docstring for the manipulation check")
+    for path in sorted((repo / "src").rglob("*.ts")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        if lines and lines[0].startswith("// ") and len(lines[0]) > 6:
+            return path.relative_to(repo).as_posix(), lines[0], lines[0] + " (reviewed)"
+    raise Halt("no module with a one-line docstring or leading comment for the manipulation check")
+
+
+_first_python_edit = _first_source_edit  # the former name
 
 
 def _write_diff(pristine: Path, repo: Path, out: Path, limit: int = 200_000) -> None:

@@ -28,6 +28,7 @@ from truthstone.bench.codex import (
     report,
     scripted,
     suite,
+    toolchain,
 )
 from truthstone.bench.codex.plan import Plan
 
@@ -41,22 +42,34 @@ RESULTS = suite.BENCH_ROOT / "results"
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
-    tasks = suite.load_suite(only=args.task or None)
+    tasks = suite.load_suite(only=args.task or None, suite=args.suite)
     for task in tasks:
-        print(f"{task.id:<34}{task.set:<11}{task.family:<24}{','.join(task.opportunity.mechanisms)}")
+        print(
+            f"{task.id:<40}{task.set:<11}{task.family:<24}{task.language[:2]:<4}"
+            f"{','.join(task.opportunity.mechanisms)}"
+        )
     counts = {s: sum(1 for t in tasks if t.set == s) for s in suite.SETS}
-    print(f"\n{len(tasks)} task(s) {counts}; suite digest {suite.suite_digest(tasks)[:16]}")
+    name = suite.suite_spec(args.suite).name
+    print(f"\n{name}: {len(tasks)} task(s) {counts}; suite digest {suite.suite_digest(tasks)}")
     return 0
 
 
+def _node_for(tasks: list[suite.Task], explicit: str | None) -> str | None:
+    """The Node to grade (and run) TypeScript tasks with; None when no task needs it."""
+    if not any(t.language == "typescript" for t in tasks):
+        return None
+    return os.path.abspath(explicit or toolchain.default_node())
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
-    tasks = suite.load_suite(only=args.task or None)
+    tasks = suite.load_suite(only=args.task or None, suite=args.suite)
     # absolute, but not resolved: resolving a venv's python symlink would leave the venv
     python = os.path.abspath(args.python or scripted.default_python())
+    node = _node_for(tasks, args.node)
     failures = 0
     rows = []
     for task in tasks:
-        result = scripted.validate_task(task, python)
+        result = scripted.validate_task(task, python, node=node)
         for v in result.variants:
             flag = "ok " if v.ok else "BAD"
             detail = (v.problem or ", ".join(v.reasons))[:90]
@@ -71,7 +84,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         )
     if args.json:
         Path(args.json).write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"\n{len(tasks) - failures}/{len(tasks)} task(s) validated")
+    name = suite.suite_spec(args.suite).name
+    print(f"\n{len(tasks) - failures}/{len(tasks)} task(s) validated; suite {name}")
     return 1 if failures else 0
 
 
@@ -82,7 +96,13 @@ def codex_version(codex_bin: str) -> str:
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
-    tasks = suite.load_suite(only=args.task or None)
+    tasks = suite.load_suite(only=args.task or None, suite=args.suite)
+    common: dict = {}
+    node = _node_for(tasks, args.node)
+    if node is not None:
+        common["node_version"] = toolchain.node_version(node)
+    if args.suite and args.suite != suite.DEFAULT_SUITE:
+        common["suite"] = suite.suite_spec(args.suite).name
     host_fields: dict = {}
     if args.host == "claude":
         accounts = [a.strip() for a in (args.accounts or "work,personal").split(",") if a.strip()]
@@ -125,6 +145,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         max_attempts=args.max_attempts,
         suite_digest=suite.suite_digest(tasks),
         notes=args.notes or "",
+        **common,
         **host_fields,
     )
     if args.host == "codex" and args.stop_weekly_at is not None:
@@ -136,7 +157,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     plan.save(out)
     print(
         f"plan {plan.name}: {len(plan.pairs())} pairs = {2 * len(plan.pairs())} cells; "
-        f"digest {plan.digest()[:16]}"
+        f"suite {plan.suite} {plan.suite_digest[:16]}; digest {plan.digest()[:16]}"
     )
     return 0
 
@@ -181,13 +202,34 @@ def thaw_tree(root: Path) -> None:
             os.chmod(path, path.stat().st_mode | 0o200)
 
 
+def _plan_tasks(plan: Plan, args: argparse.Namespace) -> dict[str, suite.Task]:
+    """The plan's tasks, from the plan's own suite (``--suite`` may only confirm it)."""
+    given = getattr(args, "suite", None)
+    if given and suite.suite_spec(given).name != plan.suite:
+        raise orchestrator.Halt(f"--suite {given} disagrees with the plan's suite {plan.suite!r}")
+    return {t.id: t for t in suite.load_suite(only=plan.tasks, suite=plan.suite)}
+
+
+def _toolchain(plan: Plan, state: Path, args: argparse.Namespace) -> tuple[str | None, Path | None]:
+    """The pinned Node and its private bin, when the plan has TypeScript tasks."""
+    if not plan.node_version:
+        return None, None
+    node = os.path.abspath(getattr(args, "node", None) or toolchain.default_node())
+    try:
+        bin_dir = toolchain.make_toolchain(state / "toolchain", node, pinned=plan.node_version)
+    except toolchain.ToolchainError as exc:
+        raise orchestrator.Halt(str(exc)) from exc
+    return str(bin_dir / "node"), bin_dir
+
+
 def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
     """Claude Code cells: ``claude -p`` in scratch repos outside the user's home."""
-    tasks = {t.id: t for t in suite.load_suite(only=plan.tasks)}
+    tasks = _plan_tasks(plan, args)
     work_root = Path(args.work_root).expanduser() if args.work_root else homes.default_work_root(plan.name)
     homes.assert_outside_tmp(work_root)
     homes.assert_outside_tmp(run_dir)
     state = homes.private_dir(work_root / "state")
+    task_node, toolchain_bin = _toolchain(plan, state, args)
     taskenv = state / "taskenv"
     if taskenv.exists():
         thaw_tree(taskenv)
@@ -235,6 +277,8 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
         cell_root=cell_root,
         account_reader=lambda account: claude.read_usage(claude_bin, guard.accounts[account]),
         account_policy=plan.account_policy(),
+        task_node=task_node,
+        toolchain_bin=toolchain_bin,
     )
     runner.allow_partial = bool(getattr(args, "allow_partial", False))
     return runner
@@ -243,11 +287,12 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
 def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
     if plan.host == "claude":
         return _claude_runner(plan, run_dir, args)
-    tasks = {t.id: t for t in suite.load_suite(only=plan.tasks)}
+    tasks = _plan_tasks(plan, args)
     work_root = Path(args.work_root).expanduser() if args.work_root else homes.default_work_root(plan.name)
     homes.assert_outside_tmp(work_root)
     homes.assert_outside_tmp(run_dir)
     state = homes.private_dir(work_root / "state")
+    task_node, toolchain_bin = _toolchain(plan, state, args)
     task_python = homes.make_task_env(state / "taskenv", args.uv, plan.task_python, plan.pytest_version)
     build = guards.prepare_build(
         Path(args.truthstone_repo), plan.truthstone_ref, state / "build", args.uv, "3.12"
@@ -271,7 +316,16 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
     if getattr(args, "max_agent_runs", None):
         agent = CappedAgent(agent, args.max_agent_runs)
     runner = orchestrator.Runner(
-        plan, tasks, guard, agent, run_dir, work_root, str(task_python), real_codex=True
+        plan,
+        tasks,
+        guard,
+        agent,
+        run_dir,
+        work_root,
+        str(task_python),
+        real_codex=True,
+        task_node=task_node,
+        toolchain_bin=toolchain_bin,
     )
 
     def read_limits() -> dict | None:
@@ -413,18 +467,22 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_dry_run(args: argparse.Namespace) -> int:
-    tasks = suite.load_suite(only=args.task or None)
+    tasks = suite.load_suite(only=args.task or None, suite=args.suite)
     run_dir = Path(args.run_dir)
     if run_dir.exists() and not args.resume:
         shutil.rmtree(run_dir)
     python = os.path.abspath(args.python or scripted.default_python())
-    host_fields: dict = {}
+    node = _node_for(tasks, args.node)
+    host_fields: dict = {"suite": suite.suite_spec(args.suite).name}
+    if node is not None:
+        host_fields["node_version"] = toolchain.node_version(node)
     fake = None
     if args.host == "claude":
         # Simulated accounts that start near their caps, so one dry run exercises the
         # 98% rule, the personal reserve, a wait for a 5-hour reset and a mid-cell 429.
         policy = claude.AccountPolicy(per_cell_session=1.5, per_cell_week=0.25)
         host_fields = {
+            **host_fields,
             "host": "claude",
             "accounts": ["work", "personal"],
             "budget": dataclasses.asdict(policy),
@@ -468,6 +526,7 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
         python,
         real_codex=False,
         log=(lambda _m: None) if args.quiet else print,
+        task_node=node,
     )
     if fake is not None:
         runner.account_reader = fake.read
@@ -570,8 +629,29 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 # -- parser -----------------------------------------------------------------------
 
 
+def _suite_option(p: argparse.ArgumentParser, live: bool = False) -> None:
+    p.add_argument(
+        "--suite",
+        choices=list(suite.SUITES),
+        default=None if live else suite.DEFAULT_SUITE,
+        help=(
+            "Must match the plan's suite (the plan pins it)."
+            if live
+            else f"Named task suite (default {suite.DEFAULT_SUITE})."
+        ),
+    )
+
+
+def _node_option(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--node", help=f"Node for TypeScript tasks (default: ${toolchain.ENV_NODE}, PATH, then nvm)."
+    )
+
+
 def _live_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--plan", required=True)
+    _suite_option(p, live=True)
+    _node_option(p)
     p.add_argument("--run-dir")
     p.add_argument("--work-root", help="Neutral directory outside /tmp for homes and cell repos.")
     p.add_argument("--codex", default=DEFAULT_CODEX)
@@ -591,16 +671,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("list", help="List the task suite.")
+    _suite_option(p)
     p.add_argument("--task", action="append")
     p.set_defaults(func=_cmd_list)
 
     p = sub.add_parser("validate", help="Prove every grader on noop/honest/planted solutions.")
+    _suite_option(p)
     p.add_argument("--task", action="append")
     p.add_argument("--python", help="Interpreter with pytest for the task code.")
+    _node_option(p)
     p.add_argument("--json")
     p.set_defaults(func=_cmd_validate)
 
     p = sub.add_parser("plan", help="Write a run plan (pre-registration input).")
+    _suite_option(p)
+    _node_option(p)
     p.add_argument("--name", required=True)
     p.add_argument("--stage", default="main", choices=["pilot", "main", "smoke"])
     p.add_argument("--seed", type=int, default=20261105)
@@ -658,6 +743,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.set_defaults(func=_cmd_run)
 
     p = sub.add_parser("dry-run", help="The whole pipeline with a scripted agent and a fake guard.")
+    _suite_option(p)
+    _node_option(p)
     p.add_argument("--run-dir", required=True)
     p.add_argument("--work-root")
     p.add_argument("--task", action="append")
