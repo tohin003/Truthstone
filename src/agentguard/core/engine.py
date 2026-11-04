@@ -35,9 +35,10 @@ from agentguard.core.models import Decision
 from agentguard.core.store import ProjectStore
 from agentguard.core.taskstate import TaskState
 from agentguard.intent.models import TaskSpec
+from agentguard.repo import symbols_ts
 from agentguard.repo.gitinfo import repository_root
 from agentguard.repo.index import RepoIndex
-from agentguard.verify import completion_gate, runners
+from agentguard.verify import completion_gate, runners, static
 
 log = logging.getLogger(__name__)
 
@@ -407,6 +408,10 @@ class Guard:
         if event.is_read_only:
             return Decision.allow()
 
+        try:
+            self._record_parse_baseline(event, ws)
+        except Exception:  # a missing baseline only means "blame as before"
+            log.exception("agentguard: could not record a parse baseline; continuing")
         return validate.validate(
             event=event,
             index=ws.index,
@@ -414,6 +419,34 @@ class Guard:
             ledger=ws.ledger,
             task_id=event.task_id,
         )
+
+    @staticmethod
+    def _record_parse_baseline(event: AgentEvent, ws: Workspace) -> None:
+        """At a file's first change in a task, note whether it parses today (G15).
+
+        Read from the index when its entry is current (no extra parse on the hot path),
+        otherwise parsed once. A file that does not exist yet counts as parsing.
+        """
+        if not event.is_mutating or event.is_delete:
+            return
+        state = ws.event_task_state(event)
+        raw = event.arg("file_path") or event.arg("notebook_path")
+        if state is None or not isinstance(raw, str) or not raw:
+            return
+        path = ws.index.normalize(raw)
+        if not path or path in state.parse_baseline:
+            return
+        record = ws.index.files.get(path) if ws.index.is_built else None
+        try:
+            stat = (ws.index.root / path).stat()
+        except OSError:
+            state.parse_baseline[path] = True  # about to be created
+            return
+        fresh = record is not None and (record.mtime_ns, record.size) == (stat.st_mtime_ns, stat.st_size)
+        if fresh and (record.lang == "python" or symbols_ts.available(record.lang)):
+            state.parse_baseline[path] = ws.index.is_parsed(path)
+            return
+        state.parse_baseline[path] = static.parses(ws.index.root, path)
 
     def _on_post_tool_use(self, event: AgentEvent, ws: Workspace) -> Decision:
         """Observe what actually happened (SPEC §19).

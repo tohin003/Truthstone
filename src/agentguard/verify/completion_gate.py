@@ -120,8 +120,15 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
     # and still have left new code untested (SPEC §3, "write insufficient tests").
     observations = _insufficient_tests(state, index, changed)
 
-    # 1. Does it parse? The cheapest and least arguable failure there is.
-    problems = static.check_files(index.root, state.touched_files)
+    # 1. Does it parse? The cheapest and least arguable failure there is — for files the
+    #    task broke (G15). A file that never parsed (a template) is not the task's doing,
+    #    and a passing test run after the file's last edit shows the project's own
+    #    interpreter parses it, even where the daemon's older one cannot.
+    problems = [
+        problem
+        for problem in static.check_files(index.root, state.touched_files)
+        if _task_broke(problem.path, state)
+    ]
     if problems:
         listing = "; ".join(f"{p.path}:{p.line} {p.message}" for p in problems[:3])
         evidence = [
@@ -221,6 +228,24 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
             ),
             *observations,
         ],
+    )
+
+
+def _task_broke(path: str, state: TaskState) -> bool:
+    """Whether an unparsable file is this task's doing (G15).
+
+    Not when it did not parse before the task first changed it, nor when a passing test
+    run came after its last change. Without a baseline (no PreToolUse was seen), it is
+    blamed, as before.
+    """
+    if not state.parse_baseline.get(path, True):
+        return False
+    changed_at = state.last_change_seq.get(path)
+    if changed_at is None:
+        return True
+    return not any(
+        outcome.passed and outcome.seq is not None and outcome.seq > changed_at
+        for outcome in state.verification.outcomes
     )
 
 

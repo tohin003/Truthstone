@@ -43,8 +43,10 @@ VOCABULARY = TOOL_NAMES | ARGUMENT_NAMES | HOOK_FIELDS
 ALLOWED: dict[tuple[str, str], int] = {
     ("agentguard.bench.mutation", "Write"): 1,
     ("agentguard.bench.mutation", "file_path"): 1,
-    ("agentguard.core.engine", "file_path"): 2,
-    ("agentguard.core.engine", "notebook_path"): 2,
+    # 3 each: workspace rebasing, post-tool touch, and G15's parse baseline at the first
+    # PreToolUse. To be centralised behind one accessor with canonical actions (H6).
+    ("agentguard.core.engine", "file_path"): 3,
+    ("agentguard.core.engine", "notebook_path"): 3,
     ("agentguard.core.engine", "stop_hook_active"): 1,
     # SHELL_TOOLS (G1-core): the one place the core names host shell tools, so the
     # engine no longer does. Goes when canonical actions (H6) replace tool names.

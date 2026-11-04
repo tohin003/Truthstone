@@ -52,6 +52,9 @@ class TaskState:
     # file, and with it which tests reached it; without this snapshot deleting covered
     # code looked like a change nothing tests.
     deleted_coverage: dict[str, set[str]] = field(default_factory=dict)
+    # Whether each file parsed before this task first changed it (G15). The syntax gate
+    # blames only files the task broke: a template that never parsed is not its doing.
+    parse_baseline: dict[str, bool] = field(default_factory=dict)
 
     def next_seq(self) -> int:
         self.seq += 1
