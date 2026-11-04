@@ -143,6 +143,7 @@ _KIND_NOUN = re.compile(
     r"variable|env(?:ironment)? var(?:iable)?|config|command|subcommand)s?\b",
     re.IGNORECASE,
 )
+_SETTING_NOUN = re.compile(r"\b(?:option|switch|setting|key|config)s?\b", re.IGNORECASE)
 # Creation: the name is what the request makes.
 _CREATES = re.compile(
     r"\b(?:add|adds|adding|added|introduce|introduces|introducing|create|creates|creating|"
@@ -283,8 +284,16 @@ def _window(before: str) -> str:
     return " ".join(_WORD.findall(before)[-4:])
 
 
-def _asserted(sentence: str, offset: int, name: str) -> bool:
-    """Whether this sentence asserts that ``name`` (at ``offset``) is already there."""
+def _asserted(sentence: str, offset: int, name: str, kind: str = "name") -> bool:
+    """Whether this sentence asserts that ``name`` (at ``offset``) is already there.
+
+    Switching a setting on ("enable X", "turn X on") asserts only an environment switch — the
+    shape of a premise about behaviour behind a named switch. Any other name a request switches
+    on is an option it adds, almost always a tool's (`strictNullChecks`, an eslint rule, a mypy
+    or pytest setting), which no repository defines until the change is made (audit of 66e1617:
+    12 of 22 ordinary enable/turn-on requests were noted). With "already", "existing",
+    "currently" or "is supposed to" the request does say the behaviour exists, for any name.
+    """
     before = sentence[:offset]
     after = sentence[offset + len(name) :]
     window = _window(before)
@@ -293,13 +302,23 @@ def _asserted(sentence: str, offset: int, name: str) -> bool:
     # Creation binds tighter than the sentence: a creating word within the four words before.
     if _CREATES.search(window):
         return False
-    if _EXISTS_NEAR.search(window):
+    near = {match.lower() for match in _EXISTS_NEAR.findall(window)}
+    if near - {"enable"} or (near and kind == "env"):
         return True
     if _CREATING_SENTENCE.search(sentence):
         return False
-    if _KIND_NOUN.match(after) and re.search(r"\b(?:the|our|its|their|your)\s+\S*$", before, re.IGNORECASE):
-        return True  # "the X helper", "the --foo flag"
-    return _EXISTS.search(sentence) is not None
+    noun = _KIND_NOUN.match(after)
+    if noun and re.search(r"\b(?:the|our|its|their|your)\s+\S*$", before, re.IGNORECASE):
+        # "the X helper", "the --foo flag": the project's own. "the X setting / option" is
+        # as often a tool's (GitHub's `concurrency` setting, a compiler option), so a
+        # setting asserts itself only as an environment switch or with an existing-behaviour
+        # word ("the existing X setting", "… already …").
+        if not _SETTING_NOUN.search(noun.group(0)) or kind == "env":
+            return True
+        return _EXISTING_BEHAVIOUR.search(sentence) is not None
+    if _EXISTS.search(sentence) is None:
+        return False
+    return kind == "env" or _EXISTING_BEHAVIOUR.search(sentence) is not None
 
 
 def assertions(prompt: str) -> list[Assertion]:
@@ -312,7 +331,7 @@ def assertions(prompt: str) -> list[Assertion]:
         for offset, candidate in _candidates(sentence):
             if candidate.kind == "flag" and tool_named and not existing:
                 continue  # another program's switch, unless the request says it works today
-            if _asserted(sentence, offset, candidate.name):
+            if _asserted(sentence, offset, candidate.name, candidate.kind):
                 candidate.existing = existing
                 out.setdefault(candidate.name, candidate)
             elif _CREATES.search(_window(sentence[:offset])):

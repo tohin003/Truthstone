@@ -218,6 +218,11 @@ def test_ordinary_typescript_requests_get_no_premise_note(tmp_path):
         ("Pass the --dry-run flag when the job syncs.", "--dry-run"),
         ("ledgerly already logs every request when LEDGERLY_TRACE=1 is set, so switch that on in CI.",
          "LEDGERLY_TRACE"),
+        ("ledgerly prints every request when LEDGERLY_TRACE=1 is set: turn that on for the smoke job.",
+         "LEDGERLY_TRACE"),
+        ("Enable `LEDGERLY_TRACE` in the nightly job.", "LEDGERLY_TRACE"),
+        ("The existing `rates_ttl` setting already caches rates; lower it to 60.", "rates_ttl"),
+        ("Turn on the `audit_mode` setting that ledgerly is supposed to honour.", "audit_mode"),
     ],
 )
 def test_a_request_resting_on_a_missing_repository_name_is_still_noted(tmp_path, prompt, name):
@@ -244,7 +249,6 @@ ENABLE_TS = [
 ]
 
 
-@pytest.mark.xfail(strict=True, reason="premise note on enable/turn-on requests for tool options (66e1617)")
 def test_requests_to_switch_on_a_tool_option_get_no_premise_note(tmp_path):
     spoke = {**_notes(PY_REPO, ENABLE_PY, tmp_path / "py"), **_notes(TS_REPO, ENABLE_TS, tmp_path / "ts")}
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
