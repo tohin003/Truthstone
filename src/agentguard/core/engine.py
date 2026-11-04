@@ -553,10 +553,15 @@ class Guard:
         if not verdict.should_block:
             # Still carries findings: the gate can pass and have seen something worth
             # counting — untested code, most often (SPEC §3, "write insufficient tests").
+            # When rationing muted a real objection the turn ends unverified, and the
+            # decision says so explicitly, for the developer (G10) — never in observe
+            # mode, where nothing is said at all.
+            gave_up = verdict.unresolved if not self.settings.observe_only else ""
             return Decision(
                 action=DecisionAction.ALLOW,
                 level=EscalationLevel.DEEP_VERIFICATION,
                 findings=verdict.findings,
+                unverified_finish=gave_up or None,
             )
 
         # Bookkeeping for a block that will actually happen. `observe.silence()` will turn

@@ -100,6 +100,11 @@ class Decision(BaseModel):
     # with "needs developer sign-off" where the host's `ask` would silently fail open.
     # Advisory review requests (False) degrade to non-blocking context instead.
     signoff_required: bool = False
+    # Stop only: the Completion Gate had a problem to raise (named here) but rationing
+    # muted it — its per-task budget is spent, or a stop hook is already holding the turn
+    # — so the turn ends unverified. Adapters tell the *developer* (G10); the agent has
+    # already heard it. Never set in observe mode, where nothing is said by design.
+    unverified_finish: str | None = None
 
     @classmethod
     def allow(cls, level: EscalationLevel = EscalationLevel.DETERMINISTIC) -> Decision:

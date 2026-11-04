@@ -39,7 +39,7 @@ from agentguard.adapters.claude_code.protocol import (
     session_mode_message,
 )
 from agentguard.core import hosts
-from agentguard.core.enums import DecisionAction, EventType, FailureMode, Severity
+from agentguard.core.enums import DecisionAction, EventType
 from agentguard.core.events import AgentEvent
 from agentguard.core.models import Decision
 
@@ -366,30 +366,19 @@ def _context_only_out(decision: Decision, hook_name: str) -> dict[str, Any]:
     return _render(decision, hook_name)
 
 
-# Findings that mean "the completion gate would hold this turn open". On an ALLOW that
-# observe mode did not produce, they mean rationing silenced the gate: it gave up.
-_GATE_BLOCKING_MODES = frozenset({FailureMode.FALSE_COMPLETION, FailureMode.UNVERIFIED_CHANGE})
-_SEVERITY_ORDER = (Severity.INFO, Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
-
-
 def gate_gave_up(decision: Decision) -> str | None:
     """The unresolved problem, when the completion gate stopped holding a turn open.
 
     The core passes a turn once its per-task cap is spent, or when a stop hook is already
-    holding the turn — correctly, since a gate that never lets go is a loop — but it does
-    so silently, so the developer is left believing an unverified turn was verified
-    (G10). The core does not flag this yet, so it is recognised here: an ALLOW that
-    observe mode did not produce (``would_have`` unset) still carrying a blocking-grade
-    completion finding.
+    holding the turn — correctly, since a gate that never lets go is a loop — and says
+    so on ``Decision.unverified_finish`` (G10), so the developer is not left believing an
+    unverified turn was verified. It is the core's explicit flag, not an inference from
+    findings: an honest hand-back carries findings too, and is no give-up. Never on a
+    decision observe mode produced (``would_have`` set), nor on anything but an ALLOW.
     """
     if decision.action is not DecisionAction.ALLOW or decision.would_have is not None:
         return None
-    for finding in decision.findings:
-        if finding.failure_mode in _GATE_BLOCKING_MODES and _SEVERITY_ORDER.index(
-            finding.severity
-        ) >= _SEVERITY_ORDER.index(Severity.MEDIUM):
-            return finding.summary or finding.subject or "unverified changes"
-    return None
+    return decision.unverified_finish or None
 
 
 def _stop_out(decision: Decision, hook_name: str) -> dict[str, Any]:

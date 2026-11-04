@@ -67,6 +67,8 @@ class GateVerdict:
     findings: list[Finding] = field(default_factory=list)
     # The failing run behind a VERIFICATION_FAILED from the agent's tests, if any.
     failure: runners.TestOutcome | None = None
+    # Set when rationing muted a blocking verdict: the problem left unresolved (G10).
+    unresolved: str = ""
 
     @property
     def should_block(self) -> bool:
@@ -101,7 +103,13 @@ def evaluate(
     # been observed and recorded.
     muted = _muted_reason(state, stop_hook_active, max_blocks)
     if verdict.should_block and muted:
-        return GateVerdict(GateResult.PASS, reason=muted, findings=verdict.findings)
+        problem = next((f.summary for f in verdict.findings if f.severity in _BLOCKING), "")
+        return GateVerdict(
+            GateResult.PASS,
+            reason=muted,
+            findings=verdict.findings,
+            unresolved=problem or verdict.result.value,
+        )
     return verdict
 
 
