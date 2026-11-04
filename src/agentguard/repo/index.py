@@ -41,6 +41,7 @@ from agentguard.repo.models import (
     FileRecord,
     GitState,
     ImportRecord,
+    ModuleExports,
     SymbolRecord,
 )
 from agentguard.repo.paths import relative_path
@@ -137,6 +138,8 @@ class ParsedFile:
     # are still real (positive evidence is always safe to trust), but only a clean parse
     # licenses concluding that something is *absent* from the file.
     parsed: bool = False
+    # Python only: `__all__`, PEP 562 `__getattr__` and namespace writes (E1).
+    exports: ModuleExports | None = None
 
 
 class RepoIndex:
@@ -406,8 +409,8 @@ class RepoIndex:
 
         try:
             if record.lang == "python":
-                syms, imps, clean = symbols_python.extract(source, path)
-                return ParsedFile(symbols=syms, imports=imps, parsed=clean)
+                syms, imps, clean, exports = symbols_python.extract_module(source, path)
+                return ParsedFile(symbols=syms, imports=imps, parsed=clean, exports=exports)
             if symbols_ts.available(record.lang):
                 syms, imps, clean = symbols_ts.extract(source, path, record.lang)
                 return ParsedFile(symbols=syms, imports=imps, parsed=clean)
@@ -609,6 +612,24 @@ class RepoIndex:
 
     def resolve_module(self, module: str) -> str | None:
         return self.module_map.get(module)
+
+    def resolve_relative_module(self, importer: str, module: str, level: int) -> str | None:
+        """The file `from <level dots><module> import ...` names, written in `importer`.
+
+        Relative to the importer's package, as Python resolves it; `importer` need not be
+        indexed yet (it may be the file being created). Absolute when `level` is 0.
+        """
+        if level <= 0:
+            return self.resolve_module(module)
+        return self._resolve_python_import(ImportRecord(raw=module, level=level), importer)
+
+    def module_exports(self, path: str) -> ModuleExports | None:
+        """What `from <module> import ...` can reach beyond its own bindings (E1).
+
+        None when unknown: not a Python file, not parsed cleanly, or not indexed.
+        """
+        parsed = self.parsed.get(self.normalize(path))
+        return parsed.exports if parsed is not None and parsed.parsed else None
 
     def search_names(self, fragment: str, limit: int = 10) -> list[SymbolRecord]:
         """Symbols whose name contains `fragment`, case-insensitively.

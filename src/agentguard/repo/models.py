@@ -122,6 +122,10 @@ class ImportRecord:
     line: int = 0
     level: int = 0  # relative-import depth; 0 = absolute
     resolved: str | None = None  # repo-relative path this resolves to, if internal
+    # The names this import binds in the importing module, `as` names included:
+    # `from .impl import Thing as Public` binds "Public", which `names` does not say.
+    # Empty when the extractor does not report it, and for a star import.
+    bound: list[str] = field(default_factory=list)
 
     @property
     def is_relative(self) -> bool:
@@ -130,6 +134,31 @@ class ImportRecord:
     @property
     def is_internal(self) -> bool:
         return self.resolved is not None
+
+    @property
+    def is_star(self) -> bool:
+        return "*" in self.names
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleExports:
+    """What a Python module offers `from module import ...` beyond its own bindings (E1).
+
+    The Evidence Engine may only say "`X` is not in `module`" when the module's namespace
+    is decidable from its source. These flags say when it is not.
+    """
+
+    # The literal `__all__`: the names `from module import *` binds. Set only for one
+    # unconditional top-level assignment of a list/tuple of string literals.
+    all_names: tuple[str, ...] | None = None
+    # `__all__` exists but is not such a literal (computed, extended, conditional,
+    # assigned twice, imported): what a star import of this module binds is undecidable.
+    all_dynamic: bool = False
+    # A module-level `__getattr__` (PEP 562): `from module import ANYTHING` may succeed.
+    getattr_hook: bool = False
+    # The module writes its own namespace (`globals()`, `vars()`, `exec`,
+    # `sys.modules[__name__]`): which names it has is undecidable.
+    dynamic_namespace: bool = False
 
 
 @dataclass(slots=True)

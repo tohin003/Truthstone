@@ -204,6 +204,39 @@ class _Analyzer(ast.NodeVisitor):
                 if isinstance(target.value, ast.Name) and target.value.id == "self":
                     owner = ".".join(self._class_stack)
                     self.facts.class_attributes.setdefault(owner, set()).add(target.attr)
+            elif isinstance(target, ast.Tuple | ast.List):
+                # `LOW, HIGH = 1, 10` binds both names, and `self.a, self.b = a, b` both
+                # attributes. Unpacked values have no type we can name (E1).
+                for leaf in _unpacked(target):
+                    if isinstance(leaf, ast.Name):
+                        self._bind_unknown(leaf.id)
+                    elif (
+                        isinstance(leaf, ast.Attribute)
+                        and self._class_stack
+                        and isinstance(leaf.value, ast.Name)
+                        and leaf.value.id == "self"
+                    ):
+                        owner = ".".join(self._class_stack)
+                        self.facts.class_attributes.setdefault(owner, set()).add(leaf.attr)
+        self.generic_visit(node)
+
+    def _bind_unknown(self, name: str) -> None:
+        """A name bound to a value of unknown type; in a class body, a class attribute."""
+        self.facts.defined_names.add(name)
+        self._types.pop(name, None)
+        self._ambiguous.add(name)
+        if self._class_stack and self._in_class_body:
+            owner = ".".join(self._class_stack)
+            self.facts.class_attributes.setdefault(owner, set()).add(name)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        if isinstance(node.target, ast.Name):
+            self._bind_unknown(node.target.id)
+        self.generic_visit(node)
+
+    def visit_TypeAlias(self, node: ast.TypeAlias) -> None:
+        if isinstance(node.name, ast.Name):
+            self._bind_unknown(node.name.id)
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -221,22 +254,23 @@ class _Analyzer(ast.NodeVisitor):
                 self.facts.class_attributes.setdefault(owner, set()).add(node.target.attr)
         self.generic_visit(node)
 
-    def visit_For(self, node: ast.For) -> None:
-        # Loop variables have element types we cannot infer.
+    def visit_For(self, node: ast.For | ast.AsyncFor) -> None:
+        # Loop variables have element types we cannot infer. In a class body they are
+        # class attributes.
         for name in _target_names(node.target):
-            self.facts.defined_names.add(name)
-            self._types.pop(name, None)
-            self._ambiguous.add(name)
+            self._bind_unknown(name)
         self.generic_visit(node)
 
-    def visit_With(self, node: ast.With) -> None:
+    visit_AsyncFor = visit_For
+
+    def visit_With(self, node: ast.With | ast.AsyncWith) -> None:
         for item in node.items:
             if item.optional_vars is not None:
                 for name in _target_names(item.optional_vars):
-                    self.facts.defined_names.add(name)
-                    self._ambiguous.add(name)
-                    self._types.pop(name, None)
+                    self._bind_unknown(name)
         self.generic_visit(node)
+
+    visit_AsyncWith = visit_With
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -257,20 +291,22 @@ class _Analyzer(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = node.module or ""
+        # The owner keeps a relative import's dots (`.models`, `..`): the resolver
+        # resolves it against this file's package. Without them `from .models import X`
+        # was checked against whichever top-level `models` module happened to exist.
+        owner = "." * (node.level or 0) + module
         for alias in node.names:
             bound = alias.asname or alias.name
             self.facts.defined_names.add(bound)
             self.facts.imported_names.add(bound)
             if alias.name != "*":
                 self.facts.from_import_bindings[bound] = module
-            # A relative import's module is resolved against the file's package, which
-            # the resolver does; here we only record the claim.
             if alias.name != "*":
                 self.facts.claims.append(
                     Claim(
                         kind=ClaimKind.SYMBOL_EXISTS,
                         subject=alias.name,
-                        owner=module,
+                        owner=owner,
                         path=self.path,
                         line=node.lineno,
                         snippet=self._snippet(node),
@@ -329,12 +365,17 @@ class _Analyzer(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+def _unpacked(target: ast.expr) -> list[ast.expr]:
+    """The leaves an assignment target binds: `a, (b, *c) = ...` -> [a, b, c]."""
+    if isinstance(target, ast.Tuple | ast.List):
+        return [leaf for element in target.elts for leaf in _unpacked(element)]
+    if isinstance(target, ast.Starred):
+        return _unpacked(target.value)
+    return [target]
+
+
 def _target_names(node: ast.expr) -> list[str]:
-    if isinstance(node, ast.Name):
-        return [node.id]
-    if isinstance(node, ast.Tuple | ast.List):
-        return [name for element in node.elts for name in _target_names(element)]
-    return []
+    return [leaf.id for leaf in _unpacked(node) if isinstance(leaf, ast.Name)]
 
 
 def analyze(source: str, path: str = "") -> SourceFacts:

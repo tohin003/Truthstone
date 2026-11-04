@@ -106,6 +106,16 @@ _FRAMEWORK_API: frozenset[str] = frozenset(
     }
 )
 
+# Star imports followed through a chain of re-exporting modules before the answer is
+# "undecidable" (Pebble's MAX_HOPS).
+_MAX_STAR_DEPTH = 8
+
+
+def _submodule(owner: str, name: str) -> str:
+    """`shop` + `models` -> `shop.models`; `.` + `models` -> `.models`."""
+    return f"{owner}.{name}" if owner.strip(".") else f"{owner}{name}"
+
+
 _ALWAYS_PRESENT_ATTRIBUTES: frozenset[str] = frozenset(
     {
         "__class__", "__dict__", "__doc__", "__module__", "__name__", "__qualname__",
@@ -363,7 +373,7 @@ class Resolver:
         if not module:
             return None
 
-        target = self.index.resolve_module(module)
+        target = self._module_file(module, claim.path)
         if target is None or not self.index.is_parsed(target):
             return None  # external, or incompletely understood
 
@@ -378,12 +388,28 @@ class Resolver:
             )
 
         # A submodule of the package is a legitimate import too.
-        if self.index.resolve_module(f"{module}.{claim.subject}") is not None:
+        if self._module_file(_submodule(module, claim.subject), claim.path) is not None:
             return None
 
-        available = sorted(
-            name for name in self._exported_names(target) if not name.startswith("_")
-        )
+        # Everything else the module offers: star imports, followed (E1). Undecidable —
+        # an unresolvable star, a computed `__all__`, a module `__getattr__` — is silence.
+        exports = self.index.module_exports(target)
+        if exports is None or exports.getattr_hook:
+            return None
+        names = self._module_names(target)
+        if names is None:
+            return None
+        if claim.subject in names:
+            return Resolution(
+                claim=claim,
+                verdict=Verdict.SUPPORTED,
+                failure_mode=FailureMode.NOT_A_FAILURE,
+                severity=Severity.INFO,
+                summary=f"{module}.{claim.subject} exists (star import)",
+                evidence=[EvidenceRef(source="ast", path=target, symbol=claim.subject)],
+            )
+
+        available = sorted(name for name in names if not name.startswith("_"))
         return Resolution(
             claim=claim,
             verdict=Verdict.CONTRADICTED,
@@ -397,19 +423,75 @@ class Resolver:
             alternatives=available[:12],
         )
 
+    def _module_file(self, owner: str, importer: str) -> str | None:
+        """The file `from <owner> import ...` reads, when written in `importer`.
+
+        A relative owner (`.models`, `..`) is resolved against the importer's package,
+        never as an absolute module: `from .models import Invoice` in `billing/api.py`
+        means `billing/models.py`, whatever a top-level `models.py` contains.
+        """
+        level = len(owner) - len(owner.lstrip("."))
+        if level == 0:
+            return self.index.resolve_module(owner)
+        if not importer:
+            return None
+        return self.index.resolve_relative_module(importer, owner[level:], level)
+
     def _exported_names(self, path: str) -> set[str]:
         """Names obtainable from a module: what it defines plus what it re-exports.
 
         Re-exports matter. A package `__init__.py` that does `from .models import User`
         defines no symbol called `User`, but `from shop import User` is perfectly valid,
-        and treating it as a hallucination would be a glaring false positive.
+        and treating it as a hallucination would be a glaring false positive. So does
+        `from .models import User as Account`, which binds `Account`.
         """
         names = {symbol.name for symbol in self.index.symbols_in(path) if symbol.parent is None}
         for record in self.index.imports_of(path):
-            names.update(record.names)
+            names.update(name for name in record.names if name != "*")
+            names.update(record.bound)
             if record.alias:
                 names.add(record.alias)
         return names
+
+    def _module_names(self, path: str, depth: int = 0, trail: tuple[str, ...] = ()) -> set[str] | None:
+        """Every name `from <module> import NAME` can bind, or None when undecidable.
+
+        Its own bindings plus what each star import brings in, followed up to
+        `_MAX_STAR_DEPTH` star hops. Ported from Pebble's star-import resolution
+        (backend/pebble/python_xref.py `_Resolver.stars`/`member`, same owner,
+        Apache-2.0): an external or unresolvable star "may bind anything".
+        """
+        if not self.index.is_parsed(path):
+            return None
+        exports = self.index.module_exports(path)
+        if exports is None or exports.dynamic_namespace:
+            return None
+        names = self._exported_names(path)
+        for record in self.index.imports_of(path):
+            if not record.is_star:
+                continue
+            starred = self._star_names(record, depth, (*trail, path))
+            if starred is None:
+                return None
+            names |= starred
+        return names
+
+    def _star_names(self, record, depth: int, trail: tuple[str, ...]) -> set[str] | None:
+        """What `from <record's module> import *` binds, or None when undecidable."""
+        if depth >= _MAX_STAR_DEPTH:
+            return None
+        source = record.resolved
+        if source is None or source in trail:
+            return None  # external, unresolvable, or a star-import cycle
+        exports = self.index.module_exports(source)
+        if exports is None or exports.all_dynamic:
+            return None
+        if exports.all_names is not None:
+            return set(exports.all_names)  # a literal `__all__` decides
+        names = self._module_names(source, depth + 1, trail)
+        if names is None:
+            return None
+        return {name for name in names if not name.startswith("_")}
 
     # -- module importability -----------------------------------------------------
 
