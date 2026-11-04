@@ -34,7 +34,7 @@ from agentguard.core.models import Decision, Finding
 from agentguard.core.taskstate import TaskState
 from agentguard.evidence import extractors
 from agentguard.repo.index import RepoIndex
-from agentguard.validate import checks, modify
+from agentguard.validate import checks, modify, secrets
 
 log = logging.getLogger(__name__)
 
@@ -83,9 +83,11 @@ def validate(
     if human:
         return _review(findings, human, modify.safer_form(event, risky))
 
-    # Level-0 concerns the agent should hear (once), which need no repository: a command
-    # that switches off the checks verifying the work (A8).
+    # Concerns the agent should hear (once), which need no index: a command that switches
+    # off the checks verifying the work (A8), and a credential newly written into a file
+    # git does not ignore (A11).
     findings.extend(checks.verification_bypass(event))
+    findings.extend(secrets.check(event, index.root))
 
     # A command that only reads, or only runs the tests, is not a change: nothing below is
     # about it (IMPROVEMENTS.md A4). `grep -rn "npm install lodash" docs/` was denied as a

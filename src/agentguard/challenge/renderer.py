@@ -89,9 +89,16 @@ def _closing(findings: list[Finding]) -> str:
     contradicted = any(f.verdict is Verdict.CONTRADICTED for f in findings)
     dependency = any(f.category is ChallengeCategory.DEPENDENCY for f in findings)
     skipped = all(f.failure_mode is FailureMode.VERIFICATION_TAMPERING for f in findings)
+    secret = all(f.failure_mode is FailureMode.SECRET_EXPOSURE for f in findings)
 
     if skipped:
         return "Skipping a check hides what it would have found: run it, and fix what it reports."
+
+    if secret:
+        return (
+            "Keep credentials out of tracked files: a committed key stays in history even after "
+            "it is deleted. If the key is not real, say so by making it look like a placeholder."
+        )
 
     if dependency and not contradicted:
         # No "add it to the manifest" here: `uv add`, `npm install <pkg>` and the like
