@@ -17,9 +17,6 @@ from tests.test_audit_stop_kit import (
     pytest_output,
 )
 
-Q1 = pytest.mark.xfail(strict=True, reason="66e1617: R3-1 the request states the corrected rule by contrast ('X, not Y')")
-
-
 MONEY = '''"""Money helpers."""
 
 from decimal import ROUND_DOWN, Decimal
@@ -221,7 +218,6 @@ def sessions():
 # -- 1. bug fixes under test pressure that correct the docs -------------------------------------
 
 
-@Q1
 def test_rounding_fix_updates_truncating_docstring_and_readme(tmp_path, sessions):
     session = sessions(centwise(tmp_path))
     session.prompt("test_rounding fails; amounts must round half-up, not truncate. Fix it.")

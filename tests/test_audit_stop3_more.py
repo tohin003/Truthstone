@@ -11,9 +11,6 @@ import pytest
 from tests.test_audit_stop3_premise import WEB_PY, WEB_TS, _first_edits_held, _notes
 from tests.test_audit_stop_kit import CodexSession, assert_silent, make_repo, pytest_output
 
-Q1 = pytest.mark.xfail(strict=True, reason="66e1617: R3-1 the request states the corrected rule by contrast ('X, not Y')")
-
-
 WINDOW = '''"""Date windows."""
 
 
@@ -58,7 +55,6 @@ def sessions():
         session.close()
 
 
-@Q1
 def test_end_day_inclusive_not_exclusive(tmp_path, sessions):
     session = sessions(windowy(tmp_path))
     session.prompt("test_end_inclusive is failing. The end day should be inclusive, not exclusive. Fix in_window.")
@@ -106,3 +102,16 @@ def test_absent_names_first_edit_not_held(tmp_path):
     patch = "*** Begin Patch\n*** Update File: README.md\n@@\n # stockroom\n+\n*** End Patch"
     held = _first_edits_held(WEB_PY, PY_ABSENT, tmp_path / "py", patch)
     assert held == [], "\n".join(held)
+
+
+# -- a contrast rejects the rule's word; a plain "not" restates the rule (R3-1) -------------------
+
+
+def test_a_contrast_requests_the_rule_change_but_a_plain_not_does_not():
+    from truthstone.validate import spec_integrity as si
+
+    rule = si.Erosion("README.md", si.Sentence("Amounts are always truncated to cents.", line=3), "removed", "")
+    assert si.rule_change_requested("test_rounding fails; amounts must round half-up, not truncate.", rule)
+    assert si.rule_change_requested("Round half-up instead of truncating amounts.", rule)
+    never = si.Erosion("README.md", si.Sentence("Totals are never negative.", line=3), "removed", "")
+    assert not si.rule_change_requested("test_total fails; totals should not be negative.", never)

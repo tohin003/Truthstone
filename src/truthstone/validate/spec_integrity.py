@@ -720,6 +720,21 @@ _QUANTITY = re.compile(
 )
 
 
+# A contrast that rejects a word: ", not X" (not a plain "not": "should not be negative" restates a
+# rule), "instead of X", "rather than X".
+_CONTRAST = re.compile(
+    r",\s*(?:and\s+|but\s+)?not\s+(?:to\s+|be\s+)?([A-Za-z]{4,})"
+    r"|\binstead\s+of\s+([A-Za-z]{4,})|\brather\s+than\s+(?:to\s+)?([A-Za-z]{4,})",
+    re.IGNORECASE,
+)
+
+
+def _same_stem(word: str, subject: Iterable[str]) -> bool:
+    """``word`` is one of ``subject``, or shares its first five letters (truncate / truncated)."""
+    word = word.lower()
+    return any(s == word or (len(s) >= 5 and len(word) >= 5 and s[:5] == word[:5]) for s in subject)
+
+
 def _request_numbers(text: str) -> frozenset[str]:
     """The numbers a request names: digits, number words ("two-letter"), and durations in the
     units a rule may use ("one minute" is also 60 seconds; "2 hours", 120 minutes and 7200
@@ -759,6 +774,11 @@ def rule_change_requested(prompt: str | None, erosion: Erosion) -> bool:
     if not subject:
         return False
     for sentence in re.split(r"(?<=[.!?])\s+", text):
+        # "round half-up, not truncate", "inclusive, not exclusive", "instead of truncating":
+        # the request rejects the rule's own word, by contrast (audit of 66e1617, R3-1).
+        contrasted = [word for match in _CONTRAST.finditer(sentence) for word in match.groups() if word]
+        if any(_same_stem(word, subject) for word in contrasted):
+            return True
         verbs = [
             m
             for m in _RULE_CHANGE_VERB.finditer(sentence)
