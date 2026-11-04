@@ -427,6 +427,7 @@ def doctor() -> None:
         report.section("config", lambda: _doctor_config(report, settings))
         report.section("storage", lambda: _doctor_storage(report))
         report.section("daemon", lambda: _doctor_daemon(report, settings))
+        report.section("index", lambda: _doctor_index(settings))
         installed_anywhere = report.section(
             "claude code", lambda: _doctor_claude_hooks(report, settings), default=False
         )
@@ -634,6 +635,42 @@ def _degraded_lines(health: dict) -> list[str]:
     if not isinstance(degraded, list):
         return []
     return [f"degraded: {reason}" for reason in degraded if isinstance(reason, str) and reason.strip()]
+
+
+# How long `doctor` waits for the current workspace's index before reporting it as building.
+DOCTOR_INDEX_WAIT_S = 3.0
+
+
+def _doctor_index(settings: Settings, wait_s: float | None = None) -> None:
+    """The index status of the current workspace (R12), as the daemon would see it.
+
+    The workspace is the repository containing the working directory, as for the agent.
+    A refused root ($HOME, `/`, a huge non-git tree) answers at once; a large repository
+    that has not finished within `wait_s` is reported as building, never waited for.
+    """
+    from agentguard.repo import RepoIndex
+    from agentguard.repo.gitinfo import repository_root
+
+    wait_s = DOCTOR_INDEX_WAIT_S if wait_s is None else wait_s
+    root = repository_root(Path.cwd())
+    index = RepoIndex(root, settings.index)
+    index.build_async()
+    index.ready(timeout=wait_s)
+    status = index.status
+    if status == "ready":
+        _ok(f"ready: {len(index.files)} files ({root})")
+    elif status.startswith("unavailable"):
+        # Expected when run from $HOME: a warning, not a problem. But the agent should not
+        # be started here either, since nothing it does is checked against a repository.
+        _warn(
+            f"{status} ({root}). AgentGuard does not index it, so an agent started here is "
+            "not checked against a repository; start it inside one."
+        )
+    else:
+        _echo(
+            f"  · still building after {wait_s:.0f}s ({root}): a large repository; "
+            "the daemon builds it in the background"
+        )
 
 
 def _read_token() -> str | None:
@@ -933,10 +970,18 @@ def index_cmd(
     """Build the repository index and report what it found (SPEC §32)."""
     from agentguard.repo import RepoIndex
 
-    index = RepoIndex(workspace).build()
+    index = RepoIndex(workspace, Settings.load().index).build()
     summary = index.summary()
+    status = str(summary.get("status") or index.status)
 
     _echo(f"{summary['root']}")
+    if status.startswith("unavailable"):
+        # R12 refuses $HOME, `/` and huge non-git trees. Rows of zeros would read as an
+        # empty repository; say what happened instead, and fail.
+        _bad(f"index {status}")
+        _echo("  AgentGuard does not index this directory, so nothing here is checked against it.")
+        raise typer.Exit(1)
+    _echo(f"  status        {status}")
     _echo(f"  files         {summary['files']}  ({summary['parsed_files']} parsed for symbols)")
     _echo(f"  symbols       {summary['symbols']}")
     _echo(f"  tests         {summary['test_files']} files covering {summary['tested_sources']} sources")
