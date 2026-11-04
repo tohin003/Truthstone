@@ -27,11 +27,21 @@ whose answer AgentGuard never sees. The validator does not send review requests 
 all; should anything else, `admit` passes them through untouched and `record` ignores
 them, so they can never be deduplicated, silenced for want of a task, or spend the budget
 the agent-facing challenges share.
+
+**The counts live in memory first** (R1). They used to be read back from the database on
+every admission, so a store that could not write — critical disk, a degraded or corrupted
+database, a write lock held by another process — read back 0 every time, and the same
+challenge was raised again and again (5 of 5 in D3's probe, 3 of 3 in D6's). The
+in-memory counters are authoritative; each count is seeded once from the store (so a
+restarted daemon still knows what it said before) and every challenge is mirrored to it,
+best-effort.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+from collections import OrderedDict
+from dataclasses import dataclass, field
 
 from agentguard.challenge.renderer import severity_at_least
 from agentguard.core.config import ChallengeSettings
@@ -51,10 +61,59 @@ class LedgerVerdict:
         return bool(self.raise_now)
 
 
+# Tasks whose counts are kept in memory. A task evicted from here is re-seeded from the
+# store when it comes back; far more than the engine's live-task window (R14).
+MAX_TASKS = 1_024
+
+
+@dataclass(slots=True)
+class _Counts:
+    """One task's challenge counts: the total and per fingerprint, seeded from the store."""
+
+    total: int = 0
+    by_fingerprint: dict[str, int] = field(default_factory=dict)
+
+
 class ChallengeLedger:
     def __init__(self, store: Store, settings: ChallengeSettings | None = None) -> None:
+        # Public: other code reads the store the ledger mirrors to.
         self.store = store
         self.settings = settings or ChallengeSettings()
+        self._lock = threading.RLock()
+        self._tasks: OrderedDict[str, _Counts] = OrderedDict()
+
+    # -- counts (R1) -------------------------------------------------------------
+
+    def _counts(self, task_id: str) -> _Counts:
+        """The task's counts, seeded from the store the first time it is seen."""
+        counts = self._tasks.get(task_id)
+        if counts is None:
+            counts = _Counts(total=self._stored(task_id))
+            self._tasks[task_id] = counts
+            while len(self._tasks) > MAX_TASKS:
+                self._tasks.popitem(last=False)
+        else:
+            self._tasks.move_to_end(task_id)
+        return counts
+
+    def _seen(self, task_id: str, counts: _Counts, fingerprint: str) -> int:
+        seen = counts.by_fingerprint.get(fingerprint)
+        if seen is None:
+            seen = counts.by_fingerprint[fingerprint] = self._stored(task_id, fingerprint)
+        return seen
+
+    def _stored(self, task_id: str, fingerprint: str | None = None) -> int:
+        """What the store remembers; 0 when it cannot say. Never raises."""
+        try:
+            return max(0, int(self.store.challenge_count(task_id, fingerprint)))
+        except Exception:  # noqa: BLE001 - the store is `_safe`; this is belt and braces
+            return 0
+
+    def challenge_count(self, task_id: str, fingerprint: str | None = None) -> int:
+        """How often the ledger has raised a concern for ``task_id`` (by ``fingerprint``)."""
+        with self._lock:
+            counts = self._counts(task_id)
+            return counts.total if fingerprint is None else self._seen(task_id, counts, fingerprint)
 
     def admit(self, task_id: str | None, findings: list[Finding]) -> LedgerVerdict:
         """Decide which findings are worth the host's attention right now."""
@@ -76,7 +135,19 @@ class ChallengeLedger:
             # repeating ourselves. Record only.
             return LedgerVerdict(asks, findings, "no task context")
 
-        already = self.store.challenge_count(task_id)
+        with self._lock:
+            return self._admit(task_id, asks, eligible, below, findings)
+
+    def _admit(
+        self,
+        task_id: str,
+        asks: list[Finding],
+        eligible: list[Finding],
+        below: list[Finding],
+        findings: list[Finding],
+    ) -> LedgerVerdict:
+        counts = self._counts(task_id)
+        already = counts.total
         if already >= self.settings.max_per_task:
             return LedgerVerdict(
                 asks, findings, f"task challenge budget spent ({already}/{self.settings.max_per_task})"
@@ -88,7 +159,7 @@ class ChallengeLedger:
 
         for finding in sorted(eligible, key=lambda f: -_severity_rank(f)):
             fingerprint = finding.fingerprint()
-            seen = self.store.challenge_count(task_id, fingerprint)
+            seen = self._seen(task_id, counts, fingerprint)
             if seen >= self.settings.max_per_fingerprint:
                 # Already raised. The agent has heard it and chosen to proceed —
                 # SPEC §17's "evidence sufficient -> ALLOW".
@@ -102,12 +173,19 @@ class ChallengeLedger:
         return LedgerVerdict(asks + raise_now, suppressed)
 
     def record(self, task_id: str | None, findings: list[Finding]) -> None:
+        """Count what was raised — in memory, authoritatively — and mirror it to the store."""
         if task_id is None:
             return
         for finding in findings:
             if finding.verdict is Verdict.REQUIRES_HUMAN:
                 continue  # a review request never spends the advisory budget (A1)
-            self.store.record_challenge(task_id, finding.fingerprint(), finding.subject)
+            fingerprint = finding.fingerprint()
+            with self._lock:
+                counts = self._counts(task_id)
+                counts.by_fingerprint[fingerprint] = self._seen(task_id, counts, fingerprint) + 1
+                counts.total += 1
+            # Best effort: a store that cannot write changes nothing above (R1).
+            self.store.record_challenge(task_id, fingerprint, finding.subject)
 
     def resolve(self, task_id: str | None, findings: list[Finding]) -> None:
         """Mark concerns as settled — e.g. the agent defined the method it was calling."""
