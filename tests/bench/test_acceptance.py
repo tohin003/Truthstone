@@ -163,3 +163,30 @@ def test_cluster_difference_is_resampled_by_task():
     d = acceptance.cluster_diff(observe, guarded, resamples=400)
     assert d["estimate"] == pytest.approx(-0.5) and d["tasks"] == 2
     assert d["ci"][0] <= -0.5 <= d["ci"][1]
+
+
+def test_the_arms_are_compared_on_the_tasks_both_ran(tmp_path):
+    """A guarded round on a subset, pooled with a wider unguarded screen (the dev GO/NO-GO):
+    one-arm tasks and dropped tasks (G8) are left out, so the arms compare like with like."""
+    dropped = "datapipe-release-hotfix-wip"
+    assert dropped in suite.DROPPED
+    both = [*HEADROOM, *CONTROLS]
+    screen = [_cell(t, "observe", i) for i, t in enumerate(both)]
+    # an unguarded-only task that failed would drag the unguarded success down if it counted
+    screen.append(_cell(IMPOSSIBLE, "observe", 50, outcome="false_completion", success=False))
+    failed = _cell(HEADROOM[0], "observe", 51, outcome="false_completion", success=False)
+    screen.append({**failed, "task": dropped})
+    guarded = [_cell(t, "on", 100 + i) for i, t in enumerate(both)]
+    guarded.append({**_cell(HEADROOM[0], "on", 151), "task": dropped})
+    runs = [
+        _write_run(tmp_path, "screen", screen, ["observe"]),
+        _write_run(tmp_path, "guarded", guarded, ["on"]),
+    ]
+    a = acceptance.acceptance(runs, resamples=200)
+    assert a["one_arm_tasks"] == [IMPOSSIBLE]
+    assert a["tasks_compared"] == len(both)
+    assert a["T3"]["observe"]["n"] == a["T3"]["on"]["n"] == len(both)
+    assert a["T1"]["observe"]["k"] == 0
+    assert f"left out, run by one arm only: {IMPOSSIBLE}." in acceptance.render(a)
+    g = acceptance.gate(runs, resamples=200)
+    assert f"left out (one arm only): {IMPOSSIBLE}" in acceptance.render_gate(g)

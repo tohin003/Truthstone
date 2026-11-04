@@ -43,6 +43,19 @@ def load_cells(run_dirs: Sequence[Path], allow_heldout: bool = False) -> list[di
     return cells
 
 
+def compared(cells: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """The cells the arms are compared on: dropped tasks (amendment G8) never count, and when
+    both arms ran, only the tasks both ran (a guarded round on a subset, pooled with a wider
+    unguarded screen, compares like with like). Returns the cells and the one-arm tasks left out."""
+    cells = [c for c in cells if c.get("task") not in suite.DROPPED]
+    tasks = {a: {c["task"] for c in cells if c.get("arm") == a} for a in ARMS}
+    if not (tasks["on"] and tasks["observe"]):
+        return cells, []
+    common = tasks["on"] & tasks["observe"]
+    left_out = sorted((tasks["on"] | tasks["observe"]) - common)
+    return [c for c in cells if c["task"] in common], left_out
+
+
 def _rate(cells: list[dict], fn: Callable[[dict], bool]) -> dict[str, Any]:
     k, n = sum(1 for c in cells if fn(c)), len(cells)
     lo, hi = stats.clopper_pearson(k, n) if n else (None, None)
@@ -126,10 +139,15 @@ def _verdict(passed: bool | None) -> str:
 def acceptance(
     run_dirs: Sequence[Path], resamples: int = 10_000, allow_heldout: bool = False
 ) -> dict[str, Any]:
-    cells = load_cells(run_dirs, allow_heldout=allow_heldout)
+    cells, one_arm = compared(load_cells(run_dirs, allow_heldout=allow_heldout))
     arm = {a: [c for c in cells if c.get("arm") == a] for a in ARMS}
     has_guard = bool(arm["on"])
-    out: dict[str, Any] = {"runs": [str(d) for d in run_dirs], "cells": {a: len(arm[a]) for a in ARMS}}
+    out: dict[str, Any] = {
+        "runs": [str(d) for d in run_dirs],
+        "cells": {a: len(arm[a]) for a in ARMS},
+        "tasks_compared": len({c["task"] for c in cells}),
+        "one_arm_tasks": one_arm,
+    }
 
     def opp(cs: list[dict]) -> list[dict]:
         return [c for c in cs if c.get("set") in OPPORTUNITY]
@@ -268,7 +286,13 @@ def render(a: dict[str, Any]) -> str:
         "# Acceptance targets (dev only; ARCHITECTURE-v0.2 §5.2)",
         "",
         f"Runs: {', '.join(a['runs'])}. "
-        f"Valid cells: observe {a['cells']['observe']}, guarded {a['cells']['on']}.",
+        f"Valid cells: observe {a['cells']['observe']}, guarded {a['cells']['on']}, on "
+        f"{a.get('tasks_compared', '?')} tasks"
+        + (
+            f"; left out, run by one arm only: {', '.join(a['one_arm_tasks'])}."
+            if a.get("one_arm_tasks")
+            else "."
+        ),
         "",
         "| target | observe | guarded | guarded - observe (task-cluster 95% CI) | target | verdict |",
         "|---|---|---|---|---|---|",
@@ -367,9 +391,14 @@ def gate(
     """PASS or FAIL per target, on dev (GO/NO-GO) or on the held-out study (the release gate)."""
     th = thresholds or GateThresholds()
     a = acceptance(run_dirs, resamples=resamples, allow_heldout=True)
-    cells = load_cells(run_dirs, allow_heldout=True)
+    cells, _ = compared(load_cells(run_dirs, allow_heldout=True))
     arm = {x: [c for c in cells if c.get("arm") == x] for x in ARMS}
-    out: dict[str, Any] = {"thresholds": asdict(th), "targets": {}}
+    out: dict[str, Any] = {
+        "thresholds": asdict(th),
+        "targets": {},
+        "tasks_compared": a.get("tasks_compared"),
+        "one_arm_tasks": a.get("one_arm_tasks", []),
+    }
 
     def put(key: str, passed: bool | None, why: str) -> None:
         out["targets"][key] = {"verdict": _verdict(passed), "why": why}
@@ -432,4 +461,7 @@ def render_gate(g: dict[str, Any]) -> str:
     """One line: PASS/FAIL per target, then the overall verdict; reasons below it."""
     line = " | ".join(f"{k} {v['verdict'].upper()}" for k, v in g["targets"].items())
     reasons = "\n".join(f"  {k}: {v['why']}" for k, v in g["targets"].items())
-    return f"GATE {g['overall']}: {line}\n{reasons}\n"
+    scope = f"  compared on {g.get('tasks_compared')} tasks both arms ran"
+    if g.get("one_arm_tasks"):
+        scope += f"; left out (one arm only): {', '.join(g['one_arm_tasks'])}"
+    return f"GATE {g['overall']}: {line}\n{reasons}\n{scope}\n"

@@ -18,6 +18,12 @@ luna="--model gpt-6-luna --effort medium --truthstone-ref $ref --weekly-percent-
 # cells on the dedicated account; acceptance pools it with the extended screen's unguarded cells.
 $py -m truthstone.bench.codex plan --suite golden-dev --arms on --stage pilot $three --replicates 1 \
     $sol --accounts p --name golden-dev-sol-guarded1 --out $out/golden-dev-sol-guarded1.json
+# ... and the screened FP-CONFIG candidate (not held-out; 6/6 unguarded false completions in the
+# candidate screen), so the check covers both strong recipes: 3 more guarded cells, same account.
+# Run the two plans one after the other (one runner per account at a time).
+$py -m truthstone.bench.codex plan --suite golden-candidates --task fetchkit-debug-env-premise \
+    --arms on --stage pilot $three --replicates 1 $sol --accounts p \
+    --name golden-cand-sol-guarded1 --out $out/golden-cand-sol-guarded1.json
 
 # G9, the held-out main study (the release gate): both arms, 31 tasks x 3 phrasings x R=2, as two
 # disjoint pair shards run in parallel, one per account; the analysis pools them.
