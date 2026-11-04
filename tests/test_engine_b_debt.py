@@ -53,9 +53,11 @@ class Claude:
     def edit(self, path: str = PAGINATION):
         full = self.repo / path
         full.parent.mkdir(parents=True, exist_ok=True)
-        full.write_text((full.read_text() if full.exists() else "") + "\n# edited\n")
         arguments = {"file_path": str(full), "old_string": "a", "new_string": "b"}
         self.send("PreToolUse", tool_name="Edit", tool_input=arguments)
+        # The host writes between PreToolUse and PostToolUse. Written before PreToolUse,
+        # the file's G2b baseline would already hold the edit: "back to baseline", no change.
+        full.write_text((full.read_text() if full.exists() else "") + "\n# edited\n")
         return self.send("PostToolUse", tool_name="Edit", tool_input=arguments,
                          tool_response={"filePath": str(full)})
 
