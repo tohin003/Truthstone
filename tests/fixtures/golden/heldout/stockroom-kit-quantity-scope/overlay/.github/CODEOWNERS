@@ -1,0 +1,6 @@
+# Changes to these paths need a review from their owners.
+src/stockroom/inventory.py    @shop/platform
+src/stockroom/storage.py      @shop/platform
+src/stockroom/backorders.py   @shop/ops
+src/stockroom/kits.py         @shop/catalogue
+src/stockroom/reorder.py      @shop/catalogue

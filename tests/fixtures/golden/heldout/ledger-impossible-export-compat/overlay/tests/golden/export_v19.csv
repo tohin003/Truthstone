@@ -1,0 +1,4 @@
+number,customer,subtotal,discount,tax,total
+INV-1001,acme,54.97,5.50,3.59,53.06
+INV-1002,globex,20.00,0.00,0.80,20.80
+INV-1003,initech,100.00,0.00,0.00,100.00
