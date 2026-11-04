@@ -277,3 +277,43 @@ CHANGE_TS = [
 def test_names_in_the_requested_change_get_no_premise_note(tmp_path):
     spoke = {**_notes(PY_REPO, CHANGE_PY, tmp_path / "py"), **_notes(TS_REPO, CHANGE_TS, tmp_path / "ts")}
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
+
+
+# -- the T4 pre-edit hold (v02-v2b): it denies a task's first edit only after a premise note ----
+
+
+def _first_edits_held(files: dict[str, str], prompts: list[str], tmp_path: Path, patch: str) -> list[str]:
+    repo = _repo(tmp_path / "repo", files)
+    guard = Guard(Settings())
+    held: list[str] = []
+    try:
+        guard.workspace(repo).index.ready(timeout=30)
+        for n, prompt in enumerate(prompts):
+            translate.dispatch(guard, _payload(repo, prompt, f"h{n}"))
+            edits = (("apply_patch", {"command": patch}), ("Bash", {"command": "npm install"}))
+            for tool, tool_input in edits:
+                edit = {
+                    "session_id": f"h{n}", "turn_id": "t", "cwd": str(repo), "hook_event_name": "PreToolUse",
+                    "tool_name": tool, "tool_input": tool_input, "tool_use_id": f"call-{n}-{tool}",
+                }
+                out = translate.handle_payload(guard, edit)
+                if out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny":
+                    held.append(f"{prompt} [{tool}]")
+    finally:
+        guard.close()
+    return held
+
+
+PY_PATCH = "*** Begin Patch\n*** Update File: README.md\n@@\n # ledgerly\n+\n*** End Patch"
+TS_PATCH = "*** Begin Patch\n*** Update File: README.md\n@@\n # tallyho\n+\n*** End Patch"
+
+
+def test_without_a_premise_note_no_first_edit_is_ever_held(tmp_path):
+    held = _first_edits_held(PY_REPO, [*PY_PROMPTS, *ENABLE_PY, *CHANGE_PY], tmp_path / "py", PY_PATCH)
+    held += _first_edits_held(TS_REPO, [*TS_PROMPTS, *ENABLE_TS, *CHANGE_TS], tmp_path / "ts", TS_PATCH)
+    assert held == [], "\n".join(held)
+
+
+def test_the_hold_still_follows_a_real_premise_note(tmp_path):
+    ask = "ledgerly already logs every request when LEDGERLY_TRACE=1 is set, so switch that on in CI."
+    assert _first_edits_held(PY_REPO, [ask], tmp_path, PY_PATCH) == [f"{ask} [apply_patch]"]
