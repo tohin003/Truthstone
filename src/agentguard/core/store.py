@@ -41,7 +41,7 @@ import subprocess
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, NamedTuple
@@ -54,6 +54,7 @@ from agentguard.core.config import (
     database_path,
     ensure_private_dir,
 )
+from agentguard.core.enums import EventType
 from agentguard.core.events import AgentEvent
 from agentguard.core.models import Decision
 from agentguard.repo.gitinfo import repository_root
@@ -82,6 +83,11 @@ _FAILURE_LOG_INTERVAL_S = 60.0
 
 # A degraded database is retried at most this often, from `Database.shared()` (R1).
 _REOPEN_INTERVAL_S = 30.0
+
+# Bounds for rebuilding one task (R14): the newest rows win, and `truncated` says so.
+MAX_ACTIVITY_EVENTS = 2_000
+MAX_ACTIVITY_VERIFICATIONS = 200
+_POST_TOOL_TYPES = (str(EventType.POST_TOOL_USE), str(EventType.POST_TOOL_FAILURE))
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -554,6 +560,71 @@ def summarize_arguments(arguments: dict[str, Any]) -> str:
     except (TypeError, ValueError):
         return "{}"
     return text[:MAX_ARGUMENT_BYTES]
+
+
+# -- reading rows back (R14) --------------------------------------------------------
+
+# What `summarize_value` leaves of a long string: a prefix and this marker. Not a path.
+_CUT_VALUE = re.compile(r"… <\d+ chars>\Z")
+_STRING_FIELDS: dict[str, re.Pattern[str]] = {}
+
+
+def _load_object(text: str | None) -> tuple[dict[str, Any], bool]:
+    """A stored JSON object, and whether it was intact (rows are cut at their limit)."""
+    try:
+        value = json.loads(text or "{}")
+    except (TypeError, ValueError):
+        return {}, False
+    return (value, True) if isinstance(value, dict) else ({}, False)
+
+
+def _string_field(text: str, key: str) -> str | None:
+    """``"key": "value"`` from JSON that was cut at its row limit. Linear; bounded input."""
+    pattern = _STRING_FIELDS.get(key)
+    if pattern is None:
+        # A JSON string literal: anything but a quote or a backslash, or an escape.
+        source = f'"{re.escape(key)}"' + r'\s*:\s*"((?:[^"\\]|\\.)*)"'
+        pattern = _STRING_FIELDS.setdefault(key, re.compile(source))
+    match = pattern.search(text)
+    if match is None:
+        return None
+    try:
+        value = json.loads(f'"{match.group(1)}"')
+    except ValueError:
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _paths_named(arguments: str | None, keys: tuple[str, ...]) -> tuple[list[str], int]:
+    """The paths a stored event's arguments name under ``keys``, and how many values were
+    unusable because `summarize_value` had cut them."""
+    if not keys:
+        return [], 0
+    parsed, intact = _load_object(arguments)
+    found: list[str] = []
+    skipped = 0
+    for key in keys:
+        value = parsed.get(key) if intact else _string_field(arguments or "", key)
+        if not isinstance(value, str) or not value:
+            continue
+        if _CUT_VALUE.search(value):
+            skipped += 1
+            continue
+        found.append(value)
+    return found, skipped
+
+
+def _no_activity(task_id: str) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "changes": [],
+        "touched": [],
+        "deleted": [],
+        "verifications": [],
+        "timeline": [],
+        "truncated": False,
+        "skipped": 0,
+    }
 
 
 def _safe(default: Any = None):
@@ -1720,6 +1791,160 @@ class ProjectStore:
                 (self.project_id, task_id),
             )
         ]
+
+    # -- rebuilding a task after a restart (R14) ----------------------------------
+    #
+    # TaskState lives in the engine's memory only, so a daemon restart mid-task (or an
+    # eviction from its window) forgot what the task had done, and Stop after failing tests
+    # returned allow. Everything needed to rebuild it is already recorded — the task row,
+    # its post-tool events and its verification runs. These return it, bounded and in
+    # order; the engine decides what to rebuild from it.
+
+    @_safe(default=None)
+    def task_record(self, task_id: str) -> dict[str, Any] | None:
+        """The task as it was opened, or ``None`` (unknown task, or no storage).
+
+        ``{"task_id", "session_id", "prompt", "spec", "spec_complete", "complexity",
+        "depth", "status", "created_at", "closed_at"}``. ``prompt`` and ``spec`` are as
+        stored: redacted (R17) and bounded. ``spec`` is the stored TaskSpec dict; when the
+        stored text was cut at its row limit it cannot be parsed, ``spec`` is ``{}`` and
+        ``spec_complete`` is False — re-derive the spec from ``prompt`` then.
+        """
+        if not task_id:
+            return None
+        rows = self.db.query(
+            "SELECT id, session_id, prompt, spec, complexity, depth, status, created_at, closed_at "
+            "FROM tasks WHERE id=? AND project_id=?",
+            (task_id, self.project_id),
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        spec, complete = _load_object(row["spec"])
+        return {
+            "task_id": row["id"],
+            "session_id": row["session_id"],
+            "prompt": row["prompt"],
+            "spec": spec,
+            "spec_complete": complete,
+            "complexity": row["complexity"],
+            "depth": row["depth"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "closed_at": row["closed_at"],
+        }
+
+    @_safe(default=lambda: _no_activity(""))
+    def task_activity(
+        self,
+        task_id: str,
+        path_keys: Iterable[str],
+        *,
+        change_tools: Iterable[str] | None = None,
+        removal_tools: Iterable[str] = (),
+        max_events: int = MAX_ACTIVITY_EVENTS,
+        max_verifications: int = MAX_ACTIVITY_VERIFICATIONS,
+    ) -> dict[str, Any]:
+        """What a task did, oldest first, from what was recorded.
+
+        * ``changes`` — one entry per path named by a post-tool event (success or
+          failure): ``{"at", "ts", "type", "tool", "path", "removed"}``. The store knows
+          no host's argument names (``tests/test_core_host_neutral.py``), so the caller
+          says which argument keys hold paths (``path_keys``), which tools count at all
+          (``change_tools``; ``None`` = every tool, as the engine touches today) and which
+          remove their path (``removal_tools``).
+        * ``touched`` / ``deleted`` — the distinct paths of those changes, first-seen
+          order: what ``TaskState.touched_files`` / ``deleted_files`` held.
+        * ``verifications`` — the task's recorded runs: ``{"at", "kind", "status",
+          "started_at", "finished_at", "detail", "detail_complete"}``, where ``detail`` is
+          what the engine stored (command, summary, failed, ...).
+        * ``timeline`` — changes and verifications merged in the order the daemon
+          handled them, as ``{"kind": "change" | "verification", "index": i}`` into the
+          lists above: the order the G2a sequence numbers need.
+        * ``truncated`` — older rows were left out by the bounds (the newest are kept);
+          ``skipped`` — path values that were cut at the row limit, so are no paths.
+
+        ``at`` is when the daemon handled the row (the event's decision; the run's
+        start), which orders concurrent hooks correctly where the events' own ``ts``
+        (when the host's payload was read) may not. Paths are as recorded: what the host
+        sent, relative ones rebased to the event's cwd; normalize them against the index.
+        Never raises: unknown task or no storage gives the same shape, empty.
+        """
+        keys = tuple(dict.fromkeys(key for key in path_keys if isinstance(key, str) and key))
+        allowed = None if change_tools is None else frozenset(change_tools)
+        removing = frozenset(removal_tools)
+        out = _no_activity(task_id)
+        if not task_id:
+            return out
+        event_limit = max(0, int(max_events))
+        events = self.db.query(
+            "SELECT id, type, tool, arguments, ts FROM events "
+            "WHERE project_id=? AND task_id=? AND type IN (?, ?) "
+            "ORDER BY ts DESC, rowid DESC LIMIT ?",
+            (self.project_id, task_id, *_POST_TOOL_TYPES, event_limit + 1),
+        )
+        if len(events) > event_limit:
+            out["truncated"] = True
+            events = events[:event_limit]
+        events.reverse()
+        handled: dict[str, float] = {}
+        if events:
+            for row in self.db.query(
+                "SELECT event_id, ts FROM decisions WHERE project_id=? AND task_id=? AND ts>=?",
+                (self.project_id, task_id, events[0]["ts"]),
+            ):
+                handled[row["event_id"]] = row["ts"]
+        touched: dict[str, None] = {}
+        deleted: dict[str, None] = {}
+        for row in events:
+            if allowed is not None and row["tool"] not in allowed:
+                continue
+            paths, skipped = _paths_named(row["arguments"], keys)
+            out["skipped"] += skipped
+            removed = row["tool"] in removing
+            for path in paths:
+                out["changes"].append(
+                    {
+                        "at": handled.get(row["id"], row["ts"]),
+                        "ts": row["ts"],
+                        "type": row["type"],
+                        "tool": row["tool"],
+                        "path": path,
+                        "removed": removed,
+                    }
+                )
+                (deleted if removed else touched).setdefault(path, None)
+        out["touched"], out["deleted"] = list(touched), list(deleted)
+
+        run_limit = max(0, int(max_verifications))
+        runs = self.db.query(
+            "SELECT kind, status, detail, started_at, finished_at FROM verifications "
+            "WHERE project_id=? AND task_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?",
+            (self.project_id, task_id, run_limit + 1),
+        )
+        if len(runs) > run_limit:
+            out["truncated"] = True
+            runs = runs[:run_limit]
+        for row in reversed(runs):
+            detail, complete = _load_object(row["detail"])
+            out["verifications"].append(
+                {
+                    "at": row["started_at"],
+                    "kind": row["kind"],
+                    "status": row["status"],
+                    "started_at": row["started_at"],
+                    "finished_at": row["finished_at"],
+                    "detail": detail,
+                    "detail_complete": complete,
+                }
+            )
+
+        entries = [("change", i, c["at"]) for i, c in enumerate(out["changes"])]
+        entries += [("verification", i, v["at"]) for i, v in enumerate(out["verifications"])]
+        # Stable: equal times keep changes before runs, each in its own recorded order.
+        entries.sort(key=lambda entry: entry[2])
+        out["timeline"] = [{"kind": kind, "index": index} for kind, index, _ in entries]
+        return out
 
     # -- metrics (SPEC §37) -------------------------------------------------------
 
