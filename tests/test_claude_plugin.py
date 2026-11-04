@@ -53,6 +53,48 @@ class TestManifest:
         assert (harness.PLUGIN_ROOT / "LICENSE").read_text() == (harness.REPO_ROOT / "LICENSE").read_text()
         assert (harness.PLUGIN_ROOT / "SECURITY.md").exists()
 
+    def test_directory_listing_fields(self):
+        """What Anthropic's directory reads from plugin.json: the publisher, an icon inside
+        the plugin, and four https links, each to a file that exists in this repository."""
+        manifest = json.loads(harness.MANIFEST.read_text())
+        assert manifest["author"]["name"] == "Tohin Majumder"
+        assert manifest["author"]["email"] == "tohin1400@gmail.com"
+        icon = (harness.PLUGIN_ROOT / manifest["icon"]).resolve()
+        assert icon.is_relative_to(harness.PLUGIN_ROOT) and icon.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        blob = "https://github.com/tohin003/Truthstone/blob/master/"
+        for key in ("documentationUrl", "supportUrl", "privacyPolicyUrl", "termsOfServiceUrl", "homepage"):
+            assert manifest[key].startswith(blob), key
+            assert (harness.REPO_ROOT / manifest[key][len(blob) :]).is_file(), key
+
+    def test_readme_discloses_what_the_plugin_does(self):
+        """The directory requires a README of 40+ words outside code blocks, and its scan
+        expects it to describe everything the plugin runs, sends and fetches."""
+        text = (harness.PLUGIN_ROOT / "README.md").read_text()
+        prose = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+        prose = "\n".join(line for line in prose.splitlines() if not line.startswith("    "))
+        assert len(prose.split()) >= 40
+        version = json.loads(harness.MANIFEST.read_text())["version"]
+        for disclosure in (
+            "/plugin install truthstone@truthstone",
+            "scripts/session-start.sh",
+            "scripts/hook.sh",
+            f"v{version}",
+            "https://github.com/tohin003/Truthstone",
+            "Python Package Index",
+            "127.0.0.1",
+            "bearer token",
+            "~/.truthstone",
+            "270 days",
+            "git work tree",
+            "TRUTHSTONE_NO_BOOTSTRAP=1",
+            "TRUTHSTONE_DISABLE=1",
+            "/plugin uninstall truthstone@truthstone",
+            "tohin1400@gmail.com",
+        ):
+            assert disclosure in text, disclosure
+        # The directory holds a plugin whose README names a bundled image in backticks.
+        assert not re.search(r"`[^`]*assets/[^`]*`", text)
+
     def test_no_codex_manifest_and_no_bin(self):
         """Claude-only. `bin/` would also stop claude.ai and Cowork installing it."""
         assert not (harness.PLUGIN_ROOT / ".codex-plugin").exists()
