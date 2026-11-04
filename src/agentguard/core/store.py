@@ -88,6 +88,11 @@ _REOPEN_INTERVAL_S = 30.0
 MAX_ACTIVITY_EVENTS = 2_000
 MAX_ACTIVITY_VERIFICATIONS = 200
 _POST_TOOL_TYPES = (str(EventType.POST_TOOL_USE), str(EventType.POST_TOOL_FAILURE))
+# Census task counts (H7) over `findings f LEFT JOIN tasks t`: a task is one a prompt
+# opened. An implicit task (H2, depth 'implicit') bounds no described work, so findings
+# in one count as untasked. A task row that is gone still counts by its id.
+_PROMPT_TASKS = "COUNT(DISTINCT CASE WHEN t.depth IS NOT 'implicit' THEN NULLIF(f.task_id, '') END)"
+_UNTASKED = "SUM(CASE WHEN COALESCE(f.task_id, '') = '' OR t.depth = 'implicit' THEN 1 ELSE 0 END)"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1655,17 +1660,97 @@ class ProjectStore:
 
         Rows with an empty `failure_mode` predate the census and are excluded — counting
         them as anything would be inventing data.
+
+        `tasks` counts tasks a prompt opened; `untasked` is the occurrences outside one.
+        A host without a prompt event opens no such task, and counting each of its
+        decisions as a task of its own (as this once did) made every observation look
+        like a separate piece of work (H7). The implicit task such a host now gets (H2)
+        keeps the engine's bookkeeping, but bounds no work anyone described, so its
+        occurrences count as untasked too.
         """
         rows = self.db.query(
-            "SELECT failure_mode, COUNT(*) AS occurrences, "
-            "       COUNT(DISTINCT COALESCE(task_id, decision_id)) AS tasks, "
-            "       COUNT(DISTINCT fingerprint) AS distinct_subjects, "
-            "       MAX(ts) AS last_seen "
-            "FROM findings WHERE project_id=? AND ts>? AND failure_mode NOT IN ('', ?) "
-            "GROUP BY failure_mode ORDER BY occurrences DESC",
+            "SELECT f.failure_mode, COUNT(*) AS occurrences, "
+            f"      {_PROMPT_TASKS} AS tasks, "
+            f"      {_UNTASKED} AS untasked, "
+            "       COUNT(DISTINCT f.fingerprint) AS distinct_subjects, "
+            "       MAX(f.ts) AS last_seen "
+            "FROM findings f "
+            "LEFT JOIN tasks t ON t.id = f.task_id AND t.project_id = f.project_id "
+            "WHERE f.project_id=? AND f.ts>? AND f.failure_mode NOT IN ('', ?) "
+            "GROUP BY f.failure_mode ORDER BY occurrences DESC",
             (self.project_id, since, "not_a_failure"),
         )
         return [dict(r) for r in rows]
+
+    @_safe(default=list)
+    def failure_mode_counts_by_host(self, since: float) -> list[dict]:
+        """`failure_mode_counts` per host (H7). ``agent`` is the session's host, else the
+        event's when the session row is gone, else "" (unattributed)."""
+        rows = self.db.query(
+            "SELECT COALESCE(s.agent, e.agent, '') AS agent, f.failure_mode, "
+            "       COUNT(*) AS occurrences, "
+            f"      {_PROMPT_TASKS} AS tasks, "
+            f"      {_UNTASKED} AS untasked, "
+            "       COUNT(DISTINCT f.fingerprint) AS distinct_subjects, "
+            "       MAX(f.ts) AS last_seen "
+            "FROM findings f "
+            "LEFT JOIN tasks t ON t.id = f.task_id AND t.project_id = f.project_id "
+            "LEFT JOIN decisions d ON d.id = f.decision_id AND d.project_id = f.project_id "
+            "LEFT JOIN sessions s ON s.id = d.session_id AND s.project_id = f.project_id "
+            "LEFT JOIN events e ON e.id = d.event_id AND e.project_id = f.project_id "
+            "WHERE f.project_id=? AND f.ts>? AND f.failure_mode NOT IN ('', ?) "
+            "GROUP BY 1, 2",
+            (self.project_id, since, "not_a_failure"),
+        )
+        return [dict(r) for r in rows]
+
+    @_safe(default=dict)
+    def activity_by_host(self, since: float) -> dict[str, dict[str, Any]]:
+        """Per host (``sessions.agent``, else ``events.agent``): sessions, tasks,
+        decisions, and how many events of each type it delivered (H7). What a host never
+        sent, no detector that needs it can have looked at."""
+        pid = self.project_id
+        hosts: dict[str, dict[str, Any]] = {}
+
+        def host(name: str | None) -> dict[str, Any]:
+            return hosts.setdefault(name or "", {"sessions": 0, "tasks": 0, "decisions": 0, "events": {}})
+
+        # A host without a session-start or prompt event never gets a sessions row; its
+        # events still name their session.
+        for row in self.db.query(
+            "SELECT agent, COUNT(DISTINCT sid) AS n FROM ("
+            "  SELECT agent, id AS sid FROM sessions WHERE project_id=? AND started_at>? "
+            "  UNION SELECT agent, session_id AS sid FROM events "
+            "        WHERE project_id=? AND ts>? AND session_id != ''"
+            ") GROUP BY agent",
+            (pid, since, pid, since),
+        ):
+            host(row["agent"])["sessions"] = int(row["n"])
+        # Tasks a prompt opened; H2's implicit tasks are bookkeeping, not work anyone
+        # described. A session with no sessions row is attributed by its events.
+        for row in self.db.query(
+            "SELECT COALESCE(s.agent, (SELECT e.agent FROM events e WHERE e.project_id = t.project_id "
+            "       AND e.session_id = t.session_id LIMIT 1), '') AS agent, COUNT(*) AS n FROM tasks t "
+            "LEFT JOIN sessions s ON s.id = t.session_id AND s.project_id = t.project_id "
+            "WHERE t.project_id=? AND t.created_at>? AND t.depth IS NOT 'implicit' GROUP BY 1",
+            (pid, since),
+        ):
+            host(row["agent"])["tasks"] = int(row["n"])
+        for row in self.db.query(
+            "SELECT COALESCE(s.agent, e.agent, '') AS agent, COUNT(*) AS n FROM decisions d "
+            "LEFT JOIN sessions s ON s.id = d.session_id AND s.project_id = d.project_id "
+            "LEFT JOIN events e ON e.id = d.event_id AND e.project_id = d.project_id "
+            "WHERE d.project_id=? AND d.ts>? GROUP BY 1",
+            (pid, since),
+        ):
+            host(row["agent"])["decisions"] = int(row["n"])
+        for row in self.db.query(
+            "SELECT agent, type, COUNT(*) AS n FROM events WHERE project_id=? AND ts>? "
+            "GROUP BY agent, type",
+            (pid, since),
+        ):
+            host(row["agent"])["events"][row["type"]] = int(row["n"])
+        return hosts
 
     @_safe(default=list)
     def failure_mode_examples(self, mode: str, since: float, limit: int = 3) -> list[dict]:
