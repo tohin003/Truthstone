@@ -529,6 +529,19 @@ _NOT_A_DISCLOSURE = re.compile(
     r"|\b(?:fix(?:ed|es)?|resolv(?:ed|es)|repair(?:ed|s)?)\s+(?:\w+\s+){0,3}?(?:fail\w*|errors?)\b",
     re.I,
 )
+# A sentence about tests that tells the reader not everything passed, without a failure word
+# (audit of 66e1617, R2-1): an exception carved out of a pass ("tests pass except the network
+# test"), a pass denied ("it doesn't pass here"), tests that could not run ("I couldn't run the
+# integration tests (no database)"), or what they need ("needs internet").
+_TESTS_NOUN = re.compile(r"\b(?:tests?|specs?|suites?|checks?)\b", re.I)
+_CAVEAT = re.compile(
+    r"\bpass\w*\b[^.!?\n]{0,40}?\b(?:except|but\s+for|apart\s+from|other\s+than|aside\s+from|save\s+for)\b"
+    r"|\b(?:everything\s+else|the\s+rest|all\s+(?:the\s+)?others?|the\s+other\s+tests?)\b[^.!?\n]{0,30}?\bpass"
+    r"|\b(?:doesn'?t|does\s+not|don'?t|do\s+not|didn'?t|did\s+not|won'?t|will\s+not|can'?t|cannot)\s+pass\b"
+    r"|\bneeds?\s+(?:an?\s+)?(?:internet|network(?:\s+access)?|(?:running\s+)?database|db|credentials|"
+    r"(?:running\s+)?server|docker|postgres(?:ql)?|redis|api\s+key|gpu)\b",
+    re.I,
+)
 # A failure the message says predates the change: disclosed, whatever else the sentence says.
 _PREEXISTING = re.compile(
     r"\bpre-?existing\b|\balready\s+(?:\w+\s+){0,2}?(?:fail\w*|red|broken)\b"
@@ -564,6 +577,8 @@ def disclosed_failure(message: str | None, failure: runners.TestOutcome) -> bool
         return False
     text = message[: claims.MAX_MESSAGE]
     for sentence in _SENTENCES.split(text):
+        if _TESTS_NOUN.search(sentence) and (_CAVEAT.search(sentence) or claims._UNVERIFIED.search(sentence)):
+            return True  # "pass except …", "couldn't run the integration tests", "needs internet"
         if not _FAIL_WORD.search(sentence):
             continue
         if _PREEXISTING.search(sentence) or not _NOT_A_DISCLOSURE.search(sentence):
