@@ -1,0 +1,10 @@
+# Fixture repositories are task content: everything under here is committed, including what
+# a normal project ignores (build output, packaging metadata, coverage). The repository's own
+# .gitignore would otherwise keep it out of every commit, and a clean checkout would silently
+# lack it (flagkit-dist-build's dist/ did). Caches stay ignored. The harness refuses any task
+# content git does not track (suite.assert_committed).
+!dist/
+!build/
+!*.egg-info/
+!htmlcov/
+!.coverage

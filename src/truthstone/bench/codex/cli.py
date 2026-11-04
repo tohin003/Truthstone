@@ -65,6 +65,12 @@ def _node_for(tasks: list[suite.Task], explicit: str | None) -> str | None:
 
 def _cmd_validate(args: argparse.Namespace) -> int:
     tasks = suite.load_suite(only=args.task or None, suite=args.suite)
+    try:
+        # Ignored content is refused always; content not committed yet only while drafting.
+        suite.assert_committed(tasks, allow_untracked=args.allow_untracked)
+    except suite.SuiteError as exc:
+        print(f"refusing to validate: {exc}")
+        return 2
     # absolute, but not resolved: resolving a venv's python symlink would leave the venv
     python = os.path.abspath(args.python or scripted.default_python())
     node = _node_for(tasks, args.node)
@@ -99,6 +105,11 @@ def codex_version(codex_bin: str) -> str:
 
 def _cmd_plan(args: argparse.Namespace) -> int:
     tasks = suite.load_suite(only=args.task or None, suite=args.suite)
+    try:
+        suite.assert_committed(tasks)  # a registration must equal any clean checkout
+    except suite.SuiteError as exc:
+        print(f"refusing to register: {exc}")
+        return 2
     common: dict = {}
     node = _node_for(tasks, args.node)
     if node is not None:
@@ -1114,6 +1125,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--python", help="Interpreter with pytest for the task code.")
     _node_option(p)
     p.add_argument("--json")
+    p.add_argument(
+        "--allow-untracked",
+        action="store_true",
+        help="Validate task files not committed yet (drafting); files .gitignore excludes are refused.",
+    )
     p.set_defaults(func=_cmd_validate)
 
     p = sub.add_parser("plan", help="Write a run plan (pre-registration input).")

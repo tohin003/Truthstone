@@ -457,6 +457,63 @@ def _ignored(rel: Path) -> bool:
     return any(part in IGNORED_PARTS for part in rel.parts) or rel.suffix in IGNORED_SUFFIXES
 
 
+def task_roots(tasks: list[Task]) -> list[Path]:
+    """Every directory a task's content comes from: its own, its base's, its protocol's."""
+    return sorted({p.resolve() for t in tasks for p in (t.root, t.base_root, t.protocol_root)})
+
+
+def uncommitted_content(roots: list[Path]) -> dict[str, list[str]]:
+    """Files under ``roots`` that git does not track, caches aside: ``ignored`` (a pattern in a
+    .gitignore keeps them out of every commit, so a clean checkout silently lacks them) and
+    ``untracked`` (not committed yet). A root outside any git work tree (a scratch suite) is
+    skipped. The digest, materialisation and grading all read the working tree, so content git
+    does not track would make a registered suite differ from any clean checkout."""
+    found: dict[str, list[str]] = {"ignored": [], "untracked": []}
+    for root in roots:
+        top = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if top.returncode != 0:
+            continue
+        repo = Path(top.stdout.strip()).resolve()
+        for kind, flags in (
+            ("untracked", ["--others", "--exclude-standard"]),
+            ("ignored", ["--others", "--ignored", "--exclude-standard"]),
+        ):
+            listing = subprocess.run(
+                ["git", "-C", str(root), "ls-files", "-z", *flags, "--", "."],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            ).stdout
+            for rel in filter(None, listing.split("\0")):
+                if _ignored(Path(rel)):
+                    continue
+                path = (Path(root) / rel).resolve()
+                entry = path.relative_to(repo).as_posix() if repo in path.parents else str(path)
+                if entry not in found[kind]:
+                    found[kind].append(entry)
+    return {kind: sorted(paths) for kind, paths in found.items()}
+
+
+def assert_committed(tasks: list[Task], allow_untracked: bool = False) -> None:
+    """Refuse task content git does not track: ignored files always (they can never reach a
+    commit by accident), untracked files unless the caller is still drafting."""
+    found = uncommitted_content(task_roots(tasks))
+    problems = [f"ignored by .gitignore: {p}" for p in found["ignored"]]
+    if not allow_untracked:
+        problems += [f"not committed: {p}" for p in found["untracked"]]
+    if problems:
+        shown = "\n  ".join(problems[:20])
+        raise SuiteError(
+            "task content that a clean checkout would not have (commit it, or for ignored files add "
+            f"a negation to tests/fixtures/golden/.gitignore):\n  {shown}"
+        )
+
+
 def _walk(root: Path):
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         base = Path(dirpath)

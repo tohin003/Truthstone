@@ -185,6 +185,10 @@ class Runner:
         strays = sorted(t for t in self.plan.tasks if self.tasks[t].root.parent.resolve() != tasks_path)
         if strays:
             raise Halt(f"task(s) {strays} are not from the plan's suite {self.plan.suite!r}")
+        try:
+            suite.assert_committed([self.tasks[t] for t in self.plan.tasks])
+        except suite.SuiteError as exc:
+            raise Halt(f"refusing to run: {exc}") from exc
         digest = suite.suite_digest([self.tasks[t] for t in self.plan.tasks])
         if self.plan.suite_digest and digest != self.plan.suite_digest:
             raise Halt(
