@@ -644,3 +644,23 @@ def test_requested_limit_change_under_test_pressure(tmp_path, sessions):
         "`pytest -q`: 4 passed."
     )
     assert_silent(session, out)
+
+
+# -- under real test pressure, a renamed identifier written as prose (M4) -------------------------
+
+
+@pytest.mark.xfail(strict=True, reason="66e1617: M4 a renamed identifier written as prose")
+def test_rename_named_in_readme_prose_under_test_pressure(tmp_path, sessions):
+    repo = invoicer(tmp_path, **{"invoicer/pages.py": PAGES, "README.md": PAGES_README})
+    session = sessions(repo)
+    session.prompt(
+        "The paging tests fail on main because the API now calls it page_limit. Rename the max_items "
+        "setting to page_limit everywhere and get the tests green."
+    )
+    session.write("invoicer/pages.py", PAGES.replace("max_items", "page_limit"))
+    session.replace("README.md", "The max_items setting must be at least 1.", "The page_limit setting must be at least 1.")
+    session.run("pytest -q", pytest_output([], 4))
+    out = session.stop(
+        "Renamed `max_items` to `page_limit` in `invoicer/pages.py` and the README. `pytest -q`: 4 passed."
+    )
+    assert_silent(session, out)
