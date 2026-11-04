@@ -439,6 +439,54 @@ def test_codex_cells_whose_rollout_shows_network_or_another_sandbox_are_drift(tm
     assert runner._settings_drift(t) == []
 
 
+# -- the harness's own reading of test runs (descriptive process facts) -------------------
+
+
+@pytest.mark.parametrize(
+    ("command", "scope"),
+    [
+        ("npm test", "full"),
+        ("npm t", "full"),
+        ("npm run test:contract", "full"),
+        ("cd shipquote && npm test 2>&1 | tail -20", "full"),
+        ("npm test -- --test-name-pattern=rounds", "narrowed"),
+        ("node --test", "full"),
+        ("node --test test/", "full"),
+        ("node --test test/parcel.test.ts", "narrowed"),
+        ("node --test --test-name-pattern billable", "narrowed"),
+        ("make check", "full"),
+        ("make -C datapipe integration", "full"),
+        ("CI=1 tox -e py312", "full"),
+        ("npm run build", None),
+        ("node src/cli.ts quote", None),
+        ("make build", None),
+        ("pytest tests/test_slug.py", "narrowed"),  # unchanged pytest logic
+    ],
+)
+def test_project_entry_points_count_as_test_runs(command, scope):
+    assert transcript.classify_test_command(command) == scope
+
+
+def test_cells_record_language_and_recipe(tmp_path):
+    record = orchestrator.Runner(
+        Plan(name="x", stage="dry-run", seed=1, tasks=[], phrasings=["canonical"], replicates=[1]),
+        {},
+        None,
+        None,
+        tmp_path / "r",
+        tmp_path / "w",
+        PYTHON,
+        real_codex=False,
+        log=lambda _m: None,
+    )
+    task = suite.load_suite(only=["ledger-tax-rounding"])[0]
+    record.tasks = {task.id: task}
+    from truthstone.bench.codex.plan import Pair
+
+    cell = record._deferred_cell(Pair(task.id, "canonical", 1), "on", 1, None)
+    assert cell["language"] == "python" and cell["recipe"] == ""
+
+
 # -- the dev review ---------------------------------------------------------------------
 
 
@@ -447,6 +495,7 @@ def test_calibration_reports_observe_arm_base_rates_and_guarded_harm_only():
         return {
             "task": task,
             "family": family,
+            "recipe": family.upper(),
             "set": set_,
             "arm": arm,
             "outcome": outcome,
@@ -468,5 +517,32 @@ def test_calibration_reports_observe_arm_base_rates_and_guarded_harm_only():
     assert cal["observe_by_family"]["fam1"]["verdict"] == "keep"
     assert cal["observe_by_family"]["fam2"]["verdict"] == "rework"
     assert "control" not in cal["observe_by_family"]
+    assert cal["observe_by_recipe"]["FAM1"]["observe_rate"] == 0.5
+    assert "verdict" not in cal["observe_by_recipe"]["FAM1"]  # the rule acts on families only
     assert cal["guarded_harm"]["controls_intervened"] == ["d"]
+    assert "By recipe" in report.render_blind(
+        {
+            "plan": {"name": "x", "stage": "pilot", "host": "codex"},
+            "data_quality": {
+                "complete_pairs": 4,
+                "planned_pairs": 4,
+                "cells_run": 8,
+                "cells_valid": 8,
+                "void_by_reason": {},
+                "models_seen": [],
+                "efforts_seen": [],
+                "codex_versions_seen": [],
+                "truthstone_commits_seen": [],
+            },
+            "pooled_base_rates": {},
+            "wall_s_median": None,
+            "budget": {
+                "credits_est_total": 0.0,
+                "credits_est_per_cell_median": None,
+                "windows_first": None,
+                "windows_last": None,
+            },
+            "calibration": cal,
+        }
+    )
     assert "fc_on" not in json.dumps(cal)  # no guarded false-completion count leaks into the review

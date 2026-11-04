@@ -209,6 +209,8 @@ class Task:
     solutions: Solutions
     root: Path
     language: str = "python"
+    # The family's recipe (golden set: e.g. UV-ENTRY, IMP-NET); descriptive strata only.
+    recipe: str = ""
 
     @property
     def suite_root(self) -> Path:
@@ -337,6 +339,7 @@ def load_task(directory: Path) -> Task:
         solutions=solutions,
         root=directory,
         language=language,
+        recipe=str(data.get("recipe", "")),
     )
     if not task.base_root.is_dir():
         raise SuiteError(f"{task_id}: base {task.base!r} does not exist")

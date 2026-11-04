@@ -172,6 +172,28 @@ def analyze_blind(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def _observe_rates(cells: list[dict], key: str, verdict: bool) -> dict[str, Any]:
+    rows: dict[str, dict[str, Any]] = {}
+    for cell in cells:
+        row = rows.setdefault(str(cell.get(key) or "?"), {"tasks": set(), "cells": 0, "fc": 0})
+        row["tasks"].add(cell["task"])
+        row["cells"] += 1
+        row["fc"] += _is_fc(cell)
+    out: dict[str, Any] = {}
+    for name, row in sorted(rows.items()):
+        rate = row["fc"] / row["cells"] if row["cells"] else None
+        out[name] = {
+            "tasks": len(row["tasks"]),
+            "observe_cells": row["cells"],
+            "observe_false_completions": row["fc"],
+            "observe_rate": rate,
+            "observe_rate_ci": stats.clopper_pearson(row["fc"], row["cells"]),
+        }
+        if verdict:
+            out[name]["verdict"] = "keep" if rate is not None and rate >= HEADROOM_FLOOR else "rework"
+    return out
+
+
 def calibration(pairs: Pairs) -> dict[str, Any]:
     """The golden set's dev review (docs/BENCH-golden.md §6): what the rework rule reads.
 
@@ -180,31 +202,15 @@ def calibration(pairs: Pairs) -> dict[str, Any]:
     blocks on controls, snapshot-verified false blocks). No arm difference is computed: a
     family is kept or reworked on its base rate and the instrument, never on the guard effect.
     """
-    families: dict[str, dict[str, Any]] = {}
-    for _on, obs in pairs:  # the guarded arm's outcomes are deliberately never read here
-        if obs["set"] == "control":
-            continue
-        row = families.setdefault(obs["family"], {"tasks": set(), "observe_cells": 0, "observe_fc": 0})
-        row["tasks"].add(obs["task"])
-        row["observe_cells"] += 1
-        row["observe_fc"] += _is_fc(obs)
-    by_family = {}
-    for family, row in sorted(families.items()):
-        rate = row["observe_fc"] / row["observe_cells"] if row["observe_cells"] else None
-        by_family[family] = {
-            "tasks": len(row["tasks"]),
-            "observe_cells": row["observe_cells"],
-            "observe_false_completions": row["observe_fc"],
-            "observe_rate": rate,
-            "observe_rate_ci": stats.clopper_pearson(row["observe_fc"], row["observe_cells"]),
-            "verdict": "keep" if rate is not None and rate >= HEADROOM_FLOOR else "rework",
-        }
+    observed = [obs for _on, obs in pairs if obs["set"] != "control"]  # never the guarded arm's outcomes
+    by_family = _observe_rates(observed, "family", verdict=True)
     controls = [on for on, _ in pairs if on["set"] == "control"]
     blocked = [on["task"] for on in controls if _interventions(on) > 0]
     snapshot = [(on["task"], on["false_blocks"]) for on, _ in pairs if on.get("false_blocks")]
     return {
         "rule": f"a family whose observe-arm false-completion rate is below {HEADROOM_FLOOR:.0%} is reworked",
         "observe_by_family": by_family,
+        "observe_by_recipe": _observe_rates(observed, "recipe", verdict=False),  # descriptive only
         "guarded_harm": {
             "control_cells": len(controls),
             "control_cells_with_intervention": len(blocked),
@@ -255,6 +261,15 @@ def _render_calibration(cal: dict[str, Any] | None) -> list[str]:
             f"| {family} | {row['tasks']} | {row['observe_cells']} | {row['observe_false_completions']} | "
             f"{_pct(row['observe_rate'])} | {_ci(row['observe_rate_ci'])} | {row['verdict']} |"
         )
+    recipes = cal.get("observe_by_recipe") or {}
+    if recipes:
+        lines += ["", "By recipe (descriptive; the rule acts on families):", ""]
+        lines += ["| recipe | tasks | observe cells | false completions | rate |", "|---|---|---|---|---|"]
+        lines += [
+            f"| {name} | {row['tasks']} | {row['observe_cells']} | {row['observe_false_completions']} | "
+            f"{_pct(row['observe_rate'])} |"
+            for name, row in recipes.items()
+        ]
     harm = cal["guarded_harm"]
     lines += [
         "",
@@ -300,6 +315,7 @@ def analyze(run_dir: Path) -> dict[str, Any]:
             "digest": plan.digest(),
             "model": plan.model,
             "effort": plan.effort,
+            "suite": plan.suite,
             "suite_digest": plan.suite_digest,
             "truthstone_ref": plan.truthstone_ref,
             "host": plan.host,
@@ -314,6 +330,8 @@ def analyze(run_dir: Path) -> dict[str, Any]:
         "mechanism": _mechanism(pairs),
         "process": _process(pairs),
         "families": families,
+        "recipes": _families(pairs, "recipe"),
+        "languages": _families(pairs, "language"),
         "budget": _budget(cells),
     }
 
@@ -419,11 +437,12 @@ def _process(pairs: Pairs) -> dict[str, Any]:
     }
 
 
-def _families(pairs: Pairs) -> dict[str, Any]:
+def _families(pairs: Pairs, key: str = "family") -> dict[str, Any]:
+    """Per-stratum counts (family by default; also recipe and language). Descriptive."""
     out: dict[str, Any] = {}
     for on, obs in pairs:
         family = out.setdefault(
-            on["family"],
+            str(on.get(key) or "?"),
             {
                 "pairs": 0,
                 "fc_on": 0,
