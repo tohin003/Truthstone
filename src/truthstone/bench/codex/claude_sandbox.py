@@ -34,7 +34,7 @@ every listed path is neutral: a hidden path that would name the product or the s
 hidden by its nearest neutral ancestor instead (``neutral_ancestor``); ``~/.config`` is
 hidden whole with only git's directory re-opened; the settings file and the plugin copies
 live under neutral names. ``visible_context`` proves it with the real binary and no model.
-The user's own product homes (``~/.truthstone``, ``~/.agentguard``) are left out: hiding
+The user's own product homes (``~/.truthstone``, ``~/.agentguard``; rename-tool: keep) are left out: hiding
 them would name them, and they hold no task material (both arms alike).
 
 The proof is ``check``: the *real* pinned Claude Code binary, the *real* cell flags and

@@ -491,7 +491,9 @@ class TestNoBootstrap:
     """TRUTHSTONE_NO_BOOTSTRAP: the plugin downloads and installs nothing, and uses a runtime
     the developer installed (uv tool install / pipx install), found as `truthstone` on PATH."""
 
+    # rename-tool: keep-begin (the former name's setting, on purpose)
     @pytest.mark.parametrize("variable", ["TRUTHSTONE_NO_BOOTSTRAP", "AGENTGUARD_NO_BOOTSTRAP"])
+    # rename-tool: keep-end
     def test_without_an_installed_runtime_it_downloads_nothing_and_says_how(
         self, plugin_dirs, tmp_path, variable
     ):

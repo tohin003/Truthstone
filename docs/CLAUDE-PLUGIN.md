@@ -32,7 +32,7 @@ The message links to uv's installation page rather than suggesting a download pi
 a shell, which is exactly what Truthstone asks the developer to sign off on.
 
 **No download (opt-out).** With `TRUTHSTONE_NO_BOOTSTRAP=1` (any non-empty value, as in the
-Codex launcher; `AGENTGUARD_NO_BOOTSTRAP` still works) the plugin downloads and installs
+Codex launcher; `AGENTGUARD_NO_BOOTSTRAP` still works) the plugin downloads and installs <!-- rename-tool: keep -->
 nothing. Install the runtime yourself, then start a new session:
 
 ```bash
