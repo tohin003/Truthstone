@@ -49,29 +49,31 @@ def validate(
 
     # -- Level 0: the action's own arguments, no repository access ----------------
     #
-    # Rewriting comes first, deliberately. A safe narrowing *fixes* the problem, where an
-    # objection only describes it — so when a dangerous command has a provably-narrower
-    # form, taking it is better than interrupting anyone. `modify.propose` re-checks its
-    # own output, so anything it cannot make safe falls straight through to the risk
-    # checks below and is escalated instead.
-    rewrite = modify.propose(event)
+    # The risk checks judge the command *as written*, before any rewrite is considered.
+    # Rewriting first let MODIFY pre-empt the ask: `rm -rf $HOME` (critical) was "guarded"
+    # into a command that still deletes home (IMPROVEMENTS.md A5). A safe narrowing still
+    # beats interrupting anyone, but only when the one serious problem is the one the
+    # rewrite fixes; `modify.propose` enforces that and re-checks its own output.
+    risky = checks.risky_command(event)
+    rewrite = modify.propose(event, risky)
     if rewrite is not None:
         finding = modify.finding_for(rewrite, event)
+        announcement = f"{finding.summary}: `{rewrite.guarded}`"
         return Decision(
             action=DecisionAction.MODIFY,
             level=EscalationLevel.DETERMINISTIC,
             updated_arguments=rewrite.arguments,
-            additional_context=f"{finding.summary}. {finding.detail}",
-            reason=finding.summary,
+            additional_context=f"{announcement}. {finding.detail}",
+            reason=announcement,
             findings=[finding],
         )
 
-    findings.extend(checks.risky_command(event))
+    findings.extend(risky)
 
     # A command needing human sign-off is decided here; nothing further is relevant.
     human = [f for f in findings if f.verdict is Verdict.REQUIRES_HUMAN]
     if human:
-        return _review(findings, human)
+        return _review(findings, human, modify.safer_form(event, risky))
 
     if not index.is_built:
         return Decision.allow()
@@ -115,7 +117,7 @@ def validate(
     )
 
 
-def _review(findings: list[Finding], human: list[Finding]) -> Decision:
+def _review(findings: list[Finding], human: list[Finding], safer: str | None = None) -> Decision:
     """Ask the developer, every time (IMPROVEMENTS.md A1).
 
     A review request is not a challenge, and the ledger's rationing must never touch it.
@@ -132,11 +134,17 @@ def _review(findings: list[Finding], human: list[Finding]) -> Decision:
     gate no setting waives"). The ask is still recorded: the engine persists this decision
     and its findings, which is the log. It is never written to the challenge ledger, so it
     never spends the advisory budget the agent-facing challenges share.
+
+    `safer` is a guarded form of the command, offered when one is sound but could not be
+    applied automatically (A5) — the developer, or the agent, can take it instead.
     """
+    reason = render_challenge(human)
+    if safer:
+        reason = f"{reason}\n\nSafer form: `{safer}`"
     return Decision(
         action=DecisionAction.REQUEST_REVIEW,
         level=EscalationLevel.DETERMINISTIC,
-        reason=render_challenge(human),
+        reason=reason,
         findings=findings,
         # Every REQUEST_REVIEW produced here is an irreversible command: the developer
         # must say yes, so a host whose `ask` fails open renders this as a deny rather
