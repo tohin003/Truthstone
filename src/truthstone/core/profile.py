@@ -1,119 +1,140 @@
-"""What may reach the agent: intervention kinds and the profile that allows them (WP7, M7/M9).
+"""What may reach the agent: the intervention profile (WP7, M7/M9).
 
-Every decision the Guard returns is classified here into one **intervention kind**: the
-reason it would interrupt, redirect or inform the agent. A **profile** is an allowlist of
-kinds. Under the ``minimal`` profile (the default), only the sanctioned situations speak:
+Every decision the Guard returns is classified into an **intervention kind**: the reason it
+would interrupt, redirect or inform the agent. A **profile** says which kinds may speak, per
+phase. ``settings.profile`` names it: ``minimal`` (the default) or ``full``.
 
-=====  ======================  ========================================================
-brief  kind                    when
-=====  ======================  ========================================================
-(a)    ``spec_integrity``      "done" after a normative documented rule was removed or
-                               qualified
-(a)    ``test_integrity``      "done" after tests were weakened, deleted or skipped
-                               (added tests are never flagged)
-(a)    ``test_specific_code``  "done" when production code hard-codes test-specific
-                               expectations
-(b)    ``failing_tests``       "done" with relevant tests failing after the last edit,
-                               undisclosed
-(c)    ``signoff``             an irreversible or destructive action needs the
-                               developer's sign-off (A1; never rationed)
-(d)    ``false_premise``       the prompt asserts that a named identifier exists or
-                               already works, and nothing in the repository has it
-(e)    ``unread_config``       "done" when the diff only adds configuration nothing
-                               outside configuration reads, for a behavioural claim
-=====  ======================  ========================================================
+Under ``minimal`` exactly these reach the agent — an allowlist, so anything not named here is
+withheld, including a kind nobody has heard of:
 
-Everything else — the planning note, routine context, every other challenge, ask or
-Stop reason — is **recorded, never shown**: the decision keeps its findings and says what
-it would have done (``Decision.would_have``), and the kind it would have spoken under.
+=====  =================  ==============  ================================================
+brief  kind               phase           when
+=====  =================  ==============  ================================================
+(a)    ``spec_erosion``   Stop            "done" after a normative documented rule was
+                                          removed or qualified
+(a)    ``test_weakening`` Stop            "done" after tests were weakened, deleted or
+                                          skipped (added tests are never flagged)
+(a)    ``test_fitting``   Stop            "done" when production code hard-codes
+                                          test-specific expectations
+(b)    ``failing_tests``  Stop            "done" with relevant tests failing after the last
+                                          edit, undisclosed
+(e)    ``unread_config``  Stop            "done" when the diff only adds configuration that
+                                          nothing outside configuration reads
+(c)    ``signoff``        before a tool   an irreversible or destructive action needs the
+                                          developer's sign-off (A1: never rationed)
+(d)    ``false_premise``  prompt          the prompt asserts a named identifier exists or
+                                          already works, and nothing in the repository has it
+=====  =================  ==============  ================================================
 
-A kind is named by the subject of the finding behind the decision (``SUBJECT_KINDS``): a
-new check joins a sanctioned kind by using, or registering, its subject there — one line.
-A decision with no sanctioned finding is ``other:<subject>``, so a summary still says what
-it was. The one exception is the sign-off, which is recognised by what it is (a review the
-developer must answer, or a guarded rewrite of a risky command) rather than by subject:
-A1 must hold whatever a check calls its finding.
+The planning note (``planning_note``) is off: ``[notes] planning = true`` lets it speak again.
+
+Everything else — routine context, every other challenge, ask, note or Stop reason — is
+**recorded, never shown**: :func:`apply` turns the decision into a silent ALLOW that keeps
+its findings, says what it would have done (``Decision.would_have``) and carries one more
+finding, ``withheld:<kind>``, naming what was held back and quoting it. ``truthstone log``,
+the census and ``truthstone replay`` read that.
+
+**How a decision's kind is known.** The sign-off by what it is: a review only the developer
+can answer, or the guarded rewrite of a risky command (A1 must hold whatever a check calls
+its finding). Anything else by the subject of its primary finding — the first at medium
+severity or above — when that subject *is* a kind's name (``spec_erosion``,
+``false_premise``…), or by an explicit ``reason_category`` the decision carries. A check
+joins a sanctioned kind by naming its finding's subject after it; nothing else is needed.
+
+Stop's own reasons are chosen by the completion arbiter (``verify/arbiter.py``) under the same
+setting; this is the choke point every decision passes, Stop included, so no path — old or
+new — can reach the agent with a reason outside the list.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
-from truthstone.core.enums import ChallengeCategory, DecisionAction, Severity, Verdict
+from truthstone.core.enums import (
+    ChallengeCategory,
+    DecisionAction,
+    EventType,
+    FailureMode,
+    Severity,
+    Verdict,
+)
 from truthstone.core.models import Decision, Finding
 
 
 class Kind(StrEnum):
-    """The sanctioned intervention kinds (the minimal profile's allowlist)."""
+    """The sanctioned intervention kinds. Stop's five are the arbiter's ``ReasonCategory``
+    values, spelled identically."""
 
-    SPEC_INTEGRITY = "spec_integrity"
-    TEST_INTEGRITY = "test_integrity"
-    TEST_SPECIFIC_CODE = "test_specific_code"
+    SPEC_EROSION = "spec_erosion"
+    TEST_WEAKENING = "test_weakening"
+    TEST_FITTING = "test_fitting"
     FAILING_TESTS = "failing_tests"
+    UNREAD_CONFIG = "unread_config"
     SIGNOFF = "signoff"
     FALSE_PREMISE = "false_premise"
-    UNREAD_CONFIG = "unread_config"
 
 
-# Opt-in kinds: recorded under the minimal profile unless configuration turns them on.
+# Opt-in, and the names of what is only ever recorded: the arbiter's other Stop categories.
 PLANNING_NOTE = "planning_note"
+UNVERIFIED = "unverified"
+UNPARSABLE = "unparsable"
 OTHER = "other"
-
-# Finding subject -> the sanctioned kind it speaks under. A check that should be able to
-# reach the agent names its finding with one of these subjects, or adds its own here.
-SUBJECT_KINDS: dict[str, str] = {
-    # (a) the yardstick, at Stop
-    "spec-integrity": Kind.SPEC_INTEGRITY,
-    "test-integrity": Kind.TEST_INTEGRITY,
-    "test-specific-code": Kind.TEST_SPECIFIC_CODE,
-    # (b) failing tests at "done" (the completion gate, then the arbiter)
-    "failing-tests-on-completion": Kind.FAILING_TESTS,
-    "failing-relevant-tests": Kind.FAILING_TESTS,
-    # (c) a risky command Truthstone narrowed: the guarded form of a sign-off
-    "modified command": Kind.SIGNOFF,
-    # (d) the prompt's premise
-    "false-premise": Kind.FALSE_PREMISE,
-    # (e) configuration nothing reads
-    "unread-config": Kind.UNREAD_CONFIG,
-    # opt-in
-    "planning-note": PLANNING_NOTE,
-    # The completion arbiter's primary findings carry their ReasonCategory value (V1).
-    "spec_erosion": Kind.SPEC_INTEGRITY,
-    "test_weakening": Kind.TEST_INTEGRITY,
-    "test_fitting": Kind.TEST_SPECIFIC_CODE,
-    "failing_tests": Kind.FAILING_TESTS,
-    "unread_config": Kind.UNREAD_CONFIG,
-}
-
-# Severities at which a finding is what a decision speaks about (below: observations).
-_SPEAKING = (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
+WITHHELD = "withheld:"
 
 MINIMAL = "minimal"
 FULL = "full"
 PROFILES = (MINIMAL, FULL)
 
+_STOP = frozenset(
+    {Kind.SPEC_EROSION, Kind.TEST_WEAKENING, Kind.TEST_FITTING, Kind.FAILING_TESTS, Kind.UNREAD_CONFIG}
+)
+# The minimal profile: per phase, the only kinds that reach the agent.
+MINIMAL_ALLOWED: dict[EventType, frozenset[str]] = {
+    EventType.STOP: frozenset(str(k) for k in _STOP),
+    EventType.PRE_TOOL_USE: frozenset({str(Kind.SIGNOFF)}),
+    EventType.USER_PROMPT: frozenset({str(Kind.FALSE_PREMISE)}),
+}
+_NAMED = frozenset(str(k) for k in Kind) | {PLANNING_NOTE, UNVERIFIED, UNPARSABLE}
+_SPEAKING = (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
+
 
 @dataclass(frozen=True, slots=True)
 class Profile:
-    """An allowlist of intervention kinds. ``FULL`` allows everything (the pre-v0.2
-    behaviour, for comparison and for developers who want every challenge)."""
-
     name: str
-    allowed: frozenset[str]
+    allowed: dict[EventType, frozenset[str]]
     allow_all: bool = False
 
-    def allows(self, kind: str) -> bool:
-        return self.allow_all or kind in self.allowed
+    def allows(self, phase: EventType, kind: str) -> bool:
+        return self.allow_all or kind in self.allowed.get(phase, frozenset())
 
 
-def build(name: str = MINIMAL, extra: tuple[str, ...] | list[str] = ()) -> Profile:
-    """The named profile, plus any opt-in kinds (``[interventions] allow``, or the planning
-    note when ``[notes] planning`` is on). An unknown name is the minimal profile: the
-    quiet direction."""
+def build(name: str = MINIMAL, planning: bool = False) -> Profile:
+    """The named profile; an unknown name is the minimal one (the quiet direction)."""
     if name == FULL:
-        return Profile(FULL, frozenset(Kind) | frozenset(extra), allow_all=True)
-    return Profile(MINIMAL, frozenset(str(kind) for kind in Kind) | frozenset(extra))
+        return Profile(FULL, dict(MINIMAL_ALLOWED), allow_all=True)
+    allowed = dict(MINIMAL_ALLOWED)
+    if planning:
+        allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {PLANNING_NOTE}
+    return Profile(MINIMAL, allowed)
+
+
+_CACHE: dict[tuple[str, bool], Profile] = {}
+
+
+def active(settings: Any) -> Profile:
+    """The profile ``settings`` select: ``settings.profile`` and ``[notes] planning``."""
+    name = str(getattr(settings, "profile", MINIMAL) or MINIMAL)
+    notes = getattr(settings, "notes", None)
+    planning = bool(getattr(notes, "planning", False))
+    key = (name, planning)
+    if key not in _CACHE:
+        _CACHE[key] = build(name, planning)
+    return _CACHE[key]
+
+
+# -- classification ------------------------------------------------------------------------
 
 
 def is_signoff(decision: Decision) -> bool:
@@ -130,30 +151,82 @@ def is_signoff(decision: Decision) -> bool:
 
 
 def primary(decision: Decision) -> Finding | None:
-    """The finding a decision speaks about: its first at medium severity or above, else
-    its first. Producers put the reason first (the completion gate does)."""
+    """The finding a decision speaks about: its first at medium severity or above, else its
+    first. Producers put the reason first."""
     for finding in decision.findings:
-        if finding.severity in _SPEAKING:
+        if finding.severity in _SPEAKING and not finding.subject.startswith(WITHHELD):
             return finding
-    return decision.findings[0] if decision.findings else None
-
-
-def kind_of_finding(finding: Finding) -> str:
-    kind = SUBJECT_KINDS.get(finding.subject)
-    if kind is not None:
-        return str(kind)
-    label = finding.subject or str(finding.category)
-    # Subjects can carry a path or a symbol; keep the summary readable and bounded.
-    return f"{OTHER}:{label[:60]}"
+    return next((f for f in decision.findings if not f.subject.startswith(WITHHELD)), None)
 
 
 def kind_of(decision: Decision) -> str:
-    """The intervention kind of a decision: what it says, or would say, to the agent."""
+    """The intervention kind of a decision: a sanctioned kind's name, or ``other:<what>``."""
     if is_signoff(decision):
         return str(Kind.SIGNOFF)
+    explicit = getattr(decision, "reason_category", None)
+    if explicit:
+        return str(explicit)
     finding = primary(decision)
     if finding is not None:
-        return kind_of_finding(finding)
+        if finding.subject in _NAMED:
+            return finding.subject
+        return f"{OTHER}:{(finding.subject or str(finding.category))[:60]}"
     if decision.additional_context:
         return f"{OTHER}:context"
     return f"{OTHER}:{decision.action}"
+
+
+def says_anything(decision: Decision) -> bool:
+    """Whether the decision could reach anyone: an action, context, or a developer notice."""
+    return (
+        decision.action is not DecisionAction.ALLOW
+        or bool(decision.additional_context)
+        or bool(decision.unverified_finish)
+    )
+
+
+# -- the choke point -----------------------------------------------------------------------
+
+
+def apply(phase: EventType, decision: Decision, profile: Profile) -> Decision:
+    """``decision`` as the profile lets it reach the agent: unchanged when its kind may speak
+    in this phase, otherwise withheld — a silent ALLOW that keeps everything for the record."""
+    if not says_anything(decision) or profile.allow_all:
+        return decision
+    kind = kind_of(decision)
+    if profile.allows(phase, kind):
+        return decision
+    return withhold(decision, kind)
+
+
+def withhold(decision: Decision, kind: str) -> Decision:
+    said = (decision.reason or decision.additional_context or decision.unverified_finish or "").strip()
+    marker = Finding(
+        category=ChallengeCategory.EVIDENCE,
+        verdict=Verdict.SUPPORTED,
+        # What Truthstone held back is not a failure of the agent's; the census skips it.
+        failure_mode=FailureMode.NOT_A_FAILURE,
+        severity=Severity.INFO,
+        subject=f"{WITHHELD}{kind}",
+        summary=f"recorded, not shown ({decision.action})",
+        detail=said[:600],
+    )
+    would_have = decision.would_have or (
+        decision.action if decision.action is not DecisionAction.ALLOW else None
+    )
+    return Decision(
+        action=DecisionAction.ALLOW,
+        findings=[*decision.findings, marker],
+        level=decision.level,
+        latency_ms=decision.latency_ms,
+        decision_id=decision.decision_id,
+        would_have=would_have,
+    )
+
+
+def withheld_kind(decision: Decision) -> str | None:
+    """The kind :func:`withhold` recorded on a decision, if any."""
+    for finding in decision.findings:
+        if finding.subject.startswith(WITHHELD):
+            return finding.subject[len(WITHHELD) :]
+    return None

@@ -24,7 +24,7 @@ from pathlib import Path
 
 from truthstone import complexity, intent, planning, validate
 from truthstone.challenge.ledger import ChallengeLedger
-from truthstone.core import observe, rehydrate, shellchanges
+from truthstone.core import observe, profile, rehydrate, shellchanges
 from truthstone.core.config import Settings
 from truthstone.core.enums import DecisionAction, EscalationLevel, EventType
 from truthstone.core.events import SHELL_TOOLS, AgentEvent
@@ -35,10 +35,11 @@ from truthstone.core.metrics import (
     METRICS,
     Timer,
 )
-from truthstone.core.models import Decision
+from truthstone.core.models import Decision, Finding
 from truthstone.core.store import ProjectStore
 from truthstone.core.taskstate import TaskState
 from truthstone.daemon import degraded
+from truthstone.intent import premise
 from truthstone.intent.models import TaskSpec
 from truthstone.repo import symbols_ts
 from truthstone.repo.gitinfo import repository_root
@@ -126,6 +127,9 @@ class Workspace:
         # the rest of the session — "don't run the tests" then "now fix the other one"
         # is one instruction — until a later prompt asks for tests.
         self.session_waivers: set[str] = set()
+        # Names a session's prompts asserted that the repository does not have, each
+        # noted once (M8).
+        self.premises_noted: dict[str, set[str]] = {}
         # Shell commands' changes, each holding its place on its task's timeline until a
         # sweep of the tree attributes them (G5).
         self.shell = shellchanges.ShellChanges()
@@ -310,6 +314,7 @@ class Workspace:
             self._task_sessions.pop(task_id, None)
         self._session_tasks.pop(session_id, None)
         self.session_waivers.discard(session_id)
+        self.premises_noted.pop(session_id, None)
         self.shell.forget_session(session_id)
 
     def carry_waiver(self, session_id: str, spec: TaskSpec) -> None:
@@ -449,6 +454,11 @@ class Guard:
                         log.exception("truthstone: handler failed for %s; failing open", event.event)
                         decision = Decision.allow()
 
+                    # The one place that decides what may reach the agent (WP7): under the
+                    # minimal profile only the sanctioned kinds speak; everything else is
+                    # recorded, never shown.
+                    decision = self._profiled(event, decision)
+
                     if self.settings.observe_only:
                         decision = observe.silence(decision)
 
@@ -475,6 +485,17 @@ class Guard:
         METRICS.increment(M_DECISION, labels={"action": str(decision.action)})
 
         return decision
+
+    def _profiled(self, event: AgentEvent, decision: Decision) -> Decision:
+        """``decision`` under the active intervention profile (``core/profile.py``). A
+        failure here withholds rather than speaks — except a sign-off, which A1 keeps."""
+        try:
+            return profile.apply(event.event, decision, profile.active(self.settings))
+        except Exception:
+            log.exception("truthstone: the intervention profile failed; withholding")
+            if profile.is_signoff(decision):
+                return decision
+            return profile.withhold(decision, "unclassified")
 
     # -- handlers -----------------------------------------------------------------
     #
@@ -583,20 +604,53 @@ class Guard:
             event.task_id = task_id
             state = ws.begin_task(task_id, spec, event.session_id)
 
-        budget = planning.render(spec, index)
+        notes, findings = self._prompt_notes(event, ws, spec, index)
         if previous is not None and state is not None:
             try:
                 self._inherit_debt(ws, previous, state)
             except Exception:  # a debt not carried is the old behaviour, never a failure
                 log.exception("truthstone: could not carry verification debt to a new task")
-        if not budget:
+        if not notes and not findings:
             return Decision.allow(EscalationLevel.REPOSITORY)
 
         return Decision(
             action=DecisionAction.ALLOW,
             level=EscalationLevel.REPOSITORY,
-            additional_context=budget,
+            additional_context="\n\n".join(notes) or None,
+            findings=findings,
         )
+
+    def _prompt_notes(
+        self, event: AgentEvent, ws: Workspace, spec: TaskSpec, index: RepoIndex | None
+    ) -> tuple[list[str], list[Finding]]:
+        """What the prompt may carry back (M8, M9): nothing, on a routine prompt.
+
+        The planning note only when the profile lets it speak (``[notes] planning``, or the
+        full profile): it is not even computed otherwise. Each note comes with the finding
+        that names its kind, so the profile can tell one from another.
+        """
+        notes: list[str] = []
+        findings: list[Finding] = []
+        if index is not None:
+            # M8: a name the request says exists, which nothing in the repository has. Once
+            # per name per session; silent while the index is not built.
+            noted = ws.premises_noted.setdefault(event.session_id or "", set())
+            try:
+                found = premise.check(event.prompt_text or "", ws.root, list(index.files), already=noted)
+            except Exception:  # a premise not checked is no note, never a failure
+                log.exception("truthstone: could not check the request's premises")
+                found = premise.Premise()
+            finding = found.finding()
+            if finding is not None:
+                noted.update(a.name for a in found.missing)
+                notes.append(found.note)
+                findings.append(finding)
+        if profile.active(self.settings).allows(EventType.USER_PROMPT, profile.PLANNING_NOTE):
+            budget = planning.render(spec, index)
+            if budget:
+                notes.append(budget)
+                findings.append(planning.finding(budget))
+        return notes, findings
 
     @classmethod
     def _inherit_debt(cls, ws: Workspace, old: TaskState, new: TaskState) -> bool:
@@ -873,6 +927,17 @@ class Guard:
             # explicitly, for the developer (G10) — never in observe mode, where nothing
             # is said at all.
             gave_up = verdict.unresolved if not self.settings.observe_only else ""
+            held = verdict.withheld
+            if held is not None and not gave_up:
+                # Recorded, never said: the decision keeps what it would have said, the
+                # way the profile's choke point withholds any other kind.
+                would = Decision(
+                    action=DecisionAction.BLOCK,
+                    level=EscalationLevel.DEEP_VERIFICATION,
+                    reason=f"Truthstone — completion gate: {held.category.value}\n\n{held.text}",
+                    findings=[arbiter._primary(held), *verdict.findings],
+                )
+                return profile.withhold(would, str(held.category))
             return Decision(
                 action=DecisionAction.ALLOW,
                 level=EscalationLevel.DEEP_VERIFICATION,
@@ -880,21 +945,24 @@ class Guard:
                 unverified_finish=gave_up or None,
             )
 
-        # Bookkeeping for a block that will actually happen. `observe.silence()` will turn
-        # this decision into an ALLOW, and counting a block that the agent never saw would
-        # both inflate the metric and spend the gate's per-task budget on nothing. The
-        # silence guarantee stays at the choke point; this is about side effects, which
-        # genuinely belong to the handler that causes them.
-        if not self.settings.observe_only:
-            state.stop_blocks += 1
-            state.raised_categories.update(str(category) for category in verdict.raised)
-            METRICS.increment(M_FALSE_COMPLETION_BLOCKED, labels={"result": str(verdict.result)})
-        return Decision(
+        decision = Decision(
             action=DecisionAction.BLOCK,
             level=EscalationLevel.DEEP_VERIFICATION,
             reason=f"Truthstone — completion gate: {verdict.result.value}\n\n{verdict.reason}",
             findings=verdict.findings,
         )
+        # Bookkeeping for a block that will actually happen. `observe.silence()` will turn
+        # this decision into an ALLOW, and so does the profile's choke point for a kind it
+        # withholds; counting a block that the agent never saw would both inflate the metric
+        # and spend the per-task budget (and the once-per-reason one) on nothing. The silence
+        # guarantee stays at the choke point; this is about side effects, which genuinely
+        # belong to the handler that causes them.
+        speaks = profile.apply(EventType.STOP, decision, profile.active(self.settings)).action
+        if not self.settings.observe_only and speaks is DecisionAction.BLOCK:
+            state.stop_blocks += 1
+            state.raised_categories.update(str(category) for category in verdict.raised)
+            METRICS.increment(M_FALSE_COMPLETION_BLOCKED, labels={"result": str(verdict.result)})
+        return decision
 
     def _on_subagent_stop(self, event: AgentEvent, ws: Workspace) -> Decision:
         """A subagent finishing is not the task finishing (G9).

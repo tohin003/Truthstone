@@ -104,13 +104,12 @@ def recorded(tmp_path: Path) -> tuple[Path, list[dict], Path]:
         pytest_run = {"command": "python -m pytest -q"}
         event("SessionStart", source="startup")
         event("UserPromptSubmit", prompt="add() in calc.py returns the wrong sum. Fix it and run the tests.")
+        event("PreToolUse", tool_name="Bash", tool_input=pytest_run)
+        event("PostToolUse", tool_name="Bash", tool_input=pytest_run, tool_response=RED)
         patch = {"command": _patch(repo, "    return a - b", "    return a + b")}
         event("PreToolUse", tool_name="apply_patch", tool_input=patch)
         (repo / "calc.py").write_text(FIXED)
         event("PostToolUse", tool_name="apply_patch", tool_input=patch, tool_response="Success")
-        # Red after the last edit, and the final message says the tests pass: (b).
-        event("PreToolUse", tool_name="Bash", tool_input=pytest_run)
-        event("PostToolUse", tool_name="Bash", tool_input=pytest_run, tool_response=RED)
         # Discards the uncommitted fix: only the developer can say yes.
         event("PreToolUse", tool_name="Bash", tool_input={"command": "git reset --hard"})
         event(
@@ -141,7 +140,21 @@ def test_a_recorded_cell_replays_to_every_output_decided_live(recorded, tmp_path
     scratch = (tmp_path / "replay" / "repo").resolve()
     assert [_normalised(e.output, scratch) for e in result.events] == [_normalised(o, repo) for o in live]
     kinds = {e.index: e.kind for e in result.interventions}
+    # The suite runs the full profile (conftest): the gate's reason speaks there, under the
+    # completion arbiter's category.
     assert kinds[6] == "signoff" and kinds[7] == "failing_tests"
+
+
+def test_under_the_minimal_profile_the_replay_shows_what_was_withheld(recorded, tmp_path):
+    cell, _live, _repo = recorded
+    result = replay.replay_cell(cell, profile_name="minimal")
+    assert {e.index: e.kind for e in result.interventions} == {6: "signoff"}  # A1 holds
+    withheld = {e.index: e.withheld for e in result.events if e.withheld}
+    # The failing run came before the fix: not (b), a result the task edited past.
+    assert withheld == {7: "unverified"}
+    stop = result.events[7]
+    assert stop.action == "allow" and stop.would_have == "block" and stop.output == {}
+    assert "The test run reported failures" in result.to_json()["withheld"][0]["text"]
 
 
 def _files(root: Path) -> dict[str, bytes]:
@@ -231,10 +244,9 @@ def test_the_cli_prints_one_cell_as_json(recorded, tmp_path):
 
     cell, _live, _repo = recorded
     out = tmp_path / "out.json"
-    result = CliRunner().invoke(app, ["replay", str(cell), "--out", str(out)])
+    result = CliRunner().invoke(app, ["replay", str(cell), "--out", str(out), "--profile", "minimal"])
     assert result.exit_code == 0, result.output
     data = json.loads(out.read_text())
-    assert data["cell"] == "cell" and {i["kind"] for i in data["interventions"]} >= {
-        "signoff",
-        "failing_tests",
-    }
+    assert data["cell"] == "cell" and [i["kind"] for i in data["interventions"]] == ["signoff"]
+    assert [w["kind"] for w in data["withheld"]] == ["unverified"]
+    assert CliRunner().invoke(app, ["replay", str(cell), "--profile", "loud"]).exit_code == 2

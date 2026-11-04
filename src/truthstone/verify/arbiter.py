@@ -111,6 +111,10 @@ class Arbitration:
     raised: list[ReasonCategory] = field(default_factory=list)
     # Told to the developer when the turn ends with a gap nobody raised with the agent.
     unresolved: str = ""
+    # The first concern a completion claim met that the profile kept from the agent: the
+    # engine marks the decision "withheld" (what the full profile would have said). A concern
+    # its own check accepted (disclosed, unrelated, requested...) is not withheld: it is fine.
+    withheld: Concern | None = None
 
     @property
     def should_block(self) -> bool:
@@ -180,6 +184,12 @@ def arbitrate(
             log.exception("truthstone: a completion integrity check failed; skipped")
             continue
         for concern in found:
+            if concern.category is ReasonCategory.SPEC_EROSION and concern.can_speak:
+                from truthstone.verify import integrity
+
+                quoted = [ref.snippet or "" for ref in concern.finding.evidence]
+                if integrity.acknowledged(message, quoted):
+                    concern.can_speak = False  # the message already names the changed rule
             findings.append(concern.finding)
             concerns.append(concern)
 
@@ -201,14 +211,33 @@ def arbitrate(
             speaking.append(concern)
 
     if not speaking:
-        # Raised once already and finished anyway: the developer hears of it (G10).
-        gap = next((c.finding.summary for c in repeated if c.finding.severity in _SPEAKING), "")
-        return Arbitration(GateResult.PASS, reason=gate.reason, findings=findings, unresolved=gap)
+        # Raised once already and finished anyway: the developer hears of it (G10), under
+        # that concern's own category (its finding first, for the profile's choke point).
+        told = next((c for c in repeated if c.finding.severity in _SPEAKING), None)
+        if told is None:
+            held = sorted(
+                (c for c in concerns if c.can_speak and c not in repeated and (done or not c.needs_claim)),
+                key=lambda c: _ORDER.index(c.category),
+            )
+            return Arbitration(
+                GateResult.PASS, reason=gate.reason, findings=findings, withheld=held[0] if held else None
+            )
+        return Arbitration(
+            GateResult.PASS,
+            reason=gate.reason,
+            findings=[_primary(told), *findings],
+            unresolved=told.finding.summary,
+        )
 
     muted = completion_gate._muted_reason(state, stop_hook_active, max_blocks)
     if muted:
-        gap = speaking[0].finding.summary
-        return Arbitration(GateResult.PASS, reason=muted, findings=findings, unresolved=gap)
+        first = min(speaking, key=lambda c: _ORDER.index(c.category))
+        return Arbitration(
+            GateResult.PASS,
+            reason=muted,
+            findings=[_primary(first), *findings],
+            unresolved=first.finding.summary,
+        )
 
     speaking.sort(key=lambda c: _ORDER.index(c.category))
     result = (
@@ -273,6 +302,9 @@ def _gate_concern(
     failure = gate.failure
     if failure is None:
         return Concern(category, gate.reason, lead, can_speak=False)
+    if failure.seq is not None and any(seq > failure.seq for seq in state.last_change_seq.values()):
+        # Edited past: a stale result, not a failure after the last edit (b) — unverified.
+        return Concern(ReasonCategory.UNVERIFIED, gate.reason, lead)
     if not said.claims:
         quiet, contradicted = "no completion claim", False
     else:

@@ -607,9 +607,7 @@ class TestUnguarded:
 @pytest.fixture
 def guarded_project(plugin_dirs):
     data, project, home = plugin_dirs
-    # Today's Stop behaviour, every reason spoken: this session's held Stop is a failing run
-    # whose output names no test (the minimal profile records it instead).
-    (home / "config.toml").write_text(f'profile = "full"\n[daemon]\nport = {free_port()}\n')
+    (home / "config.toml").write_text(f"[daemon]\nport = {free_port()}\n")
     (project / "app.py").write_text("def add(a, b):\n    return a + b\n")
     (project / "tests").mkdir()
     (project / "tests" / "test_app.py").write_text(
@@ -623,6 +621,8 @@ def guarded_project(plugin_dirs):
         home,
         TRUTHSTONE_RUNTIME_SPEC=spec,
         CLAUDE_CONFIG_DIR=str(data.parent / "claude-config"),
+        # Every check speaks (the full profile); the product's default is tested on its own.
+        TRUTHSTONE_PROFILE="full",
     )
     return data, project, home, env
 
@@ -679,6 +679,21 @@ class TestWholeSession:
         assert "unverified" in gave_up["systemMessage"]
 
         assert hook("SessionEnd", reason="other") == {}
+
+    def test_by_default_a_routine_prompt_injects_nothing_and_a_sign_off_still_asks(self, guarded_project):
+        """The product's default, the minimal intervention profile (WP7, M9), end to end."""
+        _, project, _, env = guarded_project
+        env = {key: value for key, value in env.items() if key != "TRUTHSTONE_PROFILE"}
+        base = {"session_id": "quiet-1", "cwd": str(project), "permission_mode": "default"}
+
+        def hook(event: str, **fields) -> dict:
+            return one(harness.run_event(event, {**base, **fields}, env))
+
+        assert hook("SessionStart", source="startup") == {}
+        assert hook("UserPromptSubmit", prompt="Make add() return an int") == {}
+        push = {"command": "git push --force origin main"}
+        review = hook("PreToolUse", tool_name="Bash", tool_input=push)["hookSpecificOutput"]
+        assert review["permissionDecision"] == "ask"  # A1: the developer's sign-off holds
 
     def test_per_tool_hooks_are_fast(self, guarded_project):
         """The plugin's hot path: Claude Code's shell, scripts/hook.sh, and a Python with no

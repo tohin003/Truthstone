@@ -1471,6 +1471,9 @@ def replay_cmd(
     out: Path = typer.Option(None, "--out", help="Write every cell's replay, and the summary, as JSON here."),
     jobs: int = typer.Option(1, "--jobs", "-j", min=1, help="Cells replayed in parallel."),
     adapter: str = typer.Option("codex", help="The host adapter the cells were recorded through."),
+    profile_name: str = typer.Option(
+        None, "--profile", help="Intervention profile to replay under: minimal (the default) or full."
+    ),
 ) -> None:
     """Replay recorded benchmark cells through this build, offline (WP1b).
 
@@ -1484,8 +1487,14 @@ def replay_cmd(
     if not cells and not corpus:
         _bad("name a cell directory or --corpus <run-dir>")
         raise typer.Exit(2)
+    if profile_name not in (None, "minimal", "full"):
+        _bad("--profile is minimal or full")
+        raise typer.Exit(2)
     if cells:
-        replayed = [replay.replay_cell(cell.resolve(), config=config, adapter=adapter) for cell in cells]
+        replayed = [
+            replay.replay_cell(cell.resolve(), config=config, adapter=adapter, profile_name=profile_name)
+            for cell in cells
+        ]
         data: Any = [r.to_json() for r in replayed]
         text = json.dumps(data if len(data) > 1 else data[0], indent=1, default=str)
         if out:
@@ -1493,7 +1502,12 @@ def replay_cmd(
         _echo(text)
         return
     rows = replay.replay_corpus(
-        [path.resolve() for path in corpus], exclude=exclude or (), config=config, adapter=adapter, jobs=jobs
+        [path.resolve() for path in corpus],
+        exclude=exclude or (),
+        config=config,
+        adapter=adapter,
+        jobs=jobs,
+        profile_name=profile_name,
     )
     summary = replay.summarize(rows)
     _echo(replay.render(summary))

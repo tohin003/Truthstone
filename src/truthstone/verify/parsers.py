@@ -715,7 +715,8 @@ _FAILING_FILE = re.compile(
     r"|^(?P<pyv>[^\s:]+\.py)::\S+ (?:FAILED|ERROR)\b"  # pytest -v
     r"|^\s*FAIL\s+(?P<js>\S+\.[cm]?[jt]sx?)\b"  # jest "FAIL path", vitest " FAIL  path > test"
     r"|^rspec \.?/?(?P<rb>\S+?\.rb)(?::\d+)?\b"  # rspec "rspec ./spec/x_spec.rb:4 # ..."
-    r"|^test at (?P<node>\S+?\.[cm]?[jt]sx?):\d+:\d+$",  # node:test
+    r"|^test at (?P<node>\S+?\.[cm]?[jt]sx?):\d+:\d+$"  # node:test, spec reporter
+    r"|^\s*location:\s*'(?P<nodetap>[^']+?\.[cm]?[jt]sx?):\d+:\d+'\s*$",  # node:test, TAP diagnostics
     re.M,
 )
 
