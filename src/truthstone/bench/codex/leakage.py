@@ -147,6 +147,7 @@ STOPWORDS = frozenset(
         "as_json", "conftest", "deterministically", "git_author_email", "git_author_name",
         "git_committer_email", "git_committer_name", "git_config_nosystem", "htmlcov", "nexport",
         "node_modules", "ruff_cache", "test_pagination", "top_level", "tsconfig", "unparseable",
+        "workspace",  # reviewed 2026-11-04 (G8): a generic word, also in product code
     }
 )  # fmt: skip
 
