@@ -1,4 +1,5 @@
-"""Amendment G5: two Codex accounts, the dedicated one preferred, reserves on the user's own.
+"""Amendment G5 (+ the user's 2026-11-04 rebalance): two Codex accounts, main preferred, with a
+weekly reserve on main (the user's own login).
 
 No model and no real login is touched: readings are synthetic, and the only auth file is a
 dummy written here (the harness only ever symlinks such a file, never reads it)."""
@@ -31,23 +32,23 @@ def reading(primary: float, week: float, **extra) -> dict:
 @pytest.mark.parametrize(
     "readings, chosen",
     [
-        ({"p": reading(0, 0), "main": reading(0, 0)}, "p"),  # the dedicated account first
-        ({"p": reading(10, 79.95), "main": reading(10, 10)}, "main"),  # p's pair would cross 80%
-        ({"p": reading(97.6, 10), "main": reading(10, 10)}, "main"),  # p's pair would cross 98%
-        ({"p": reading(10, 80), "main": reading(10, 50)}, None),  # main's weekly reserve
-        ({"p": reading(10, 80), "main": reading(80, 10)}, None),  # main's 5-hour reserve
-        ({"p": reading(10, 10, limit_reached=True), "main": reading(10, 10)}, "main"),
-        ({"p": None, "main": reading(10, 10)}, "main"),  # an unreadable account is skipped
+        ({"p": reading(0, 0), "main": reading(0, 0)}, "main"),  # main first (the user's request)
+        ({"p": reading(10, 10), "main": reading(10, 49.95)}, "p"),  # main's pair would cross 50% weekly
+        ({"p": reading(10, 10), "main": reading(97.6, 10)}, "p"),  # main's pair would cross 98%
+        ({"p": reading(10, 80), "main": reading(10, 50)}, None),  # both at their weekly stops
+        ({"p": reading(10, 80), "main": reading(98, 10)}, None),  # main at 98%, p at its weekly stop
+        ({"p": reading(10, 10), "main": reading(10, 10, limit_reached=True)}, "p"),
+        ({"p": reading(10, 10), "main": None}, "p"),  # an unreadable account is skipped
     ],
 )
-def test_selection_prefers_p_and_keeps_mains_reserves(readings, chosen):
+def test_selection_prefers_main_and_keeps_mains_weekly_reserve(readings, chosen):
     assert accounts.choose(readings, POLICY).account == chosen
 
 
-def test_main_is_never_scheduled_at_its_reserves_and_p_never_at_98():
+def test_main_keeps_its_weekly_reserve_and_no_account_starts_at_98():
     assert not accounts.cell_allowed("main", reading(10, 50), POLICY)[0]
-    assert not accounts.cell_allowed("main", reading(80, 10), POLICY)[0]
-    assert accounts.cell_allowed("main", reading(79.9, 49.9), POLICY)[0]
+    assert not accounts.cell_allowed("main", reading(98, 10), POLICY)[0]
+    assert accounts.cell_allowed("main", reading(97.9, 49.9), POLICY)[0]  # no 80% cap any more
     assert not accounts.cell_allowed("p", reading(98, 10), POLICY)[0]
     assert not accounts.cell_allowed("p", reading(10, 80), POLICY)[0]
     assert accounts.cell_allowed("p", reading(97.9, 79.9), POLICY)[0]
@@ -148,8 +149,8 @@ def _runner(tmp_path: Path, usage: _Usage) -> orchestrator.Runner:
     return runner
 
 
-def test_pairs_run_on_one_account_p_first_then_main_and_analysis_strata(tmp_path):
-    usage = _Usage({"p": (5.0, 79.0), "main": (5.0, 49.0)}, step={"p": 0.25, "main": 0.05})
+def test_pairs_run_on_one_account_main_first_then_p_and_analysis_strata(tmp_path):
+    usage = _Usage({"main": (5.0, 49.0), "p": (5.0, 79.0)}, step={"main": 0.25, "p": 0.05})
     runner = _runner(tmp_path, usage)
     summary = runner.run()
     cells = [r for r in orchestrator.load_records(runner.cells_path) if r.get("kind") == "cell"]
@@ -158,11 +159,11 @@ def test_pairs_run_on_one_account_p_first_then_main_and_analysis_strata(tmp_path
         by_pair.setdefault(c["pair_id"], set()).add(c["account"])
     assert all(len(found) == 1 for found in by_pair.values())  # a pair never spans accounts
     order = [c["account"] for c in cells]
-    assert order[0] == "p" and "main" in order and order.index("main") > order.index("p")
-    assert "p" not in order[order.index("main") :]  # p is never used again once past its stop
+    assert order[0] == "main" and "p" in order and order.index("p") > order.index("main")
+    assert "main" not in order[order.index("p") :]  # main is never used again past its reserve
     assert summary["pairs_run"] == 8 and not summary["stopped"]
-    # and once main's reserve is reached too, nothing more starts
-    stop = accounts.choose({"p": reading(5, 80), "main": reading(5, 49.95)}, runner.plan.account_policy())
+    # and once p's weekly stop is reached too, nothing more starts
+    stop = accounts.choose({"main": reading(5, 50), "p": reading(5, 79.95)}, runner.plan.account_policy())
     assert stop.account is None
     analysis = report.analyze(runner.run_dir)
     assert set(analysis["accounts"]) <= {"p", "main"}

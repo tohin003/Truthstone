@@ -7,9 +7,10 @@ reads, prints or copies either file (as ``homes.link_auth`` documents).
 
 Pre-registered rules. They act on usage readings only, never on outcomes:
 
-* prefer ``p``; use ``main`` only when ``p`` cannot take the whole pair;
-* never start a ``main`` cell when main's weekly window is at 50% or more, or its 5-hour
-  window at 80% or more;
+* prefer ``main`` (the user's request, 2026-11-04 23:00: move work from ``p`` to ``main``); use
+  ``p`` when ``main`` cannot take the whole pair;
+* never start a ``main`` cell when main's weekly window is at 50% or more (its reserve for the
+  user's own work);
 * ``p`` stops at 80% of its weekly window; no cell starts at 98% or more of either account's
   5-hour window;
 * a pair's two cells run on one account, admitted only if the second cell will still be
@@ -35,7 +36,7 @@ ACCOUNTS: dict[str, Path] = {
     "main": Path.home() / ".codex",
     "p": Path.home() / ".codex-personal",
 }
-PREFERENCE = ("p", "main")
+PREFERENCE = ("main", "p")
 
 
 def auth_source(account: str | None) -> Path:
@@ -53,7 +54,7 @@ class CodexAccountPolicy:
 
     start_max_primary: float = 98.0  # no cell starts at >= 98% of a 5-hour window
     week_stop: dict[str, float] = field(default_factory=lambda: {"p": 80.0, "main": 50.0})
-    primary_cap: dict[str, float] = field(default_factory=lambda: {"main": 80.0})
+    primary_cap: dict[str, float] = field(default_factory=dict)  # no per-account cap below 98%
     preference: tuple[str, ...] = PREFERENCE
     per_cell_primary: float = 0.55  # measured on the dev pilot (5-hour percent per cell)
     per_cell_week: float = 0.1  # measured on the dev pilot (weekly percent per cell)
