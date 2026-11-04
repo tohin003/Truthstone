@@ -14,6 +14,7 @@ mode in which AgentGuard stops a developer from working.
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 import uuid
@@ -564,6 +565,10 @@ class Guard:
         ws.carry_waiver(event.session_id, spec)
         ws.current_spec = spec
 
+        # The task this prompt follows in the same session, read before the new task
+        # replaces it: what it leaves unverified is not forgotten (G8).
+        previous = ws.task_state(None, event.session_id) if event.session_id else None
+        state = None
         if event.session_id:
             task_id = ws.store.create_task(
                 event.session_id,
@@ -576,9 +581,14 @@ class Guard:
             # task lives in memory, under an id minted here.
             task_id = task_id or memory_task_id()
             event.task_id = task_id
-            ws.begin_task(task_id, spec, event.session_id)
+            state = ws.begin_task(task_id, spec, event.session_id)
 
         budget = planning.render(spec, index)
+        if previous is not None and state is not None:
+            try:
+                self._inherit_debt(ws, previous, state)
+            except Exception:  # a debt not carried is the old behaviour, never a failure
+                log.exception("agentguard: could not carry verification debt to a new task")
         if not budget:
             return Decision.allow(EscalationLevel.REPOSITORY)
 
@@ -587,6 +597,69 @@ class Guard:
             level=EscalationLevel.REPOSITORY,
             additional_context=budget,
         )
+
+    @classmethod
+    def _inherit_debt(cls, ws: Workspace, old: TaskState, new: TaskState) -> bool:
+        """Carry the verification debt of the session's previous task into ``new`` (G8).
+
+        Every prompt started a fresh TaskState, so "continue" — or a host's Stop
+        continuation arriving as a new prompt, or the developer's `approve <CODE>` reply —
+        forgot the failing run and the unverified edits, and "All done, tests pass"
+        then passed (probe H). Debt is what the completion gate would block on now,
+        before any rationing: the latest run failing, changes after the last pass,
+        covered changes never tested, unparsable files. Without it the new task starts
+        clean; with it, the new task takes over the old one's changes and timeline.
+
+        ``stop_blocks`` travels with the debt. The gate's budget bounds how often it may
+        hold a session open over one unresolved problem; a new prompt does not resolve
+        it, so it does not refresh the budget either — otherwise a host whose Stop
+        continuation arrives as a prompt would be held forever, block after block. A
+        genuinely new request therefore gets what remains of the budget: it is never
+        held more than the budget allows, and once the budget is spent the developer
+        is told the turn ended unverified (G10). Paying the debt (a passing run on the
+        current files) means the next prompt starts clean, with a fresh budget.
+
+        Never across sessions: ``old`` is the same session's task. The G6 waiver keeps
+        its own logic (`Workspace.carry_waiver`).
+        """
+        if old.task_id == new.task_id or old.session_id != new.session_id:
+            return False
+        if ws.shell.pending(old.task_id):
+            cls._sweep(ws)  # its shell commands' changes land first (G5)
+        if not old.changed_files and not old.verification.outcomes:
+            return False
+        verdict = completion_gate.evaluate(state=old, index=ws.index, max_blocks=sys.maxsize)
+        if not verdict.should_block:
+            return False
+
+        new.touched_files |= old.touched_files
+        new.deleted_files |= old.deleted_files
+        new.created_files |= old.created_files
+        for path, seq in old.last_change_seq.items():
+            new.last_change_seq[path] = max(seq, new.last_change_seq.get(path, 0))
+        new.seq = max(new.seq, old.seq)
+        new.verification.outcomes[:0] = old.verification.outcomes
+        new.verification.commands_seen[:0] = old.verification.commands_seen
+        new.verification.inconclusive[:0] = old.verification.inconclusive
+        new.verification.background[:0] = old.verification.background
+        for path, parsed in old.parse_baseline.items():
+            new.parse_baseline.setdefault(path, parsed)
+        for path, tests in old.deleted_coverage.items():
+            new.deleted_coverage.setdefault(path, set()).update(tests)
+        new.stop_blocks = max(new.stop_blocks, old.stop_blocks)
+        new.started_at = min(new.started_at, old.started_at)
+        # The inherited files are not this request's drift: a spec that resolved a scope
+        # counts them in it, so scope judges only what the new request changes. (An
+        # unresolved scope already calls nothing unrelated.)
+        if new.spec.expected_scope:
+            scope = list(new.spec.expected_scope)
+            new.spec.expected_scope = scope + sorted(set(old.touched_files) - set(scope))
+        log.info(
+            "agentguard: carried verification debt into a new task (%s): %s",
+            verdict.result.value,
+            next((f.summary for f in verdict.findings if f.subject), ""),
+        )
+        return True
 
     def _on_pre_tool_use(self, event: AgentEvent, ws: Workspace) -> Decision:
         """Action Validator (SPEC §18), which runs the Evidence Engine inside it."""
