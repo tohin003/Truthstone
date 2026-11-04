@@ -15,6 +15,7 @@ import pytest
 from truthstone.adapters.codex import translate
 from truthstone.core.config import Settings
 from truthstone.core.engine import Guard
+from truthstone.intent import premise
 
 
 @pytest.fixture(autouse=True)
@@ -194,20 +195,32 @@ def _notes(files: dict[str, str], prompts: list[str], tmp_path: Path) -> dict[st
     return spoke
 
 
-# Frozen build 66e1617: 9 of the Python and 7 of the TypeScript requests above get the note
-# ("`decimal.Decimal` appears nowhere in this repository …"): a name the request says to *use*
-# or *call* is taken as a claim that the repository has it, and "the `--cov` flag" as the
-# project's own flag although the sentence names the tool it belongs to.
-FROZEN = pytest.mark.xfail(strict=True, reason="premise note on ordinary use/call requests (audit, 66e1617)")
-
-
-@FROZEN
 def test_ordinary_python_requests_get_no_premise_note(tmp_path):
     spoke = _notes(PY_REPO, PY_PROMPTS, tmp_path)
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
 
 
-@FROZEN
 def test_ordinary_typescript_requests_get_no_premise_note(tmp_path):
     spoke = _notes(TS_REPO, TS_PROMPTS, tmp_path)
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
+
+
+# -- the premises it must still catch --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "prompt, name",
+    [
+        ("Use the existing `retry_budget` setting for this.", "retry_budget"),
+        ("Reuse `Store.reserve()` for the hold path.", "Store.reserve()"),
+        ("Call the `notify_admins()` helper when a refund fails.", "notify_admins()"),
+        ("ledgerly already supports `--dry-run`; pass it in the pytest job.", "--dry-run"),
+        ("Pass the --dry-run flag when the job syncs.", "--dry-run"),
+        ("ledgerly already logs every request when LEDGERLY_TRACE=1 is set, so switch that on in CI.",
+         "LEDGERLY_TRACE"),
+    ],
+)
+def test_a_request_resting_on_a_missing_repository_name_is_still_noted(tmp_path, prompt, name):
+    repo = _repo(tmp_path / "repo", PY_REPO)
+    files = [p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()]
+    assert [a.name for a in premise.check(prompt, repo, files).missing] == [name]

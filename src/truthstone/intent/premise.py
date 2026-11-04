@@ -16,8 +16,11 @@ on routine work.
 
 * **Only asserted names.** A code-like name (an environment variable, a dotted or called
   symbol, a backticked name, a ``--flag``, a path) counts only in a sentence that asserts it
-  exists: "already", "existing", "use/call/reuse/build on/on top of", "the … helper, flag,
-  setting …", or a request to switch a named setting on ("enable", "turn/switch … on", "set").
+  exists: "already", "existing", "reuse/build on/on top of", "the … helper, flag, setting …",
+  or a request to switch a named setting on ("enable", "turn/switch … on", "set").
+* **Never an API the request adopts.** "Use `Decimal`", "call `logger.warning`", "use
+  `structuredClone`": telling the agent to use or call a name is how a request brings in the
+  standard library's, the runtime's or a dependency's API, which no repository defines.
 * **Never a name being created.** "add", "implement", "create", "introduce", "new", "define",
   "declare", "support", "rename … to", "becomes" just before the name: the request is to make
   it, and of course it is not there yet.
@@ -36,7 +39,9 @@ on routine work.
 * **Never another program's switch.** Keys of tool-owned configuration (``tsconfig.json``,
   ``package.json``, ``pyproject.toml``, lint and test-runner configs: the tool reads them) and
   well-known runtime and tool environment variables (``NODE_*``, ``PYTHON*``, ``CI``,
-  ``GITHUB_*``, ``DEBUG``, ``NO_COLOR``…) never get a note.
+  ``GITHUB_*``, ``DEBUG``, ``NO_COLOR``…) never get a note. Nor does a ``--flag`` in a
+  sentence that names the program it belongs to ("the `--cov` flag … pytest-cov", "when
+  running node --test"), unless the request says the behaviour works today.
 * **External things are skipped:** URLs, package specs (``@scope/pkg``, ``node:fs``), HTTP
   headers, versions, dates, numbers.
 * Silent while the index is not built, and once per name per session (the caller keeps that).
@@ -110,9 +115,26 @@ _CREATING_SENTENCE = re.compile(
     re.IGNORECASE,
 )
 # Existence, in the few words just before the name: "use X", "call X", "set X", "build it on X".
+#
+# Not "use", "call", "invoke" or "via" on their own: that is how a request tells the agent to
+# adopt an API — the standard library's, the runtime's, a dependency's ("use `Decimal`", "call
+# `logger.warning`", "use `structuredClone`") — and no repository defines those. A request that
+# rests on the repository having a name says so: "the existing X", "already", "reuse X",
+# "build it on X", "the X helper" (audit of 66e1617: 14 of 46 ordinary requests were noted).
 _EXISTS_NEAR = re.compile(
-    r"\b(?:already|existing|current|reuse|reuses|use|uses|using|call|calls|calling|invoke|via|"
+    r"\b(?:already|existing|current|reuse|reuses|"
     r"enable|on top of|based on|build (?:it |this |that )?(?:on|upon))\b",
+    re.IGNORECASE,
+)
+# A sentence that names the program a flag belongs to: "the `--cov` flag ... pytest-cov",
+# "when running node --test". That flag is the tool's switch, not the project's.
+_TOOL_NAMED = re.compile(
+    r"\b(?:pytest(?:-cov)?|py\.test|coverage|tox|nox|pipx?|uvx?|poetry|pdm|hatch|ruff|black|isort|"
+    r"flake8|pylint|mypy|pyright|npm|npx|yarn|pnpm|tsc|tsx|ts-node|jest|vitest|mocha|eslint|"
+    r"prettier|webpack|vite|esbuild|rollup|babel|git|gh|docker(?:-compose)?|kubectl|helm|terraform|"
+    r"cargo|rustc|mvn|gradle|dotnet|curl|wget|rsync)\b"
+    r"|\b(?:node|deno|bun|python3?)\s+(?:-m\s+\w|--?[a-z])"
+    r"|\bgo\s+(?:test|build|run|vet|mod)\b|\bmake\s+(?:check|test|lint|build|all|install|ci)\b",
     re.IGNORECASE,
 )
 # A kind noun after the name: "the X helper", "the --foo flag".
@@ -286,7 +308,10 @@ def assertions(prompt: str) -> list[Assertion]:
     out: dict[str, Assertion] = {}
     for _start, sentence in _sentences(prompt or ""):
         existing = _EXISTING_BEHAVIOUR.search(sentence) is not None
+        tool_named = _TOOL_NAMED.search(sentence) is not None
         for offset, candidate in _candidates(sentence):
+            if candidate.kind == "flag" and tool_named and not existing:
+                continue  # another program's switch, unless the request says it works today
             if _asserted(sentence, offset, candidate.name):
                 candidate.existing = existing
                 out.setdefault(candidate.name, candidate)
