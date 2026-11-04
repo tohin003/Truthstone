@@ -374,6 +374,12 @@ def analyze(run_dir: Path) -> dict[str, Any]:
         "impossible_only": _paired_test(_subset(pairs, "impossible"), _is_fc),
         "missing_final_line_counted_against_agent": _paired_test(opp, _fc_missing_as_done),
     }
+    # Amendment G5: each pair runs on one account; the effect must not differ by account
+    # (a sensitivity check, never pooled away). Present when the run used accounts.
+    for account in sorted({str(on.get("account")) for on, _obs in opp if on.get("account")}):
+        sensitivity[f"account_{account}"] = _paired_test(
+            [(on, obs) for on, obs in opp if on.get("account") == account], _is_fc, bootstrap=False
+        )
 
     secondary: dict[str, Any] = {}
     for name, (which, fn) in SECONDARY.items():
@@ -408,6 +414,7 @@ def analyze(run_dir: Path) -> dict[str, Any]:
         "families": families,
         "recipes": _families(pairs, "recipe"),
         "languages": _families(pairs, "language"),
+        "accounts": _families(pairs, "account"),
         "budget": _budget(cells),
     }
 

@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from truthstone.bench.codex import (
     agents,
@@ -134,6 +135,19 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         }
     else:
         host_fields = {"codex_version": codex_version(args.codex), "trust": args.trust}
+        if args.accounts:
+            from truthstone.bench.codex import accounts as codex_accounts
+
+            names = [a.strip() for a in args.accounts.split(",") if a.strip()]
+            unknown = sorted(set(names) - set(codex_accounts.ACCOUNTS))
+            if unknown:
+                print(f"unknown Codex account(s) {unknown}; known: {sorted(codex_accounts.ACCOUNTS)}")
+                return 2
+            policy = codex_accounts.CodexAccountPolicy(
+                per_cell_week=args.weekly_percent_per_cell or 0.1,
+                per_cell_primary=args.per_cell_session or 0.55,
+            )
+            host_fields.update({"accounts": names, "budget": dataclasses.asdict(policy)})
     default_model = "claude-opus-5-5" if args.host == "claude" else "gpt-6.1-sol"  # amendment A5
     plan = Plan(
         name=args.name,
@@ -154,9 +168,9 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         **common,
         **host_fields,
     )
-    if args.host == "codex" and args.stop_weekly_at is not None:
+    if args.host == "codex" and not plan.accounts and args.stop_weekly_at is not None:
         plan.budget["stop_weekly_at"] = args.stop_weekly_at
-    if args.host == "codex" and args.weekly_percent_per_cell is not None:
+    if args.host == "codex" and not plan.accounts and args.weekly_percent_per_cell is not None:
         plan.budget["weekly_percent_per_cell"] = args.weekly_percent_per_cell
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -385,6 +399,14 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
         return None
 
     runner.limits_reader = read_limits
+    if plan.accounts:
+        # Amendment G5: each pair on one of the plan's accounts, chosen on their windows.
+        from truthstone.bench.codex import accounts as codex_accounts
+
+        runner.account_policy = plan.account_policy()
+        runner.account_reader = lambda account: codex_accounts.read_windows(
+            args.codex, codex_accounts.account_home(state, account)
+        )
     runner.allow_partial = bool(getattr(args, "allow_partial", False))
     return runner
 
@@ -605,6 +627,15 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
     runner = _real_runner(plan, run_dir, args)
     runner.bind()
     report_data: dict = {"plan": plan.digest(), "codex_version": codex_version(args.codex)}
+    # G5: both Codex logins answer (app-server, no model call); the plan's own must.
+    accounts_report = _codex_accounts_report(args.codex, plan.account_policy() if plan.accounts else None)
+    report_data["accounts"] = accounts_report
+    _print_accounts(accounts_report)
+    needed = plan.accounts or ["main"]
+    dead = [a for a in needed if accounts_report["accounts"][a]["reading"] is None]
+    if dead:
+        print(f"the plan's Codex account(s) {dead} did not answer: check `codex login` for them")
+        return 1
     if plan.codex_version and report_data["codex_version"] != plan.codex_version:
         print(f"codex {report_data['codex_version']} != pinned {plan.codex_version}")
         return 1
@@ -835,18 +866,21 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def read_allowance(codex_bin: str) -> dict | None:
-    """The plan's usage windows, read through a throwaway, isolated CODEX_HOME.
+def read_allowance(codex_bin: str, account: str | None = None) -> dict | None:
+    """An account's usage windows (None: the default login), read through a throwaway,
+    isolated CODEX_HOME.
 
     ``account/rateLimits/read`` on ``codex app-server``: no prompt, no model call. The
-    home holds only a symlink to the user's login, which is never opened here.
+    home holds only a symlink to the login, which is never opened here.
     """
+    from truthstone.bench.codex import accounts as codex_accounts
+
     root = homes.private_dir(
-        homes.default_work_root("allowance") / homes.neutral_name(os.getpid(), time.time())
+        homes.default_work_root("allowance") / homes.neutral_name(os.getpid(), time.time(), account)
     )
     home = homes.private_dir(root / "c")
     try:
-        homes.link_auth(home)
+        homes.link_auth(home, codex_accounts.auth_source(account))
         env = {
             "PATH": "/usr/bin:/bin",
             "HOME": str(root),
@@ -864,7 +898,57 @@ def read_allowance(codex_bin: str) -> dict | None:
         shutil.rmtree(root, ignore_errors=True)
 
 
+def _codex_accounts_report(codex_bin: str, policy: Any = None) -> dict[str, Any]:
+    """Both Codex accounts' windows (G5), each one's eligibility and its cells before its weekly
+    stop, and the combined capacity. No model call."""
+    from truthstone.bench.codex import accounts as codex_accounts
+
+    policy = policy or codex_accounts.CodexAccountPolicy()
+    rows = {}
+    for name in codex_accounts.PREFERENCE:
+        reading = read_allowance(codex_bin, name)
+        rows[name] = {**codex_accounts.describe(name, reading, policy), "reading": reading}
+    usable = [r for r in rows.values() if r["reading"] is not None]
+    return {"accounts": rows, "combined_capacity": sum(r["cells_before_weekly_stop"] for r in usable)}
+
+
+def _print_accounts(report_data: dict[str, Any]) -> None:
+    for name, row in report_data["accounts"].items():
+        if row["reading"] is None:
+            print(f"account {name}: usage windows unreadable")
+            continue
+        primary, week = row["windows"] or (None, None)
+        print(
+            f"account {name}: plan {row['plan_type']}; 5-hour {primary}%, weekly {week}%; "
+            f"{'eligible' if row['eligible_for_a_pair'] else 'not eligible'} ({row['why']}); "
+            f"{row['cells_before_weekly_stop']} cells before its weekly stop"
+        )
+    print(f"combined capacity: {report_data['combined_capacity']} cells")
+
+
 def _cmd_allowance(args: argparse.Namespace) -> int:
+    plan = Plan.load(Path(args.plan)) if args.plan else None
+    if plan is not None and plan.accounts:
+        report_data = _codex_accounts_report(args.codex, plan.account_policy())
+        _print_accounts(report_data)
+        run_dir = Path(args.run_dir) if args.run_dir else RESULTS / plan.name
+        states = orchestrator.pair_states(
+            orchestrator.load_records(run_dir / "cells.jsonl"), plan.max_attempts, len(plan.arms)
+        )
+        remaining = len(plan.arms) * sum(
+            1
+            for p in plan.pairs()
+            if not states.get(p.id, orchestrator.PairState()).complete
+            and not states.get(p.id, orchestrator.PairState()).excluded
+        )
+        room = sum(report_data["accounts"][a]["cells_before_weekly_stop"] for a in plan.accounts)
+        print(
+            f"plan {plan.name}: {remaining} cells on accounts {plan.accounts}, which can take {room}: "
+            + ("fits" if room >= remaining else "does NOT fit (run what fits with --allow-partial)")
+        )
+        if args.json:
+            print(json.dumps(report_data, indent=2, default=str))
+        return 0 if room >= remaining else 1
     reading = read_allowance(args.codex)
     if reading is None:
         return 2
@@ -884,7 +968,6 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
     print(show(reading.get("secondary"), "weekly window"))
     status = 0
     if args.plan:
-        plan = Plan.load(Path(args.plan))
         run_dir = Path(args.run_dir) if args.run_dir else RESULTS / plan.name
         states = orchestrator.pair_states(
             orchestrator.load_records(run_dir / "cells.jsonl"), plan.max_attempts, len(plan.arms)
@@ -898,6 +981,8 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
         verdict = limits.feasibility(reading, len(plan.arms) * remaining, plan.budget_policy())
         print(f"plan {plan.name}: {verdict.reason}")
         status = 0 if verdict.ok else 1
+    print("both Codex accounts (G5), for information:")
+    _print_accounts(_codex_accounts_report(args.codex))
     if args.json:
         print(json.dumps(reading, indent=2))
     return status
@@ -1037,7 +1122,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="codex", choices=["codex", "claude"])
     p.add_argument("--model", help="Default: gpt-6.1-sol (codex), claude-opus-5-5 (claude).")
     p.add_argument("--effort", default="medium")
-    p.add_argument("--accounts", help="Claude: comma-separated accounts the plan may use (work,personal).")
+    p.add_argument(
+        "--accounts",
+        help="Comma-separated accounts the plan may use. Claude: work,personal (default). Codex (G5): "
+        "p,main (none: the default login, as before).",
+    )
     p.add_argument("--permission-mode", help="Claude: --permission-mode for cells (default dontAsk).")
     p.add_argument(
         "--allowed-tools", help="Claude: comma-separated --allowedTools (default: the coding tools)."
