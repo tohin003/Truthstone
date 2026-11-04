@@ -640,10 +640,13 @@ class Guard:
             state.verification.inconclusive.append(outcome)
         else:
             state.verification.outcomes.append(outcome)
+            # The whole outcome, bounded (R14): after a restart the task's runs are rebuilt
+            # from this row (`runners.outcome_from_detail`), and the timeline needs their
+            # family, key and scope, not just a summary.
             ws.store.finish_verification(
                 ws.store.start_verification(state.task_id, outcome.runner),
                 "passed" if outcome.passed else "failed",
-                {"command": outcome.command, "summary": outcome.summary, "failed": outcome.failed},
+                runners.outcome_detail(outcome),
             )
 
     def _on_stop(self, event: AgentEvent, ws: Workspace) -> Decision:

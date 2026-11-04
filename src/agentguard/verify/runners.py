@@ -19,6 +19,7 @@ Running the suite independently remains available for Level-3 verification
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,6 +64,106 @@ class TestOutcome:
     @property
     def suite(self) -> str:
         return self.family or self.runner
+
+
+# -- the stored verification detail (R14) ------------------------------------------------
+#
+# A conclusive run is persisted as a verification row, and after a daemon restart the
+# engine rebuilds the task's `TestOutcome`s from it. G2a's timeline compares runs by
+# family, key and scope, so the row has to carry all of them, not just a summary line.
+# The store keeps a string to 200 characters and a list to 10 items (`summarize_value`)
+# and cuts the whole JSON at 4,000 bytes, so the detail is bounded here, below those
+# limits: whatever a reader gets back is exactly what was written.
+
+DETAIL_KEYS = (
+    "command", "summary", "failed", "runner", "passed", "total", "exit_code", "family", "key",
+    "scope", "failing_files",
+)
+DETAIL_TEXT = 200  # characters kept of each string: the store's own limit
+DETAIL_ITEMS = 10  # items kept of each list: the store's own limit
+DETAIL_BYTES = 3_500  # under the row's 4,000 bytes, with room for redaction markers
+
+
+def outcome_detail(outcome: TestOutcome) -> dict[str, Any]:
+    """The verification detail stored for a conclusive run, bounded so it round-trips.
+
+    ``{"command", "summary", "failed", "runner", "passed", "total", "exit_code",
+    "family", "key", "scope", "failing_files"}``. Long lists are capped (the latest
+    items dropped first, until the JSON fits ``DETAIL_BYTES``).
+    """
+
+    def text(value: Any) -> str:
+        return str(value or "")[:DETAIL_TEXT]
+
+    def count(value: Any) -> int:
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    detail: dict[str, Any] = {
+        "command": text(outcome.command),
+        "summary": text(outcome.summary),
+        "failed": count(outcome.failed),
+        "runner": text(outcome.runner),
+        "passed": bool(outcome.passed),
+        "total": count(outcome.total),
+        "exit_code": outcome.exit_code if isinstance(outcome.exit_code, int) else None,
+        "family": text(outcome.family),
+        "key": text(outcome.key),
+        "scope": [text(item) for item in outcome.scope[:DETAIL_ITEMS]],
+        "failing_files": [text(item) for item in outcome.failing_files[:DETAIL_ITEMS]],
+    }
+    while len(json.dumps(detail, default=str)) > DETAIL_BYTES:
+        longest = max(("scope", "failing_files"), key=lambda name: len(detail[name]))
+        if not detail[longest]:
+            break  # only the fixed-size strings are left, and they always fit
+        detail[longest].pop()
+    return detail
+
+
+def outcome_from_detail(detail: dict[str, Any], status: str = "") -> TestOutcome | None:
+    """A `TestOutcome` rebuilt from a stored detail, or None when it says too little.
+
+    Rows written before the full detail (``{"command", "summary", "failed"}``) still
+    rebuild: the command is re-read for its runner, family, key and scope, and the row's
+    ``status`` ("passed" / "failed") gives the verdict when ``passed`` is missing.
+    """
+    if not isinstance(detail, dict):
+        return None
+    command = detail.get("command")
+    if not isinstance(command, str) or not command:
+        return None
+    passed = detail.get("passed")
+    if not isinstance(passed, bool):
+        if status not in ("passed", "failed"):
+            return None
+        passed = status == "passed"
+
+    def text(name: str) -> str:
+        value = detail.get(name)
+        return value if isinstance(value, str) else ""
+
+    def count(name: str) -> int:
+        value = detail.get(name)
+        return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+    def items(name: str) -> tuple[str, ...]:
+        value = detail.get(name)
+        return tuple(item for item in value if isinstance(item, str)) if isinstance(value, list) else ()
+
+    invocation = commands.test_invocation(command)
+    exit_code = detail.get("exit_code")
+    return TestOutcome(
+        runner=text("runner") or (invocation.runner if invocation else "unknown"),
+        passed=passed,
+        total=count("total"),
+        failed=count("failed"),
+        summary=text("summary"),
+        command=command,
+        exit_code=exit_code if isinstance(exit_code, int) and not isinstance(exit_code, bool) else None,
+        family=text("family") or (invocation.family if invocation else ""),
+        key=text("key") or (invocation.key if invocation else ""),
+        scope=items("scope") if "scope" in detail else (invocation.selectors if invocation else ()),
+        failing_files=items("failing_files"),
+    )
 
 
 @dataclass(slots=True)
@@ -116,8 +217,6 @@ def detect_runners(index: RepoIndex) -> list[TestRunner]:
 
     if "package.json" in files:
         try:
-            import json
-
             manifest = relative_path(index.root, "package.json")
             if manifest is None:
                 return runners
