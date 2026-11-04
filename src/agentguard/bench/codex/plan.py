@@ -25,7 +25,12 @@ from agentguard.bench.codex.limits import BudgetPolicy
 STAGES = ("pilot", "main", "smoke", "dry-run")
 HOSTS = ("codex", "claude")
 # Fields added after the first plans were registered: omitted from the digest at default.
-_LATER_FIELDS: dict[str, Any] = {"host": "codex", "accounts": [], "permission_mode": "bypassPermissions"}
+_LATER_FIELDS: dict[str, Any] = {
+    "host": "codex",
+    "accounts": [],
+    "permission_mode": "bypassPermissions",
+    "allowed_tools": [],
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +75,7 @@ class Plan:
     host: str = "codex"  # "codex" | "claude"
     accounts: list[str] = field(default_factory=list)  # Claude: config-dir accounts allowed
     permission_mode: str = "bypassPermissions"  # Claude
+    allowed_tools: list[str] = field(default_factory=list)  # Claude: --allowedTools
 
     def __post_init__(self) -> None:
         if self.stage not in STAGES:

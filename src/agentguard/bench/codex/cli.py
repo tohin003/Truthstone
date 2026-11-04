@@ -96,7 +96,10 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         host_fields = {
             "host": "claude",
             "accounts": accounts,
-            "permission_mode": args.permission_mode,
+            "permission_mode": args.permission_mode or claude.DEFAULT_PERMISSION_MODE,
+            "allowed_tools": [
+                t for t in (args.allowed_tools or ",".join(claude.DEFAULT_ALLOWED_TOOLS)).split(",") if t
+            ],
             "codex_version": claude.claude_version(args.claude),  # the host CLI's version
             "trust": "session-plugin-dir",
             "sandbox": "none",
@@ -202,7 +205,9 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
     version = claude.claude_version(claude_bin)
     if plan.codex_version and version != plan.codex_version:
         raise orchestrator.Halt(f"Claude Code {version} != pinned {plan.codex_version}")
-    guard = claude.AgentGuardClaudePlugin.from_build(build, state, claude_bin, args.uv, recorder)
+    guard = claude.AgentGuardClaudePlugin.from_build(
+        build, state, claude_bin, args.uv, recorder, permission_mode=plan.permission_mode
+    )
     unknown = sorted(set(plan.accounts) - set(guard.accounts))
     if unknown:
         raise orchestrator.Halt(f"unknown account(s) {unknown}")
@@ -211,6 +216,7 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
         effort=plan.effort,
         permission_mode=plan.permission_mode,
         timeout_s=plan.cell_timeout_s,
+        allowed_tools=tuple(plan.allowed_tools),
     )
     agent: object = claude.ClaudeExecAgent(claude_bin, settings)
     if getattr(args, "max_agent_runs", None):
@@ -422,6 +428,8 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
             "host": "claude",
             "accounts": ["work", "personal"],
             "budget": dataclasses.asdict(policy),
+            "permission_mode": claude.DEFAULT_PERMISSION_MODE,
+            "allowed_tools": list(claude.DEFAULT_ALLOWED_TOOLS),
         }
         fake = claude.FakeAccounts(
             {"work": (90.0, 30.0), "personal": (60.0, 40.0)}, per_cell=1.5, per_cell_week=0.25
@@ -448,6 +456,7 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
         host=args.host,
         accounts=fake,
         interrupt=interrupt,
+        permission_mode=plan.permission_mode,
     )
     runner = orchestrator.Runner(
         plan,
@@ -602,8 +611,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="Default: gpt-6-luna (codex), claude-opus-5-5 (claude).")
     p.add_argument("--effort", default="medium")
     p.add_argument("--accounts", help="Claude: comma-separated accounts the plan may use (work,personal).")
+    p.add_argument("--permission-mode", help="Claude: --permission-mode for cells (default dontAsk).")
     p.add_argument(
-        "--permission-mode", default="bypassPermissions", help="Claude: --permission-mode for cells."
+        "--allowed-tools", help="Claude: comma-separated --allowedTools (default: the coding tools)."
     )
     p.add_argument("--per-cell-session", type=float, help="Claude: measured 5-hour points per cell (smoke).")
     p.add_argument("--per-cell-week", type=float, help="Claude: measured weekly points per cell (smoke).")

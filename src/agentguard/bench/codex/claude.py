@@ -51,6 +51,23 @@ CLAUDE_PLUGIN_RELATIVE = "plugins/agentguard-claude"
 ENV_RUNTIME_SPEC = "AGENTGUARD_RUNTIME_SPEC"
 ENV_UV = "AGENTGUARD_UV"
 ISOLATION_FLAGS = ["--setting-sources", "project", "--strict-mcp-config"]
+# The permission setup (pre-registered): ``dontAsk`` turns every prompt into a refusal, so
+# a guard's "ask" is deterministically a refusal the model reads (nobody is there to say
+# yes), while these tools run without prompting. Web tools stay off, as on Codex.
+DEFAULT_PERMISSION_MODE = "dontAsk"
+DEFAULT_ALLOWED_TOOLS = (
+    "Bash",
+    "Edit",
+    "Write",
+    "MultiEdit",
+    "NotebookEdit",
+    "Read",
+    "Glob",
+    "Grep",
+    "TodoWrite",
+    "Task",
+    "Agent",
+)
 
 
 def default_claude_bin() -> str:
@@ -368,8 +385,9 @@ class FakeAccounts:
 class ClaudeSettings:
     model: str = "claude-opus-5-5"
     effort: str = "medium"
-    permission_mode: str = "bypassPermissions"
+    permission_mode: str = "dontAsk"
     timeout_s: int = 1200
+    allowed_tools: tuple[str, ...] = ()
 
 
 class ClaudeExecAgent:
@@ -396,6 +414,7 @@ class ClaudeExecAgent:
             "--permission-mode",
             s.permission_mode,
             "--no-session-persistence",
+            *(["--allowedTools", ",".join(s.allowed_tools)] if s.allowed_tools else []),
             *extra,
         ]
 
@@ -518,6 +537,7 @@ class AgentGuardClaudePlugin:
         plugin_root: Path,
         recorder_plugin: Path | None,
         accounts: dict[str, Path] | None = None,
+        permission_mode: str = DEFAULT_PERMISSION_MODE,
     ):
         self.build = build
         self.claude_bin = claude_bin
@@ -526,13 +546,20 @@ class AgentGuardClaudePlugin:
         self.recorder_plugin = recorder_plugin
         self.recorder = recorder_plugin  # truthy when the logging hook is installed
         self.accounts = accounts or ACCOUNTS
+        self.permission_mode = permission_mode  # what the synthetic payloads report
         manifest = json.loads((plugin_root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         self.plugin_name = str(manifest["name"])
         self.spec = str(build.src)
 
     @classmethod
     def from_build(
-        cls, build: guards.Build, state: Path, claude_bin: str, uv: str, recorder: tuple[Path, Path] | None
+        cls,
+        build: guards.Build,
+        state: Path,
+        claude_bin: str,
+        uv: str,
+        recorder: tuple[Path, Path] | None,
+        permission_mode: str = DEFAULT_PERMISSION_MODE,
     ) -> AgentGuardClaudePlugin:
         source = build.src / CLAUDE_PLUGIN_RELATIVE
         if not (source / ".claude-plugin" / "plugin.json").exists():
@@ -542,7 +569,7 @@ class AgentGuardClaudePlugin:
             shutil.rmtree(target)
         homes.symlink_free_copy(source, target)
         recorder_plugin = write_recorder_plugin(state / "claude-trace", *recorder) if recorder else None
-        return cls(build, claude_bin, uv, target, recorder_plugin)
+        return cls(build, claude_bin, uv, target, recorder_plugin, permission_mode=permission_mode)
 
     # -- environment ----------------------------------------------------------------
 
@@ -687,7 +714,7 @@ class AgentGuardClaudePlugin:
             "session_id": session,
             "transcript_path": "",
             "cwd": str(repo),
-            "permission_mode": "bypassPermissions",
+            "permission_mode": self.permission_mode,
             "effort": {"level": "medium"},
             "prompt_id": str(uuid.uuid4()),
         }
