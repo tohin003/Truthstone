@@ -150,6 +150,12 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
         return _narrower(timeline, observations)
     if timeline.stale:
         return _stale(timeline, observations)
+
+    # 3. The developer asked for tests (G6). Not writing any is not done, whatever ran:
+    #    "…has no tests; fix it and add tests" used to waive the gate instead (probe G).
+    if state.spec.tests_requested and not _wrote_tests(state, index):
+        return _requested_tests_missing(observations)
+
     if timeline.latest_pass is not None:
         return GateVerdict(GateResult.PASS, "tests ran and passed", findings=observations)
 
@@ -290,6 +296,35 @@ def _stale(timeline: runners.Timeline, observations: list[Finding]) -> GateVerdi
             *observations,
         ],
     )
+
+
+def _requested_tests_missing(observations: list[Finding]) -> GateVerdict:
+    return GateVerdict(
+        GateResult.INCOMPLETE,
+        reason=(
+            "The request asked for tests, and this task wrote none: no test file was added "
+            "or changed. Write the tests that were asked for, run them, and report what "
+            "they said before finishing."
+        ),
+        findings=[
+            _finding(
+                FailureMode.INSUFFICIENT_TESTS,
+                Severity.MEDIUM,
+                subject="requested-tests-missing",
+                summary="the request asked for tests and none were written",
+            ),
+            *observations,
+        ],
+    )
+
+
+def _wrote_tests(state: TaskState, index: RepoIndex) -> bool:
+    """A test file was added or changed during the task: through an edit tool, or by a
+    command (a test file in the index modified since the task began)."""
+    if any(_looks_like_test(path, index) for path in state.changed_files):
+        return True
+    since = int(state.started_at * 1_000_000_000)
+    return any(record.is_test and record.mtime_ns >= since for record in index.files.values())
 
 
 def _listing(paths: list[str]) -> str:

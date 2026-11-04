@@ -73,6 +73,10 @@ class Workspace:
         self._session_tasks: dict[str, str] = {}
         self._session_task_ids: dict[str, list[str]] = {}
         self._task_sessions: dict[str, str] = {}
+        # Sessions whose developer said not to run tests (G6). The instruction holds for
+        # the rest of the session — "don't run the tests" then "now fix the other one"
+        # is one instruction — until a later prompt asks for tests.
+        self.session_waivers: set[str] = set()
 
     def begin_task(self, task_id: str, spec: TaskSpec, session_id: str = "") -> TaskState | None:
         if not task_id:
@@ -168,6 +172,23 @@ class Workspace:
             self._tasks.pop(task_id, None)
             self._task_sessions.pop(task_id, None)
         self._session_tasks.pop(session_id, None)
+        self.session_waivers.discard(session_id)
+
+    def carry_waiver(self, session_id: str, spec: TaskSpec) -> None:
+        """Apply, record or end the session's test waiver for a new prompt (G6)."""
+        if not session_id:
+            return
+        if spec.tests_waiver is not None:  # the host decided
+            if spec.tests_waiver:
+                self.session_waivers.add(session_id)
+            else:
+                self.session_waivers.discard(session_id)
+        elif spec.tests_requested:
+            self.session_waivers.discard(session_id)
+        elif spec.tests_waived:
+            self.session_waivers.add(session_id)
+        elif session_id in self.session_waivers:
+            spec.session_waiver = True
 
     def close(self) -> None:
         self.store.close()
@@ -354,6 +375,7 @@ class Guard:
         index = ws.index if ws.index.is_built else None
         spec = intent.extract(prompt, index)
         spec.complexity = complexity.assess(spec, index)
+        ws.carry_waiver(event.session_id, spec)
         ws.current_spec = spec
 
         if event.session_id:

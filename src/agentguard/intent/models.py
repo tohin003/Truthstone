@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agentguard.core.enums import Domain, PlanningDepth, RiskLevel
 from agentguard.core.models import EvidenceRef
+from agentguard.intent import waiver
 
 
 class Target(BaseModel):
@@ -93,6 +94,14 @@ class TaskSpec(BaseModel):
 
     complexity: ComplexityAssessment = Field(default_factory=ComplexityAssessment)
 
+    # The host's own answer to "were tests waived?", when it has one (Pebble precedent:
+    # a host that knows its user's intent better than a lexicon decides). None: read
+    # the prompt.
+    tests_waiver: bool | None = None
+    # An earlier prompt in this session waived running tests, and nothing since asked
+    # for tests (G6: a waiver lasts for the session, not just one prompt).
+    session_waiver: bool = False
+
     @property
     def resolved_targets(self) -> list[Target]:
         return [t for t in self.targets if t.resolved]
@@ -117,16 +126,23 @@ class TaskSpec(BaseModel):
         The waiver excuses *not running* tests. It does not excuse tests that ran and
         failed, or code that no longer parses: those are still reported, because the
         developer waived the work, not the truth.
+
+        It is an instruction, not a substring (G6): "do not run the tests" waives,
+        "this module has no tests" does not (``intent/waiver.py``). A host-supplied
+        ``tests_waiver`` overrides the lexicon either way.
         """
-        text = self.prompt.lower()
-        return any(
-            phrase in text
-            for phrase in (
-                "do not run test", "don't run test", "dont run test", "without running test",
-                "no need to run test", "skip the test", "skip tests", "don't test",
-                "do not run the test", "no tests", "without tests", "don't run the test",
-            )
-        )
+        if self.tests_waiver is not None:
+            return self.tests_waiver
+        return self.session_waiver or waiver.waives(self.prompt)
+
+    @property
+    def tests_requested(self) -> bool:
+        """Whether the developer asked for tests to be written ("…and add tests").
+
+        It ends a waiver carried over from an earlier prompt, and the Completion Gate
+        holds a task that was asked for tests and wrote none.
+        """
+        return waiver.requests_tests(self.prompt)
 
     @property
     def domains(self) -> list[Domain]:
