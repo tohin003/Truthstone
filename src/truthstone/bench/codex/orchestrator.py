@@ -189,6 +189,12 @@ class Runner:
             raise Halt(
                 f"the task suite changed since registration ({digest[:12]} != {self.plan.suite_digest[:12]})"
             )
+        variant = getattr(self.guard, "observe_variant", None)  # None: the dry run's fake guard
+        if variant is not None and variant != self.plan.observe_variant:
+            raise Halt(
+                f"the observe arm would install the {variant} plugin; the plan registers "
+                f"{self.plan.observe_variant!r}"
+            )
 
     # -- arms -------------------------------------------------------------------------
 
@@ -564,7 +570,7 @@ class Runner:
                 env,
                 cell_dir,
                 tmpdir,
-                self.guard.exec_args(),
+                self.guard.exec_args(ctx),
                 task=task,
                 phrasing=pair.phrasing,
                 replicate=pair.replicate,
@@ -605,6 +611,10 @@ class Runner:
                 record["hook_events_reported"] = t.hook_events_reported
                 record["post_tool_feedback"] = len(t.post_tool_feedback)
             record.update(self._facts(t, evidence))
+            # The instrument check (amendment G1): what the observe arm's model was given must
+            # not name the product. Recorded for every observe cell; void under a G1 plan.
+            if ctx.arm.observe_only and t.visible_product:
+                record["visible_product"] = t.visible_product[:5]
 
             infra = limits.classify_infra(
                 run.exit_code,
@@ -639,13 +649,22 @@ class Runner:
                 task, made.repo, made.pristine, made.manifest, self.task_python, work, node=self.task_node
             )
             claim = claims.parse(t.final_message)
-            record.update(self._grade_fields(task, claim, graded))
+            record.update(self._grade_fields(task, claim, graded, t.final_message))
             record["stop_assessments"] = self._assess_stops(task, made, evidence, trace_dir, work)
             record["false_blocks"] = sum(1 for s in record["stop_assessments"] if s["false_block"])
             (cell_dir / "grade.json").write_text(json.dumps(graded.to_dict(), default=str, indent=1))
             _write_diff(made.pristine, made.repo, cell_dir / "final.diff")
 
-            if infra:
+            if record.get("visible_product") and self.plan.skill_free_observe:
+                # Systematic (the arm's install, not the agent): stop before it costs more.
+                record.update(
+                    status="halt",
+                    void_reason="visible_product",
+                    problems=[
+                        f"the observe arm's model was shown the product: {record['visible_product'][0]}"
+                    ],
+                )
+            elif infra:
                 record.update(void_reason=infra, problems=[p.text for p in problems])
             elif settings:
                 record.update(void_reason="settings_drift", problems=settings)
@@ -759,10 +778,12 @@ class Runner:
         }
 
     @staticmethod
-    def _grade_fields(task: suite.Task, claim: claims.Claim, graded: grader.Grade) -> dict[str, Any]:
+    def _grade_fields(
+        task: suite.Task, claim: claims.Claim, graded: grader.Grade, final_message: str | None = None
+    ) -> dict[str, Any]:
         return {
             "claim": {"status": claim.status, "source": claim.source},
-            "outcome": grader.outcome(task, claim, graded),
+            "outcome": grader.outcome(task, claim, graded, final_message),
             "success": grader.task_success(task, claim, graded),
             "grade": {
                 "passed": graded.passed,
@@ -771,6 +792,10 @@ class Runner:
                 "canaries_lost": graded.canaries_lost,
                 "out_of_scope": graded.out_of_scope,
                 "protected_modified": graded.protected_modified,
+                "protected_weakened": graded.protected_weakened,
+                "protected_extended": graded.protected_extended,
+                "prohibited_test_edits": graded.prohibited_test_edits,
+                "visible_red": graded.visible_red,
                 "new_dependencies": graded.new_dependencies,
                 "sentinel_failures": graded.sentinel_failures,
                 "mode_failures": graded.mode_failures,
@@ -813,7 +838,7 @@ class Runner:
                     node=self.task_node,
                 )
                 claim = claims.parse(snap.get("last_assistant_message"))
-                verdict = grader.outcome(task, claim, graded)
+                verdict = grader.outcome(task, claim, graded, snap.get("last_assistant_message"))
                 entry.update(
                     graded=True,
                     snapshot_outcome=verdict,

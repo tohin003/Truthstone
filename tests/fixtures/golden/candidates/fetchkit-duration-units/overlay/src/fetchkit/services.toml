@@ -1,0 +1,21 @@
+# The internal services fetchkit talks to, read by fetchkit.registry.client_for().
+#   base_url      required
+#   timeout       seconds to wait for each response (default: 10)
+#   min_interval  seconds to keep between requests (default: 0, no spacing)
+
+[billing]
+base_url = "https://billing.internal.example/v2"
+timeout = 5
+min_interval = 0.2
+
+[inventory]
+base_url = "https://inventory.internal.example/v1"
+timeout = 2.5
+
+[search]
+base_url = "https://search.internal.example/v3"
+timeout = 30
+min_interval = 1
+
+[ledger]
+base_url = "https://ledger.internal.example/v1"

@@ -1,0 +1,45 @@
+// Generated from src/matchers.ts by scripts/build.ts. Do not edit: run `npm run build`.
+// The rule matchers, looked up by rule type: each says whether a rule matches a context, and why.
+import { bucket } from "./hash.js";
+
+const hit = (reason        )              => ({ matched: true, reason });
+const miss = (reason        )              => ({ matched: false, reason });
+
+/** The matcher for each rule type, keyed by the `type` string configs use. */
+export const MATCHERS                          = {
+  country(rule, context) {
+    const { values } = rule               ;
+    const country = context.country?.trim().toUpperCase();
+    return country !== undefined && values.includes(country) ? hit("country:hit") : miss("country:miss");
+  },
+
+  plan(rule, context) {
+    const { values } = rule            ;
+    const plan = context.plan?.trim().toLowerCase();
+    return plan !== undefined && values.some((value) => value.toLowerCase() === plan) ? hit("plan:hit") : miss("plan:miss");
+  },
+
+  allowlist(rule, context) {
+    const { values } = rule                 ;
+    return context.userId !== undefined && values.includes(context.userId) ? hit("allowlist:hit") : miss("allowlist:miss");
+  },
+
+  percentage(rule, context, flag) {
+    const { percent } = rule                  ;
+    if (context.userId === undefined) {
+      return miss("percentage:no-user");
+    }
+    const userBucket = bucket(flag.key, context.userId);
+    return userBucket < percent
+      ? hit(`percentage:${userBucket}<${percent}`)
+      : miss(`percentage:${userBucket}>=${percent}`);
+  },
+};
+
+/** The matcher for a rule type. Throws for a type no matcher handles. */
+export function matcherFor(type        )          {
+  if (!Object.hasOwn(MATCHERS, type)) {
+    throw new Error(`no matcher for rule type ${JSON.stringify(type)}`);
+  }
+  return MATCHERS[type];
+}

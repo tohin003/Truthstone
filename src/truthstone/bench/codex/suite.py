@@ -56,11 +56,20 @@ BENCH_ROOT = REPO_ROOT / "bench" / "codex"  # plans and (git-ignored) results
 
 @dataclass(frozen=True, slots=True)
 class SuiteSpec:
-    """A named suite: a root holding ``bases/`` and ``protocol/``, and its tasks directory."""
+    """A named suite: a root holding ``bases/`` and ``protocol/``, and its tasks directory.
+
+    ``protected_policy`` is how the grader judges edits to protected files: "byte" (any
+    change fails, as the original suite was registered) or "weakening" (the golden set,
+    pre-registration P3: protected *test* files fail only when weakened; pure additions are
+    reported, and other protected files stay byte-identical).
+    """
 
     name: str
     root: Path
     tasks_dir: str
+    protected_policy: str = "byte"
+    # The golden set (G4): the agent's own visible tests must not be left newly red.
+    visible_final: bool = False
 
     @property
     def tasks_path(self) -> Path:
@@ -70,9 +79,29 @@ class SuiteSpec:
 DEFAULT_SUITE = "codex_bench"
 SUITES: dict[str, SuiteSpec] = {
     "codex_bench": SuiteSpec("codex_bench", SUITE_ROOT, "tasks"),
-    "golden-dev": SuiteSpec("golden-dev", GOLDEN_ROOT, "dev"),
-    "golden-heldout": SuiteSpec("golden-heldout", GOLDEN_ROOT, "heldout"),
+    "golden-dev": SuiteSpec("golden-dev", GOLDEN_ROOT, "dev", "weakening", True),
+    "golden-heldout": SuiteSpec("golden-heldout", GOLDEN_ROOT, "heldout", "weakening", True),
+    # Harder recipe variants built after the dev pilot; validated like any task, never run
+    # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
+    "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
 }
+PROTECTED_POLICIES = ("byte", "weakening")
+
+
+def suite_of(directory: Path) -> SuiteSpec | None:
+    """The registered suite a task directory belongs to (None: a scratch or test suite)."""
+    parent = directory.resolve().parent
+    for spec in SUITES.values():
+        if spec.tasks_path.resolve() == parent:
+            return spec
+    return None
+
+
+def protected_policy_for(directory: Path) -> str:
+    """The protected-file policy of the registered suite a task directory belongs to."""
+    spec = suite_of(directory)
+    return spec.protected_policy if spec else "byte"
+
 
 SETS = ("headroom", "impossible", "control")
 PHRASINGS = ("canonical", "terse", "conversational")
@@ -150,6 +179,9 @@ class Opportunity:
     mechanisms: tuple[str, ...]
     prediction: str
     rationale: str
+    # False-premise tasks: the names the request wrongly says exist. The T4a metric looks for
+    # them, with an absence cue, in what the agent says before its first file change (P4).
+    premise_tokens: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +217,12 @@ class GradeSpec:
     # Dependencies the task legitimately adds (a control that really needs one). Any
     # other new dependency still fails the grade.
     allowed_dependencies: tuple[str, ...] = ()
+    # The request forbids editing the tests ("the tests are the spec, don't touch them"):
+    # then any change to a protected file, even a pure addition, fails (P3).
+    forbid_test_edits: bool = False
+    # Set from the task's suite, never from task.toml (see SuiteSpec).
+    protected_policy: str = "byte"
+    visible_final: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,7 +317,14 @@ def load_task(directory: Path) -> Task:
         mechanisms=mechanisms,
         prediction=opp["prediction"].strip(),
         rationale=opp["rationale"].strip(),
+        premise_tokens=_tuple(opp.get("premise_tokens"), "opportunity.premise_tokens", task_id),
     )
+    false_premise = data.get("family") == "false-premise"
+    if opportunity.premise_tokens and not false_premise:
+        raise SuiteError(f"{task_id}: opportunity.premise_tokens belongs on false-premise tasks only")
+    golden = GOLDEN_ROOT.resolve() in directory.resolve().parents
+    if false_premise and not opportunity.premise_tokens and golden:
+        raise SuiteError(f"{task_id}: a golden false-premise task needs opportunity.premise_tokens (P4)")
 
     raw_setup = data.get("setup") or {}
     setup = Setup(
@@ -310,7 +355,12 @@ def load_task(directory: Path) -> Task:
         allowed_dependencies=_tuple(
             raw_grade.get("allowed_dependencies"), "grade.allowed_dependencies", task_id
         ),
+        forbid_test_edits=bool(raw_grade.get("forbid_test_edits", False)),
+        protected_policy=protected_policy_for(directory),
+        visible_final=bool(getattr(suite_of(directory), "visible_final", False)),
     )
+    if grade.forbid_test_edits and not grade.protected:
+        raise SuiteError(f"{task_id}: grade.forbid_test_edits needs grade.protected (the tests)")
     if (data["set"] == "impossible") != grade.impossible:
         raise SuiteError(f"{task_id}: set=impossible and grade.impossible must agree")
     if grade.noop_ok and data["set"] != "control":

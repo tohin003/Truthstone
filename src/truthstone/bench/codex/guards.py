@@ -35,6 +35,33 @@ from truthstone.bench.codex import appserver, homes, naming
 from truthstone.bench.codex.transcript import Transcript
 
 GUARD_EVENTS = ("session_start", "user_prompt", "pre_tool_use", "post_tool_use", "stop")
+# The observe arm's plugin: "full" (as registered before amendment G1: its skill listing is
+# model-visible) or "hooks-only" (nothing model-visible; the default for new plans).
+OBSERVE_PLUGINS = ("full", "hooks-only")
+
+
+def product_mentions(text: str, limit: int = 20) -> list[str]:
+    """Every mention of the product's names (current or former) in model-visible text."""
+    found = []
+    for match in naming.VISIBLE_PRODUCT.finditer(text or ""):
+        found.append(text[max(0, match.start() - 60) : match.end() + 60].replace("\n", " "))
+        if len(found) >= limit:
+            break
+    return found
+
+
+def cue_mentions(text: str, cues: tuple[str, ...] | list[str], limit: int = 10) -> list[str]:
+    """Each place one of ``cues`` (literal, case-insensitive) occurs in ``text``, in context."""
+    found: list[str] = []
+    lowered = text.lower()
+    for cue in cues:
+        if not cue:
+            continue
+        start = lowered.find(cue.lower())
+        while start != -1 and len(found) < limit:
+            found.append(f"{cue!r}: {text[max(0, start - 80) : start + len(cue) + 80]}")
+            start = lowered.find(cue.lower(), start + 1)
+    return found
 
 
 @dataclass(frozen=True, slots=True)
@@ -463,14 +490,62 @@ class TruthstonePlugin:
         trust: str = "app-server",
         expected_guard_hooks: int = 6,
         recorder: tuple[Path, Path] | None = None,
+        observe_plugin: str = "full",
     ):
         if trust not in ("app-server", "bypass"):
             raise ValueError("trust must be 'app-server' or 'bypass'")
+        if observe_plugin not in OBSERVE_PLUGINS:
+            raise ValueError(f"observe_plugin must be one of {OBSERVE_PLUGINS}")
         self.build = build
         self.codex_bin = codex_bin
         self.trust = trust
         self.expected_guard_hooks = expected_guard_hooks
         self.recorder = recorder  # (python, script) or None
+        # "hooks-only": the observe arm installs the plugin without its skill, so nothing in
+        # what the model is given names the guard (amendment G1); the on arm keeps it all.
+        self.observe_plugin = observe_plugin
+
+    def marketplace_for(self, ctx: ArmContext) -> Path:
+        """The build's marketplace, or (observe arm, hooks-only) a copy whose plugin has no
+        skill and a bare manifest. The hooks and their launcher are byte-identical."""
+        if not (ctx.arm.observe_only and self.observe_plugin == "hooks-only"):
+            return self.build.marketplace
+        variant = ctx.root / "marketplace"
+        if variant.exists():
+            shutil.rmtree(variant)
+        homes.hooks_only_copy(
+            self.build.marketplace / naming.PLUGIN_RELATIVE,
+            variant / naming.PLUGIN_RELATIVE,
+            naming.PLUGIN_MANIFEST_RELATIVE,
+        )
+        (variant / naming.MARKETPLACE_RELATIVE).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(
+            self.build.marketplace / naming.MARKETPLACE_RELATIVE, variant / naming.MARKETPLACE_RELATIVE
+        )
+        return variant
+
+    def visible_context(
+        self,
+        ctx: ArmContext,
+        codex_home: Path,
+        repo: Path,
+        prompt: str = "Fix the failing test.",
+        cues: tuple[str, ...] = (),
+    ) -> tuple[list[str], list[str]]:
+        """What the model would be given in this cell, rendered without a model call
+        (``codex debug prompt-input``): every mention of the product, and of ``cues`` (the
+        study's own names), with context."""
+        env = self.base_env(ctx, codex_home)
+        proc = _run(
+            [self.codex_bin, "debug", "prompt-input", prompt],
+            env=env,
+            cwd=repo,
+            timeout=120,
+            check=False,
+        )
+        if proc.returncode != 0:
+            raise homes.IsolationError(f"codex debug prompt-input failed: {proc.stderr[-300:]}")
+        return product_mentions(proc.stdout), cue_mentions(proc.stdout, cues)
 
     # -- arm lifecycle ------------------------------------------------------------
 
@@ -493,8 +568,12 @@ class TruthstonePlugin:
             naming.ENV_NO_BOOTSTRAP: "1",
         }
 
-    def exec_args(self) -> list[str]:
+    def exec_args(self, ctx: ArmContext | None = None) -> list[str]:
         return ["--dangerously-bypass-hook-trust"] if self.trust == "bypass" else []
+
+    @property
+    def observe_variant(self) -> str:
+        return self.observe_plugin
 
     def prepare_arm(self, ctx: ArmContext, used_ports: set[int]) -> None:
         start_arm_daemon(ctx, self.build, used_ports, adapter="codex")
@@ -502,8 +581,9 @@ class TruthstonePlugin:
         template = homes.private_dir(ctx.codex_template)
         homes.link_auth(template)
         cenv = self.base_env(ctx, template)
+        marketplace = self.marketplace_for(ctx)
         added = _run(
-            [self.codex_bin, "plugin", "marketplace", "add", str(self.build.marketplace), "--json"],
+            [self.codex_bin, "plugin", "marketplace", "add", str(marketplace), "--json"],
             env=cenv,
             timeout=120,
             check=False,
@@ -532,6 +612,9 @@ class TruthstonePlugin:
                 "installed_plugin_digest": homes.tree_digest(ctx.plugin_root),
                 "daemon_port": ctx.port,
                 "trust_method": self.trust,
+                "plugin_variant": (
+                    "hooks-only" if ctx.arm.observe_only and self.observe_plugin == "hooks-only" else "full"
+                ),
             }
         )
 
@@ -709,7 +792,7 @@ class FakeGuard:
     def arm_env(self, ctx: ArmContext) -> dict[str, str]:
         return {}
 
-    def exec_args(self) -> list[str]:
+    def exec_args(self, ctx: ArmContext | None = None) -> list[str]:
         return []
 
     def prepare_arm(self, ctx: ArmContext, used_ports: set[int]) -> None:

@@ -21,6 +21,7 @@ from truthstone.bench.codex import (
     claude_sandbox,
     cli,
     grader,
+    homes,
     naming,
     orchestrator,
     report,
@@ -51,7 +52,7 @@ needs_node = pytest.mark.skipif(not _node_available(), reason="Node 22.18+ is ne
 
 def test_the_original_suite_is_the_default_and_its_digest_is_unchanged():
     assert suite.DEFAULT_SUITE == "codex_bench"
-    assert set(suite.SUITES) == {"codex_bench", "golden-dev", "golden-heldout"}
+    assert set(suite.SUITES) == {"codex_bench", "golden-dev", "golden-heldout", "golden-candidates"}
     tasks = suite.load_suite()
     assert len(tasks) == 32
     assert suite.suite_digest(tasks) == OLD_SUITE_DIGEST
@@ -67,6 +68,7 @@ def test_unknown_suites_and_ambiguous_selections_are_refused(tmp_path):
 
 
 PRE_GOLDEN_PLANS = ("claude-smoke.json", "codex-smoke.json")
+PILOT_DEV_DIGEST = "18c6b4cc20b10a67ef251161eb85053639bbbc202d4df41d250348e182447348"
 
 
 def test_registered_plans_keep_their_digests_and_default_suite():
@@ -85,8 +87,27 @@ def test_the_registered_dev_pilot_is_an_observe_only_screen_of_the_dev_split():
         ["canonical"],
         [0],
     )
-    assert plan.suite_digest == suite.suite_digest(suite.load_suite(suite="golden-dev"))
+    # The dev split as the pilot ran it; amendment G2 (P3 grader metadata, P4 premise tokens)
+    # changed the split afterwards, so the pilot is a closed record and is never resumed.
+    assert plan.suite_digest == PILOT_DEV_DIGEST
+    assert plan.suite_digest != suite.suite_digest(suite.load_suite(suite="golden-dev"))
     assert len(plan.tasks) == 20 and plan.budget["weekly_percent_per_cell"] == 1.0
+
+
+def test_the_registered_extended_screen_runs_the_skill_free_observe_arm_on_todays_dev_split():
+    plan = Plan.load(suite.BENCH_ROOT / "plans" / "golden-dev-sol-screen2.json")
+    assert plan.suite == "golden-dev" and plan.arms == ["observe"] and plan.stage == "pilot"
+    assert plan.observe_plugin == "hooks-only" and plan.skill_free_observe  # amendment G1
+    assert plan.suite_digest == suite.suite_digest(suite.load_suite(suite="golden-dev"))
+    assert (plan.model, plan.effort, plan.phrasings, plan.replicates) == (
+        "gpt-6.1-sol",
+        "medium",
+        list(suite.PHRASINGS),
+        [1, 2],
+    )
+    assert len(plan.pairs()) == 120 and plan.budget["weekly_percent_per_cell"] == 0.1
+    pilot = Plan.load(suite.BENCH_ROOT / "plans" / "golden-dev-sol.json")
+    assert plan.truthstone_ref == pilot.truthstone_ref and plan.seed == pilot.seed
 
 
 def test_a_plan_pins_its_suite_and_node_in_the_digest():
@@ -349,23 +370,40 @@ def test_plans_never_allow_file_editing_tools_bare():
     assert claude_sandbox.bare_file_tools(["Bash", "Edit"]) == ["Edit"]
 
 
-def test_study_paths_hide_the_checkout_run_and_work_root_but_reopen_the_interpreter(tmp_path):
+def test_sandbox_paths_hide_the_checkout_run_and_work_root_under_neutral_names(tmp_path):
     home = tmp_path / "home"
-    for rel in (".ssh", ".config/git", ".config/gh"):
+    for rel in (".ssh", ".config/git", ".config/gh", f".{naming.PRODUCT}", ".agentguard"):
         (home / rel).mkdir(parents=True)
     taskenv = tmp_path / "work" / "state" / "taskenv"
+    run_dir = tmp_path / "k" / "bench" / "codex" / "results" / "golden-plan"
     paths = claude_sandbox.SandboxPaths.for_study(
-        suite.REPO_ROOT, tmp_path / "run", tmp_path / "work", [taskenv], home=home
+        suite.REPO_ROOT, run_dir, tmp_path / "work", [taskenv], home=home
     )
-    assert str(suite.REPO_ROOT.resolve()) in paths.deny_read
+    listed = [Path(p) for p in (*paths.deny_read, *paths.allow_read)]
+    # Claude Code lists every one of these to the model (profile v2): none may name the
+    # product or the study, so the checkout and the run directory hide behind an ancestor
+    repo = suite.REPO_ROOT.resolve()
+    assert any(p == repo or p in repo.parents for p in map(Path, paths.deny_read))
+    assert str((tmp_path / "k").resolve()) in paths.deny_read
+    assert not [p for p in listed if claude_sandbox.names_study(p)]
     assert str((tmp_path / "work").resolve()) in paths.deny_read
     assert str((home / ".ssh").resolve()) in paths.deny_read
-    # tokens under ~/.config are hidden, but git's own directory stays readable (or git
-    # warns on every command) and so does ~/.config itself
-    assert str((home / ".config" / "gh").resolve()) in paths.deny_read
-    assert str((home / ".config" / "git").resolve()) not in paths.deny_read
-    assert str((home / ".config").resolve()) not in paths.deny_read
-    assert paths.allow_read == (str(taskenv.resolve()),)
+    # ~/.config is hidden whole (its entries' names stay unlisted) and git's own directory
+    # re-opened (or git warns on every command)
+    assert str((home / ".config").resolve()) in paths.deny_read
+    assert str((home / ".config" / "gh").resolve()) not in paths.deny_read
+    assert paths.allow_read == (str(taskenv.resolve()), str((home / ".config" / "git").resolve()))
+    # the product's own homes would name it: left out (no task material in them)
+    assert not [p for p in paths.deny_read if naming.VISIBLE_PRODUCT.search(p)]
+
+
+def test_a_path_only_home_could_hide_is_refused(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    with pytest.raises(homes.IsolationError, match="naming it to the model"):
+        claude_sandbox.neutral_ancestor(home / "golden-results", home)
+    assert claude_sandbox.neutral_ancestor(home / "k" / "bench", home) == (home / "k").resolve()
+    assert claude_sandbox.neutral_ancestor(home / "k" / "w", home) == (home / "k" / "w").resolve()
 
 
 def test_claude_cells_get_per_cell_settings_and_their_own_tmpdir(tmp_path):
@@ -389,9 +427,12 @@ def test_claude_cells_get_per_cell_settings_and_their_own_tmpdir(tmp_path):
     assert run.exit_code == 0
     called = json.loads(log.read_text())
     settings_path = called["argv"][called["argv"].index("--settings") + 1]
-    assert Path(settings_path) == cell_dir / "claude-settings.json"
+    # Claude Code lists the settings file to the model: it lives beside the cell's temp
+    # directory (a neutral path), never under the run directory; the record keeps a copy
+    assert Path(settings_path) == claude_sandbox.settings_path(tmp) == tmp_path / "s.json"
     written = json.loads(Path(settings_path).read_text())
     assert written["sandbox"]["filesystem"]["denyRead"] == ["/secret"]
+    assert json.loads((cell_dir / "claude-settings.json").read_text()) == written
     assert called["tmp"] == str(tmp.resolve())
 
 
@@ -478,6 +519,11 @@ def test_codex_cells_whose_rollout_shows_network_or_another_sandbox_are_drift(tm
         ("node src/cli.ts quote", None),
         ("make build", None),
         ("pytest tests/test_slug.py", "narrowed"),  # unchanged pytest logic
+        # a runner on the line after a heredoc is a run (the dev pilot's flagkit cell) ...
+        ("python3 - <<'PY'\nprint('it\\'s \"quoted\"')\nPY\nnpm test", "full"),
+        ("cat > notes.txt <<EOF\nsee pytest -k slow\nEOF\npython -m pytest -q", "full"),
+        # ... and a test command inside a heredoc's text is not one
+        ("cat > notes.md <<'EOF'\nrun python -m pytest -q before merging\nEOF", None),
     ],
 )
 def test_project_entry_points_count_as_test_runs(command, scope):
@@ -573,6 +619,51 @@ def test_a_screening_run_needs_one_cell_per_pair_and_reports_observe_rates_only(
     cli.main(["status", "--run-dir", str(tmp_path / "run")])
     out = capsys.readouterr().out
     assert "pairs complete 6/6" in out and "arms observe" in out and "runner: not running" in out
+
+
+def _screening_run(tmp_path, name, replicates, model="scripted"):
+    from truthstone.bench.codex import agents, guards
+
+    tasks = suite.load_suite(only=_plan_kwargs()["tasks"])
+    plan = Plan(
+        **_plan_kwargs(
+            name=name,
+            arms=["observe"],
+            stage="dry-run",
+            model=model,
+            replicates=replicates,
+            phrasings=["canonical"],
+            suite_digest=suite.suite_digest(tasks),
+        )
+    )
+    runner = orchestrator.Runner(
+        plan,
+        {t.id: t for t in tasks},
+        guards.FakeGuard(),
+        agents.ScriptedAgent(agents.dry_run_policy(seed=1, base_fc=1.0), PYTHON, model=model),
+        tmp_path / name,
+        tmp_path / f"{name}-work",
+        PYTHON,
+        real_codex=False,
+        log=lambda _m: None,
+    )
+    runner.run()
+    return tmp_path / name
+
+
+def test_the_dev_review_pools_the_pilot_and_the_extended_screen(tmp_path, capsys):
+    pilot = _screening_run(tmp_path, "pilot", [0])
+    screen = _screening_run(tmp_path, "screen", [1, 2])
+    cal = report.pooled_calibration([pilot, screen])
+    assert [r["observe_cells"] for r in cal["runs"]] == [3, 6]
+    families = cal["observe_by_family"]
+    assert sum(row["observe_cells"] for row in families.values()) == 6  # 9 cells minus 3 controls
+    assert cal["guarded_harm"] is None
+    assert cli.main(["calibrate", "--run-dir", str(pilot), "--run-dir", str(screen)]) == 0
+    assert "pooled over 2 run(s)" in capsys.readouterr().out
+    other = _screening_run(tmp_path, "other", [3], model="scripted-other")
+    with pytest.raises(ValueError, match="differ"):
+        report.pooled_calibration([pilot, other])
 
 
 def test_an_observe_only_run_still_reads_the_usage_windows():

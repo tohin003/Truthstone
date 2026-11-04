@@ -48,6 +48,7 @@ ACCOUNTS: dict[str, Path] = {
     "personal": Path.home() / ".claude-personal",
 }
 CLAUDE_PLUGIN_RELATIVE = naming.CLAUDE_PLUGIN_RELATIVE
+CLAUDE_PLUGIN_MANIFEST_RELATIVE = ".claude-plugin/plugin.json"
 ENV_RUNTIME_SPEC = naming.ENV_RUNTIME_SPEC
 ENV_UV = naming.ENV_UV
 ISOLATION_FLAGS = ["--setting-sources", "project", "--strict-mcp-config"]
@@ -436,9 +437,11 @@ class ClaudeExecAgent:
         last = cell_dir / "last_message.txt"
         settings_path = None
         if self.settings.sandbox is not None:
+            # At a neutral path (Claude Code shows it to the model); archived in the cell below.
             settings_path = claude_sandbox.write_cell_settings(
-                cell_dir / "claude-settings.json", repo, tmpdir, self.settings.sandbox
+                claude_sandbox.settings_path(tmpdir), repo, tmpdir, self.settings.sandbox
             )
+            shutil.copyfile(settings_path, cell_dir / "claude-settings.json")
             env = {**env, **claude_sandbox.cell_env(tmpdir)}
         argv = self.argv(prompt, extra, settings_path)
         started = time.monotonic()
@@ -515,11 +518,14 @@ def write_recorder_plugin(directory: Path, python: Path, script: Path) -> Path:
             "timeout": 15,
         }
         entry: dict[str, Any] = {"hooks": [hook]}
-        if event in ("PreToolUse", "PostToolUse"):
+        if event in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
             entry["matcher"] = "*"
         return entry
 
-    hooks = {"hooks": {event: [group(event)] for event in guards.RECORDER_EVENTS}}
+    # Claude Code reports a failed tool call as PostToolUseFailure, not PostToolUse: the
+    # replay corpus needs both (Codex has no such event).
+    events = (*guards.RECORDER_EVENTS, "PostToolUseFailure")
+    hooks = {"hooks": {event: [group(event)] for event in events}}
     (directory / "hooks" / "hooks.json").write_text(json.dumps(hooks, indent=2), encoding="utf-8")
     return directory
 
@@ -547,11 +553,15 @@ class TruthstoneClaudePlugin:
         recorder_plugin: Path | None,
         accounts: dict[str, Path] | None = None,
         permission_mode: str = DEFAULT_PERMISSION_MODE,
+        observe_plugin_root: Path | None = None,
     ):
         self.build = build
         self.claude_bin = claude_bin
         self.uv = uv
         self.plugin_root = plugin_root
+        # Amendment G1: the observe arm loads a hooks-only copy (no skills, nothing the
+        # model is shown); None loads the full plugin in both arms, as plans before G1 did.
+        self.observe_plugin_root = observe_plugin_root
         self.recorder_plugin = recorder_plugin
         self.recorder = recorder_plugin  # truthy when the logging hook is installed
         self.accounts = accounts or ACCOUNTS
@@ -569,24 +579,58 @@ class TruthstoneClaudePlugin:
         uv: str,
         recorder: tuple[Path, Path] | None,
         permission_mode: str = DEFAULT_PERMISSION_MODE,
+        observe_plugin: str = "full",
     ) -> TruthstoneClaudePlugin:
+        if observe_plugin not in guards.OBSERVE_PLUGINS:
+            raise ValueError(f"observe_plugin must be one of {guards.OBSERVE_PLUGINS}")
         source = build.src / CLAUDE_PLUGIN_RELATIVE
         if not (source / ".claude-plugin" / "plugin.json").exists():
             raise homes.IsolationError(f"{build.ref} has no Claude Code plugin at {CLAUDE_PLUGIN_RELATIVE}")
-        target = state / "claude-plugin" / source.name
+        # Neutral directory names: Claude Code lists every --plugin-dir to the model (its
+        # sandbox protects them from writes), so a path must name neither product nor arm.
+        target = state / homes.neutral_name("plugin", "full") / "p"
         if target.exists():
             shutil.rmtree(target)
         homes.symlink_free_copy(source, target)
-        recorder_plugin = write_recorder_plugin(state / "claude-trace", *recorder) if recorder else None
-        return cls(build, claude_bin, uv, target, recorder_plugin, permission_mode=permission_mode)
+        observe_root = None
+        if observe_plugin == "hooks-only":
+            observe_root = state / homes.neutral_name("plugin", "hooks-only") / "p"
+            if observe_root.exists():
+                shutil.rmtree(observe_root)
+            homes.hooks_only_copy(source, observe_root, CLAUDE_PLUGIN_MANIFEST_RELATIVE)
+        recorder_plugin = (
+            write_recorder_plugin(state / homes.neutral_name("plugin", "recorder"), *recorder)
+            if recorder
+            else None
+        )
+        return cls(
+            build,
+            claude_bin,
+            uv,
+            target,
+            recorder_plugin,
+            permission_mode=permission_mode,
+            observe_plugin_root=observe_root,
+        )
 
     # -- environment ----------------------------------------------------------------
 
     def data_dir(self, account: str) -> Path:
         return self.accounts[account] / "plugins" / "data" / f"{self.plugin_name}-inline"
 
-    def exec_args(self) -> list[str]:
-        args = ["--plugin-dir", str(self.plugin_root)]
+    def plugin_root_for(self, ctx: guards.ArmContext) -> Path:
+        """The plugin an arm loads: the hooks-only copy in the observe arm (amendment G1)."""
+        if ctx.arm.observe_only and self.observe_plugin_root is not None:
+            return self.observe_plugin_root
+        return self.plugin_root
+
+    @property
+    def observe_variant(self) -> str:
+        return "hooks-only" if self.observe_plugin_root is not None else "full"
+
+    def exec_args(self, ctx: guards.ArmContext | None = None) -> list[str]:
+        root = (ctx.plugin_root if ctx is not None else None) or self.plugin_root
+        args = ["--plugin-dir", str(root)]
         if self.recorder_plugin is not None:
             args += ["--plugin-dir", str(self.recorder_plugin)]
         return args + ISOLATION_FLAGS
@@ -608,15 +652,16 @@ class TruthstoneClaudePlugin:
 
     def prepare_arm(self, ctx: guards.ArmContext, used_ports: set[int]) -> None:
         guards.start_arm_daemon(ctx, self.build, used_ports, adapter=self.adapter)
-        ctx.plugin_root = self.plugin_root
+        ctx.plugin_root = self.plugin_root_for(ctx)
         ctx.provenance.update(
             {
                 "truthstone_commit": self.build.commit,
                 "truthstone_ref": self.build.ref,
                 "truthstone_version": self.build.version,
-                "plugin_digest": homes.tree_digest(self.plugin_root),
+                "plugin_digest": homes.tree_digest(ctx.plugin_root),
                 "daemon_port": ctx.port,
                 "runtime_spec": self.spec,
+                "plugin_variant": "hooks-only" if ctx.plugin_root != self.plugin_root else "full",
             }
         )
 
@@ -711,11 +756,12 @@ class TruthstoneClaudePlugin:
         ``systemMessage`` is shown to the developer only and is allowed.
         """
         data = self.data_dir(account)
+        plugin_root = ctx.plugin_root or self.plugin_root  # the arm's own variant
         session = f"mcheck-{uuid.uuid4()}"
         env = {
             **self.base_env(account),
             **self.arm_env(ctx),
-            "CLAUDE_PLUGIN_ROOT": str(self.plugin_root),
+            "CLAUDE_PLUGIN_ROOT": str(plugin_root),
             "CLAUDE_PLUGIN_DATA": str(data),
             "CLAUDE_PROJECT_DIR": str(repo),
         }
@@ -735,7 +781,7 @@ class TruthstoneClaudePlugin:
             "--timeout",
             "9",
         ]
-        launcher = ["sh", str(self.plugin_root / "scripts" / "hook.sh")]
+        launcher = ["sh", str(plugin_root / "scripts" / "hook.sh")]
 
         def send(argv: list[str], event: str, **fields: Any) -> str:
             payload = json.dumps({**base, "hook_event_name": event, **fields})

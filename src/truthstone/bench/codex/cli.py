@@ -150,6 +150,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         suite_digest=suite.suite_digest(tasks),
         notes=args.notes or "",
         arms=ARM_CHOICES[args.arms],
+        observe_plugin=args.observe_plugin,
         **common,
         **host_fields,
     )
@@ -163,7 +164,8 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     unit = "observe-only screening cells" if plan.screening else "cells"
     print(
         f"plan {plan.name}: {len(plan.pairs())} pairs = {len(plan.arms) * len(plan.pairs())} {unit}; "
-        f"suite {plan.suite} {plan.suite_digest[:16]}; digest {plan.digest()[:16]}"
+        f"suite {plan.suite} {plan.suite_digest[:16]}; observe arm: {plan.observe_variant} plugin; "
+        f"digest {plan.digest()[:16]}"
     )
     return 0
 
@@ -267,7 +269,13 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
     if plan.codex_version and version != plan.codex_version:
         raise orchestrator.Halt(f"Claude Code {version} != pinned {plan.codex_version}")
     guard = claude.TruthstoneClaudePlugin.from_build(
-        build, state, claude_bin, args.uv, recorder, permission_mode=plan.permission_mode
+        build,
+        state,
+        claude_bin,
+        args.uv,
+        recorder,
+        permission_mode=plan.permission_mode,
+        observe_plugin=plan.observe_variant,
     )
     unknown = sorted(set(plan.accounts) - set(guard.accounts))
     if unknown:
@@ -332,7 +340,9 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
         script = state / "hook_recorder.py"
         shutil.copyfile(Path(guards.__file__).with_name("hook_recorder.py"), script)
         recorder = (task_python, script)
-    guard = guards.TruthstonePlugin(build, args.codex, trust=plan.trust, recorder=recorder)
+    guard = guards.TruthstonePlugin(
+        build, args.codex, trust=plan.trust, recorder=recorder, observe_plugin=plan.observe_variant
+    )
     settings = agents.CodexSettings(
         model=plan.model,
         effort=plan.effort,
@@ -363,15 +373,52 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
         if ctx is None:
             return None
         env = guard.base_env(ctx, ctx.codex_template)
-        try:
-            with appserver.AppServer(args.codex, env) as server:
-                return appserver.plan_type_and_windows(server.rate_limits())
-        except appserver.AppServerError:
-            return None
+        # A transient app-server failure must not refuse a whole study at its start: retry,
+        # and say what failed (an unreadable window still stops the run, as registered).
+        for attempt in range(3):
+            try:
+                with appserver.AppServer(args.codex, env) as server:
+                    return appserver.plan_type_and_windows(server.rate_limits())
+            except appserver.AppServerError as exc:
+                runner.log(f"usage windows unreadable (attempt {attempt + 1} of 3): {exc}")
+                time.sleep(2 * (attempt + 1))
+        return None
 
     runner.limits_reader = read_limits
     runner.allow_partial = bool(getattr(args, "allow_partial", False))
     return runner
+
+
+def _study_cues(plan: Plan, run_dir: Path, task: suite.Task) -> tuple[str, ...]:
+    """The study's own names: never in what any arm's model is given (paths that carry them
+    would tell the model it is being studied, and which task it is)."""
+    return (plan.name, run_dir.name, str(suite.REPO_ROOT), "bench/codex", "/cells/", task.id)
+
+
+def _visible_problems(
+    plan: Plan, ctx: guards.ArmContext, mentions: list[str], cues: list[str] | None = None
+) -> list[str]:
+    """Amendment G1: under a skill-free plan the observe arm's model is never shown the product.
+    The guarded arm is (its skill is part of the treatment); plans before G1 show it in both.
+    The study's own names are never shown to either arm."""
+    problems = []
+    if ctx.arm.observe_only and mentions and plan.skill_free_observe:
+        problems.append(
+            f"the observe arm's model would be shown the product ({len(mentions)} mention(s)): "
+            f"{mentions[0][:200]}"
+        )
+    if cues:
+        problems.append(f"the {ctx.arm.name} arm's model would be shown the study's names: {cues[0][:200]}")
+    return problems
+
+
+def _visible_line(plan: Plan, ctx: guards.ArmContext, count: int) -> str:
+    line = f"model-visible context {ctx.arm.name:<8} {count} product mention(s)"
+    if not ctx.arm.observe_only:
+        return f"{line} (the guarded arm's own plugin)"
+    if count and not plan.skill_free_observe:
+        return f"{line}: WARNING, a plan from before amendment G1 (the full plugin in the observe arm)"
+    return line
 
 
 def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> int:
@@ -401,11 +448,45 @@ def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> in
         data["usage"] = runner.account_readings
         data["account_choice"] = dataclasses.asdict(runner._choose_account())
         data["manipulation_checks"] = runner.manipulation_checks()
+        task = next(iter(runner.tasks.values()))
         for name, ctx in runner.contexts.items():
             health = runner.guard.health(ctx)
             data[f"daemon_{name}"] = health
             if not health or bool(health.get("observing")) != ctx.arm.observe_only:
                 print(f"{name}: daemon health {health}")
+                return 1
+            # Amendment G1: what this arm's model would be given (system prompt, tool and
+            # skill listings, first message), captured from the real binary with no model.
+            where = homes.private_dir(
+                (runner.cell_root or runner.work_root) / homes.neutral_name("visible", name, time.time())
+            )
+            made = suite.materialize(
+                task, where / "w", where / "p", python=runner.task_python, instructions=runner.instructions
+            )
+            try:
+                seen = claude_sandbox.visible_context(
+                    agent.claude_bin,
+                    runner.work_root,
+                    runner.guard.exec_args(ctx),
+                    agent.settings.sandbox,
+                    task.prompt(plan.phrasings[0]),
+                    model=plan.model,
+                    effort=plan.effort,
+                    permission_mode=plan.permission_mode,
+                    allowed_tools=tuple(plan.allowed_tools),
+                    repo=made.repo,
+                    cues=_study_cues(plan, run_dir, task),
+                )
+            finally:
+                shutil.rmtree(where, ignore_errors=True)
+            data[f"visible_context_{name}"] = dataclasses.asdict(seen)
+            mentions = seen.mentions + seen.init_mentions
+            problems = seen.problems + _visible_problems(plan, ctx, mentions, seen.cue_mentions)
+            if seen.user_memory_visible:
+                problems.append("the account's own CLAUDE.md would reach the model: user memory is loaded")
+            print(_visible_line(plan, ctx, len(mentions)))
+            if problems:
+                print(f"{name}: {problems}")
                 return 1
     finally:
         runner.teardown_arms()
@@ -486,6 +567,20 @@ def _usage_line(reading: dict | None) -> str:
     return f"5-hour {one(reading.get('session'))}; week {one(reading.get('week'))}"
 
 
+def _cmd_leakage(args: argparse.Namespace) -> int:
+    """The no-leakage lint's hashed list of golden task ids and task-unique strings."""
+    from truthstone.bench.codex import leakage
+
+    data = leakage.write() if args.write else leakage.build()
+    where = f"written to {leakage.LIST_PATH}" if args.write else "not written (use --write)"
+    print(f"{len(data['ids'])} task ids and {len(data['strings'])} task-unique strings, hashed; {where}")
+    overlap = data.get("_overlap_with_product_code") or []
+    if overlap:
+        # For the builder's review only: each is a lint failure, a leak until shown generic.
+        print(f"already in product code, the lint will flag ({len(overlap)}): {', '.join(overlap)}")
+    return 0
+
+
 def _cmd_claude_usage(args: argparse.Namespace) -> int:
     """Both accounts' windows via ``claude -p /usage`` (no model call), and the choice the
     runner would make under the pre-registered account policy."""
@@ -520,12 +615,33 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
         task = next(iter(runner.tasks.values()))
         for name, ctx in runner.contexts.items():
             made = suite.materialize(
-                task, ctx.root / "pre" / "w", ctx.root / "pre" / "p", python=runner.task_python
+                task,
+                ctx.root / "pre" / "w",
+                ctx.root / "pre" / "p",
+                python=runner.task_python,
+                instructions=runner.instructions,
             )
             home = homes.clone_codex_home(ctx.codex_template, ctx.root / "pre" / "c")
-            problems, hooks = runner.guard.verify_cell(ctx, home, made.repo)
-            homes.unlink_auth(home)
+            try:
+                problems, hooks = runner.guard.verify_cell(ctx, home, made.repo)
+                # Amendment G1: what this arm's model would be given, rendered with no model call.
+                mentions, cues = runner.guard.visible_context(
+                    ctx,
+                    home,
+                    made.repo,
+                    task.prompt(plan.phrasings[0]),
+                    cues=_study_cues(plan, run_dir, task),
+                )
+            finally:
+                homes.unlink_auth(home)
+            problems += _visible_problems(plan, ctx, mentions, cues)
             report_data[f"cell_check_{name}"] = {"problems": problems, "hooks": hooks.get("hooks")}
+            report_data[f"visible_context_{name}"] = {
+                "mentions": len(mentions),
+                "examples": mentions[:3],
+                "study_cues": cues,
+            }
+            print(_visible_line(plan, ctx, len(mentions)))
             shutil.rmtree(ctx.root / "pre", ignore_errors=True)
             if problems:
                 print(f"{name}: {problems}")
@@ -787,8 +903,53 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
     return status
 
 
+def _cmd_calibrate(args: argparse.Namespace) -> int:
+    """The dev review's calibration table pooled over several runs (pilot + extended screen)."""
+    try:
+        cal = report.pooled_calibration([Path(d) for d in args.run_dir], regraded=args.regraded)
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"refusing to pool: {exc}")
+        return 2
+    if args.json:
+        Path(args.json).write_text(json.dumps(cal, indent=2, default=str), encoding="utf-8")
+    print(report.render_pooled_calibration(cal))
+    return 0
+
+
+def _cmd_regrade(args: argparse.Namespace) -> int:
+    """Re-grade a finished run under today's grader from each cell's pristine tree and diff."""
+    from truthstone.bench.codex import regrade
+
+    rows = regrade.regrade_run(Path(args.run_dir), python=args.python)
+    changed = [r for r in rows if "outcome" in r and r["outcome"] != r["stored_outcome"]]
+    problems = [r for r in rows if "problem" in r]
+    for r in changed:
+        print(f"{r['cell_id']:<64} {r['stored_outcome']:<18} -> {r['outcome']}")
+    print(
+        f"{len(rows)} valid cells re-graded: {len(changed)} changed outcome, {len(problems)} could not be "
+        f"re-graded; details in {Path(args.run_dir) / regrade.OUT}"
+    )
+    for r in problems:
+        print(f"  {r['cell_id']}: {r['problem']}")
+    return 0
+
+
 def _cmd_analyze(args: argparse.Namespace) -> int:
-    run_dir = Path(args.run_dir)
+    if args.acceptance:
+        from truthstone.bench.codex import acceptance
+
+        result = acceptance.acceptance([Path(d) for d in args.run_dir])
+        if args.json:
+            Path(args.json).write_text(json.dumps(result, indent=2, default=str))
+        text = acceptance.render(result)
+        if args.markdown:
+            Path(args.markdown).write_text(text)
+        print(text)
+        return 0
+    if len(args.run_dir) != 1:
+        print("analyze takes one --run-dir (several only with --acceptance)")
+        return 2
+    run_dir = Path(args.run_dir[0])
     analysis = report.analyze(run_dir)
     out_json = Path(args.json) if args.json else run_dir / "analysis.json"
     out_md = Path(args.markdown) if args.markdown else run_dir / "report.md"
@@ -897,6 +1058,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--codex", default=DEFAULT_CODEX)
     p.add_argument("--notes")
     _arms_option(p)
+    p.add_argument(
+        "--observe-plugin",
+        default="hooks-only",
+        choices=["hooks-only", "full"],
+        help="What the observe arm installs (amendment G1): the plugin without its skills (default), "
+        "or the full plugin, whose skill listing names the guard to the model.",
+    )
     p.add_argument("--out", required=True)
     p.set_defaults(func=_cmd_plan)
 
@@ -962,6 +1130,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json")
     p.set_defaults(func=_cmd_sandbox_check)
 
+    p = sub.add_parser("leakage", help="Rebuild the no-leakage lint's hashed list of task strings.")
+    p.add_argument("--write", action="store_true")
+    p.set_defaults(func=_cmd_leakage)
+
     p = sub.add_parser("claude-usage", help="Both Claude accounts' usage windows via /usage (no model call).")
     p.add_argument("--claude", default=DEFAULT_CLAUDE)
     p.add_argument("--plan", help="Apply this Claude plan's account policy.")
@@ -975,8 +1147,28 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_allowance)
 
-    p = sub.add_parser("analyze", help="Pre-registered analysis of a run directory.")
+    p = sub.add_parser(
+        "calibrate", help="Dev review: observe-arm base rates pooled over runs of one suite (blind)."
+    )
+    p.add_argument("--run-dir", action="append", required=True, help="Repeat for each run to pool.")
+    p.add_argument(
+        "--regraded", action="store_true", help="Use each run's regrade.json (today's grader) for outcomes."
+    )
+    p.add_argument("--json")
+    p.set_defaults(func=_cmd_calibrate)
+
+    p = sub.add_parser("regrade", help="Re-grade a finished run under today's grader (no model).")
     p.add_argument("--run-dir", required=True)
+    p.add_argument("--python", help="Interpreter with pytest for the task code.")
+    p.set_defaults(func=_cmd_regrade)
+
+    p = sub.add_parser("analyze", help="Pre-registered analysis of a run directory.")
+    p.add_argument("--run-dir", required=True, action="append")
+    p.add_argument(
+        "--acceptance",
+        action="store_true",
+        help="The v0.2 acceptance targets T1-T6 over one or more dev runs (never held-out).",
+    )
     p.add_argument("--json")
     p.add_argument("--markdown")
     p.set_defaults(func=_cmd_analyze)

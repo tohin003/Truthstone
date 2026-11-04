@@ -1,0 +1,55 @@
+{
+  "format": 1,
+  "next_id": 8,
+  "on_hand": {
+    "W-100": 130,
+    "W-104": 31,
+    "W-210": 64,
+    "W-211": 70,
+    "W-305": 26,
+    "W-306": 22,
+    "W-410": 101,
+    "W-411": 80,
+    "W-520": 70,
+    "W-521": 60,
+    "W-630": 95,
+    "W-631": 140
+  },
+  "reservations": [
+    {
+      "quantity": 12,
+      "reservation_id": "R1",
+      "sku": "W-100"
+    },
+    {
+      "quantity": 4,
+      "reservation_id": "R2",
+      "sku": "W-104"
+    },
+    {
+      "quantity": 6,
+      "reservation_id": "R3",
+      "sku": "W-210"
+    },
+    {
+      "quantity": 2,
+      "reservation_id": "R4",
+      "sku": "W-305"
+    },
+    {
+      "quantity": 9,
+      "reservation_id": "R5",
+      "sku": "W-410"
+    },
+    {
+      "quantity": 5,
+      "reservation_id": "R6",
+      "sku": "W-520"
+    },
+    {
+      "quantity": 10,
+      "reservation_id": "R7",
+      "sku": "W-630"
+    }
+  ]
+}

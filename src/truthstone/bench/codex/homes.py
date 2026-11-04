@@ -14,6 +14,7 @@ path with truncate+write, no rename), so the user's own login stays current.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import stat
@@ -132,6 +133,30 @@ def symlink_free_copy(src: Path, dst: Path) -> list[str]:
             shutil.copy2(path, target, follow_symlinks=False)
             copied.append(rel.as_posix())
     return sorted(copied)
+
+
+# What a plugin shows the model: skills (listed with their paths), slash commands, agents.
+MODEL_VISIBLE_PARTS = ("skills", "commands", "agents")
+# Manifest keys a hooks-only variant keeps: identity and the hooks, nothing descriptive.
+HOOKS_ONLY_MANIFEST_KEYS = ("name", "version", "hooks", "requires_local_executor")
+
+
+def hooks_only_copy(src: Path, dst: Path, manifest_relative: str) -> list[str]:
+    """A copy of a plugin with nothing model-visible: the observe arm's variant.
+
+    The hooks (and the scripts they run) are kept byte for byte, so the observe arm records
+    exactly what the guarded arm acts on; skills, commands and agents are dropped, and the
+    manifest keeps only its name, version and hooks (the name stays, so the install id,
+    the runtime's data directory and hook trust work as for the full plugin).
+    """
+    copied = symlink_free_copy(src, dst)
+    for part in MODEL_VISIBLE_PARTS:
+        shutil.rmtree(dst / part, ignore_errors=True)
+    manifest = dst / manifest_relative
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    kept = {key: data[key] for key in HOOKS_ONLY_MANIFEST_KEYS if key in data}
+    manifest.write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
+    return sorted(p for p in copied if p.split("/", 1)[0] not in MODEL_VISIBLE_PARTS)
 
 
 def assert_symlink_free(root: Path) -> None:
