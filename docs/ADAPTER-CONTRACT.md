@@ -14,7 +14,10 @@ Invariants every adapter keeps, whatever the core decides:
 - **Never a grant.** Nothing renders `allow`/approve as a permission, and nothing renders
   `defer`. The ladder has no kind for either.
 - **Never silently.** A session that is not being guarded is told so (see the daemon's
-  `/health` `degraded` list), and a deny, ask or block always carries a reason.
+  `/health` `degraded` list), and a deny, ask or block always carries a reason. The Claude
+  shim and the Codex hook show each `degraded_detail` reason once per session, keyed on
+  its `code`, from their lifecycle hooks only (`shim.pending_notices`); a new host's
+  lifecycle hook can reuse them.
 - **No LLM.**
 
 Sections: [(a) tool results](#a-the-tool-result-contract) ·
@@ -233,3 +236,8 @@ registering it, never editing the daemon. Hook processes never import the regist
 4. Register it. `tests/test_host_contracts.py` then runs its payloads through a real
    Guard and the daemon, and fails if a registered host has no captured payloads.
 5. `tests/test_core_host_neutral.py` keeps the host's vocabulary out of the core.
+6. The census counts a failure mode on this host only where the host delivers the events
+   its detector needs (`census/report.py` `DETECTOR_NEEDS`: a pre-tool event; a prompt
+   event for anything judged per task; a stop event for the completion gate). Those are
+   taken from the profile (context channels, `can_block_pre`, `stop_continue`) and from the
+   events actually recorded; elsewhere the mode reads "not instrumented on <host>" (H7).

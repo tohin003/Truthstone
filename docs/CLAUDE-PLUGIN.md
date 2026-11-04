@@ -55,6 +55,17 @@ runtime). AgentGuard's shared state in `~/.agentguard` (decision log, token) is 
 because a CLI install may use it too. A running daemon stops at reboot, or with
 `agentguard daemon stop`.
 
+### Configuration
+
+`~/.agentguard/config.toml` (or `$AGENTGUARD_HOME/config.toml`) is shared with the
+settings-based install and with Codex. A bad value falls back to its own default and is
+reported by `/agentguard:doctor`; an invalid `[daemon]` section stops the daemon from
+starting rather than moving it to a port the hooks do not use. `log_level` (`debug`,
+`info`, `warning`, `error`, `critical`; default `warning`) sets the daemon's own logging in
+`~/.agentguard/daemon.log`, which records exception types, never payload values, and is
+rotated at 4 MB. The old `[latency]` section is retired: nothing ever enforced it (hook
+timeouts are in `hooks.json`), and doctor reports it as an ignored key (R11).
+
 ## Design
 
 ```
@@ -72,7 +83,9 @@ hooks/hooks.json
 package into `${CLAUDE_PLUGIN_DATA}/runtime` with uv, and every event is handled by that
 package. The runtime source is `git+https://github.com/tohin003/AgentGuard@v{version}`,
 where `{version}` is read from the plugin's own `plugin.json`. An AgentGuard release
-therefore changes one field, the plugin version, and never the hook files.
+therefore changes one field, the plugin version, and never the hook files. What each
+decision becomes on Claude Code (the core's capability profile and rendering ladder, H1)
+and what any host adapter must provide are in [`ADAPTER-CONTRACT.md`](ADAPTER-CONTRACT.md).
 
 **Data-directory layout** (owned by `hook.sh`; the per-tool hooks depend only on this):
 
@@ -97,7 +110,10 @@ was killed.
   with no output. The hook never exits 2.
 - **Never silently.** A session that is not guarded is told so once: at session start
   (no `uv`, failed install, daemon will not start), or at the prompt where it breaks.
-  The same applies to a daemon that is switched off, observe-only, or reports degraded.
+  The same applies to a daemon that is switched off or observe-only, and to each reason
+  its `/health` gives for guarding less (`degraded_detail`: a stale hook token, degraded
+  storage, an adapter that failed to load): shown once per session per reason, keyed on
+  the reason's `code` (R9). `/agentguard:doctor` lists every reason with its detail.
 - **Local only.** The forwarder sends the token only to an IPv4 loopback address, and
   refuses a token that could inject headers.
 - **Runs no code from the guarded repository.** Hook Pythons run with `-I` (and the
@@ -207,6 +223,13 @@ Run with `--plugin-dir plugins/agentguard-claude`, an isolated `AGENTGUARD_HOME`
 
 No model produced a literal false "all tests pass": Opus 5.5 declined twice. The gate held
 unverified and failing completions, and told the developer when it stopped holding.
+
+Two core changes since bear on the first rows. An irreversible command's `ask` is raised
+on every attempt, never rationed, deduplicated or dropped, so a retry is asked again
+(`IMPROVEMENTS.md` A1). MODIFY is proposed only where the narrowing is provably safe: the
+risk check runs first, and a rewrite is offered only when the one serious problem is the
+one it fixes and the rewritten command checks clean (A5). The unguarded variable delete
+above is such a case.
 
 The marketplace flow was tested once: `claude plugin marketplace add <checkout>`, install
 of both `agentguard@agentguard` and `agentguard-practices@agentguard` (local scope), a

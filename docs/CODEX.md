@@ -86,6 +86,17 @@ deletes the file if AgentGuard was its only user.
 | Remove plain hooks | `agentguard uninstall codex --global` (or `--project`) |
 | Disable one hook | `/hooks` in Codex |
 
+### Configuration
+
+`~/.agentguard/config.toml` (or `$AGENTGUARD_HOME/config.toml`) is shared with the Claude
+Code integration. A bad value falls back to its own default and is reported by
+`agentguard doctor`; an invalid `[daemon]` section stops the daemon from starting rather
+than moving it to a port the hooks do not use. `log_level` (`debug`, `info`, `warning`,
+`error`, `critical`; default `warning`) sets the daemon's own logging in
+`~/.agentguard/daemon.log`, which records exception types, never payload values, and is
+rotated at 4 MB. The old `[latency]` section is retired: nothing ever enforced it, and
+`doctor` reports it as an ignored key (R11).
+
 ### Hook trust: the step users must not miss
 
 Codex skips any non-managed hook it has not been told to trust. In `codex exec` the skip
@@ -253,7 +264,11 @@ only where a process spawn is invisible. SessionStart starts the daemon if neede
 UserPromptSubmit revives a dead daemon once. If neither succeeds, the developer is told
 **once per session** (via `systemMessage`) that the session is unguarded. The daemon's
 `/health` now lists the routes it serves, so a daemon started by an older AgentGuard that
-cannot route Codex is reported, never silently trusted.
+cannot route Codex is reported, never silently trusted. A daemon that answers but guards
+less than it seems is reported the same way, once per session per reason: switched off,
+observe-only, or any `/health` `degraded_detail` reason (a stale hook token, degraded
+storage, an adapter that failed to load), keyed on the reason's `code` (R9).
+`agentguard doctor` lists every degraded reason with its detail.
 
 ### The plugin is thin on purpose
 
@@ -320,17 +335,20 @@ Codex, which means "unknown", never "passed". Today's core reads that shape unch
 
 ### What AgentGuard says to Codex (`adapters/codex/render.py`)
 
-All rendering lives in one module. That module is the plug-in point for the core's planned
-`HostCapabilities` profile. The Codex profile is: no `ask`, no `defer`; `allow` +
-`updatedInput` rewrites but does not grant; a Stop block continues the turn;
-`additionalContext` is supported; `systemMessage` is not shown by `codex exec`.
+All rendering lives in one module. The core's `HostCapabilities` profile for Codex and its
+rendering ladder (`core/hosts.py`, H1) decide the strongest form a decision can take on
+Codex; `render.py` only spells it in Codex's JSON. The ladder and what an adapter must
+provide are in [`ADAPTER-CONTRACT.md`](ADAPTER-CONTRACT.md). The Codex profile is: no
+`ask`, no `defer`; `allow` + `updatedInput` rewrites but does not grant; a Stop block
+continues the turn; `additionalContext` is supported; `systemMessage` is not shown by
+`codex exec`.
 
 | Core decision | Codex output |
 |---|---|
 | ALLOW | nothing (empty stdout) |
 | ALLOW + context (planning budget) | `hookSpecificOutput.additionalContext` on UserPromptSubmit / SessionStart / Pre-, PostToolUse |
 | CHALLENGE / BLOCK at PreToolUse | `deny` + the challenge text |
-| REQUEST_REVIEW for an **irreversible** action (a RISK finding that needs a human) | `deny` with "AgentGuard: needs developer sign-off. Ask the user to confirm, then re-run." plus a `systemMessage` |
+| REQUEST_REVIEW for an **irreversible** action (a RISK finding that needs a human) | `deny` whose reason starts "needs developer sign-off: ask the user to confirm, then re-run.", plus a `systemMessage` ("AgentGuard is holding this for your sign-off: …"). Raised on every attempt, never rationed |
 | REQUEST_REVIEW for anything else | non-blocking `additionalContext`; recorded only at Stop |
 | MODIFY | `deny` that shows the **guarded form** for the agent to re-issue, e.g. `[ -n "$BUILD_DIR" ] && rm -rf "$BUILD_DIR"` |
 | BLOCK at Stop (completion gate) | `{"decision":"block","reason":…}`, never with `hookSpecificOutput` |
@@ -338,16 +356,19 @@ All rendering lives in one module. That module is the plug-in point for the core
 
 **Policy calls flagged for the user:**
 
-- **No `ask` exists, so irreversible actions become a sign-off deny.** With today's core, the
-  ledger raises a concern once per task, so a re-run after the user confirms goes through.
-  Under non-interactive `codex exec` the escalation is therefore advisory. In run E2 the
-  agent stopped and asked. The core change in `IMPROVEMENTS.md` A1 (asks never rationed)
-  would make the hold persistent.
-- **Automatic rewrites are off.** The core's rewrites are unsound (`IMPROVEMENTS.md` A5:
-  `rm -rf $HOME` still deletes home once "guarded"), so MODIFY is rendered as a challenge
-  carrying the guarded form. `render.ENABLE_REWRITES` is the one switch that restores
-  `allow` + `updatedInput`. That form was verified live as a rewrite, not a grant, but it
-  stays off in this release.
+- **No `ask` exists, so irreversible actions become a sign-off deny, and the hold is
+  persistent.** Irreversible asks are raised every time, never rationed, deduplicated or
+  dropped (`IMPROVEMENTS.md` A1): AgentGuard cannot see whether the developer confirmed,
+  so a plain re-run is denied again. To go ahead, the developer runs the command
+  themselves, or turns AgentGuard off for that session (`AGENTGUARD_DISABLE=1`). In run
+  E2 (before A1) the agent stopped and asked.
+- **Automatic rewrites are off.** The core now proposes MODIFY only where the narrowing is
+  provably safe: the risk check runs first, and a rewrite is offered only when the one
+  serious problem is the one it fixes and the rewritten command checks clean
+  (`IMPROVEMENTS.md` A5; before, `rm -rf $HOME` still deleted home once "guarded"). On
+  Codex MODIFY is still rendered as a challenge carrying the guarded form.
+  `render.ENABLE_REWRITES` is the one switch that restores `allow` + `updatedInput`. That
+  form was verified live as a rewrite, not a grant, but it stays off in this release.
 
 AgentGuard emits no `allow` in this release and never answers `PermissionRequest`.
 
@@ -431,6 +452,10 @@ The agent's final message read: *"I couldn't complete the requested sequence: Ag
 blocked `git reset --hard` because it can discard uncommitted work and requires your
 confirmation. I made no further tool calls."*
 
+This capture is historical and left as recorded: it predates H1, which changed the deny
+reason to start "needs developer sign-off: ask the user to confirm, then re-run.", and A1,
+which denies a re-run again (see the decision table above).
+
 **E3: a false "done" is held until the tests run.** The prompt was: "Make this one edit
 with apply_patch, then reply exactly: Done — all tests pass."
 
@@ -453,9 +478,10 @@ found, "all 6 AgentGuard hooks are trusted in Codex".
 
 ## Limitations and open items
 
-- **A REQUEST_REVIEW hold is advisory under `codex exec`.** Codex has no `ask`, and today's
-  core does not repeat a raised concern within a task, so a re-run passes. Needs
-  `IMPROVEMENTS.md` A1 in the core.
+- **A sign-off cannot be given from inside Codex.** Codex has no `ask`, and an irreversible
+  action is denied on every attempt (`IMPROVEMENTS.md` A1), so even after the developer
+  agrees the agent's re-run is denied; the developer runs the command, or disables
+  AgentGuard for the session. The deny's wording still says "then re-run".
 - **No task without a prompt event.** `codex exec` always sends UserPromptSubmit. A host
   path that does not send it leaves events without a task, and the core then stays silent
   (`IMPROVEMENTS.md` H2).
@@ -464,8 +490,9 @@ found, "all 6 AgentGuard hooks are trusted in Codex".
   PostToolUse, so files it already changed are not recorded.
 - **Deletions count as touched files**, not in `TaskState.deleted_files`. Nothing in the
   core writes that field yet (`IMPROVEMENTS.md` G5).
-- **`systemMessage` is invisible in `codex exec`.** The "session is unguarded" and sign-off
-  notices reach TUI/app users only. `agentguard doctor` remains the reliable check.
+- **`systemMessage` is invisible in `codex exec`.** The "session is unguarded", degraded
+  and sign-off notices reach TUI/app users only. `agentguard doctor` remains the reliable
+  check.
 - **Windows** is untested, and the plugin's launcher is POSIX `sh`.
 - **The bootstrap source is pinned to this plugin's release tag**
   (`git+https://github.com/tohin003/AgentGuard@v<plugin version>`, from `runtime_source()` in
@@ -508,5 +535,6 @@ warranty. Real terms of service must be written and hosted before any public lis
   command hook in an isolated `CODEX_HOME`, run one small `codex exec`, and refresh
   `tests/fixtures/codex_payloads/`. Re-vendor `codex-rs/hooks/schema/generated` into
   `tests/fixtures/codex_schemas/`. `tests/test_codex_contract.py` checks both directions.
-- **Rewrites:** `render.ENABLE_REWRITES` must stay `False` until the core's MODIFY is sound
-  (`IMPROVEMENTS.md` A5).
+- **Rewrites:** `render.ENABLE_REWRITES` stays `False` in this release. The core's MODIFY
+  is now proposed only when provably safe (`IMPROVEMENTS.md` A5); turning rewrites on is a
+  separate change that needs its own live verification on Codex.
