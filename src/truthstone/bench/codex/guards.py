@@ -56,6 +56,29 @@ def build_hook_timer(state: Path, cc: str = "cc") -> Path | None:
     return dest
 
 
+def first_test_skip(repo: Path) -> tuple[str, str, str]:
+    """A skip marker added to the first existing Python test, for the guarded arm's Stop check.
+
+    A test weakened by a skip is brief (a): every intervention profile lets it reach the agent
+    at "done", including the shipped minimal one, which withholds an unverified finish.
+    Returns the test file (repo-relative), the line the marker goes above, and the new text.
+    """
+    for path in sorted(repo.rglob("test_*.py")):
+        if any(part in {".venv", "node_modules", ".git", "site-packages"} for part in path.parts):
+            continue
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("def test_"):
+                indent = line[: len(line) - len(stripped)]
+                marker = f'{indent}@pytest.mark.skip(reason="manipulation check")'
+                marked = text.replace(line, f"{marker}\n{line}", 1)
+                if not any(row.strip() == "import pytest" for row in marked.splitlines()):
+                    marked = "import pytest\n" + marked
+                return path.relative_to(repo).as_posix(), line, marked
+    raise homes.IsolationError("no Python test function to skip for the manipulation check")
+
+
 def product_mentions(text: str, limit: int = 20) -> list[str]:
     """Every mention of the product's names (current or former) in model-visible text."""
     found = []
@@ -731,9 +754,11 @@ class TruthstonePlugin:
     def manipulation_check(self, ctx: ArmContext, repo: Path, edit_path: str, old: str, new: str) -> dict:
         """Drive the installed launcher with synthetic payloads; no model involved.
 
-        A guarded arm must deny ``git clean -fdx`` and hold an unverified Stop; an
-        observe-only arm must say nothing at all to either, while recording that it
-        would have. This is the arm's identity, proven before any budget is spent.
+        A guarded arm must deny ``git clean -fdx`` and hold a Stop that claims "done" after a
+        test was skipped (brief (a), which the shipped minimal profile lets through; an
+        unverified finish alone is recorded, not shown, under it). An observe-only arm must
+        say nothing at all to either, while recording that it would have. This is the arm's
+        identity, proven before any budget is spent.
         """
         assert ctx.plugin_root is not None
         session = f"mcheck-{uuid.uuid4()}"
@@ -799,6 +824,29 @@ class TruthstonePlugin:
             f"M {edit_path}\n",
             tool_use_id=f"exec-{uuid.uuid4()}",
         )
+        test_path, test_line, test_after = first_test_skip(repo)
+        test_patch = (
+            f"*** Begin Patch\n*** Update File: {test_path}\n@@\n"
+            f'+@pytest.mark.skip(reason="manipulation check")\n {test_line}\n*** End Patch'
+        )
+        out["PreToolUse:skip"] = send(
+            "PreToolUse",
+            "pre-tool-use",
+            tool_name="apply_patch",
+            tool_input={"command": test_patch},
+            tool_use_id=f"exec-{uuid.uuid4()}",
+        )
+        (repo / test_path).write_text(test_after, encoding="utf-8")
+        out["PostToolUse:skip"] = send(
+            "PostToolUse",
+            "post-tool-use",
+            tool_name="apply_patch",
+            tool_input={"command": test_patch},
+            tool_response="Exit code: 0\nWall time: 0.1 seconds\nOutput:\n"
+            "Success. Updated the following files:\n"
+            f"M {test_path}\n",
+            tool_use_id=f"exec-{uuid.uuid4()}",
+        )
         out["Stop"] = send("Stop", "stop", stop_hook_active=False, last_assistant_message="Done.")
         send("SessionEnd", "session-end", reason="exit")
         time.sleep(0.2)
@@ -817,7 +865,7 @@ class TruthstonePlugin:
             if not denied:
                 problems.append("guarded arm did not deny `git clean -fdx`")
             if not blocked:
-                problems.append("guarded arm did not hold an unverified Stop")
+                problems.append("guarded arm did not hold a Stop after a skipped test")
         if evidence.observe_flags() != {ctx.arm.observe_only}:
             problems.append(f"recorded observe flags {sorted(evidence.observe_flags())}")
         return {"arm": ctx.arm.name, "outputs": out, "problems": problems, "evidence": evidence.summary()}
