@@ -389,3 +389,22 @@ def test_dot_config_files_are_listed_bounded_and_never_the_real_env(tmp_path):
         (tmp_path / ".github" / f"w{n}.yml").write_text("x\n")
     assert len(premise.dot_config_files(tmp_path)) == premise.MAX_DOT_FILES
     assert premise.dot_config_files(tmp_path / "missing") == []
+
+
+# -- a variable the request introduces ------------------------------------------------------------
+
+NEW_VARIABLE = [
+    "Read the request timeout from the `LEDGERLY_TIMEOUT` environment variable, defaulting to 5 seconds.",
+    "Let users override the rates URL with the `LEDGERLY_RATES_BASE` env var.",
+    "Default the currency to the `LEDGERLY_CURRENCY` env var when it is set.",
+    "Use the `LEDGERLY_TIMEOUT` env var for the request timeout.",
+    "Honour the `NO_PROXY` environment variable when fetching rates.",
+    "The `--currency` option already exists; default it to the `LEDGERLY_CURRENCY` env var when set.",
+    "ledgerly/money.py already has `format_amount`; add `format_percent` next to it.",
+]
+
+
+@pytest.mark.xfail(strict=True, reason="premise note on a variable the request introduces (66e1617)")
+def test_a_variable_the_request_introduces_gets_no_premise_note(tmp_path):
+    spoke = _notes(PY_REPO, NEW_VARIABLE, tmp_path)
+    assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
