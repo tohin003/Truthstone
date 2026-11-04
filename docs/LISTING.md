@@ -261,7 +261,7 @@ Only you can do these: they involve your identity, legal attestations and your a
 **Before uploading**
 
 1. **Settle the final name** and run the rename (§10). A published name must not change: OpenAI rejects updates whose name differs (`plugin_name_mismatch`), and Claude Code installs break on a rename.
-2. **Review the legal pages** in `docs/legal/*.md`. They name the publisher, Tohin Majumder (verify under exactly this name), and the support address tohin1400@gmail.com (monitor it). Review them, ideally with someone qualified. One policy choice is yours: support emails are kept as long as a request needs and deleted on request, with no fixed schedule. The earlier draft promised deletion after 12 months, which nothing enforces; restore a fixed period only if you will keep to it.
+2. **Review the legal pages** in `docs/legal/*.md`. They name the publisher, Tohin Majumder (verify under exactly this name), and the support address tohin1400@gmail.com (monitor it). Review them, ideally with someone qualified. Support emails are kept as long as a request needs and deleted on request, with no fixed schedule (confirmed by the publisher on 2026-11-04; the earlier draft's 12-month deletion promise was dropped because nothing enforces it).
 3. **Merge and push to `master`**, so that the four listing URLs resolve. On GitHub, also:
    - enable **Private vulnerability reporting** (Settings → Code security). It is currently off, and `SECURITY.md` points to it.
    - add the topics `codex-plugin`, `codex-skills`, `agent-plugins`, `claude-code-plugin` and `agent-skills`.
