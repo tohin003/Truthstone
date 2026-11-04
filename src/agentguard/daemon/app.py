@@ -196,9 +196,26 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
     app.state.guard = guard or Guard(settings)
     app.state.started_at = time.time()
 
+    def _authorized(authorization: str | None) -> bool:
+        """Constant-time comparison of the bearer header, on bytes (R16).
+
+        The server decodes header bytes as latin-1, so a header can hold any character up
+        to U+00FF, and ``secrets.compare_digest`` raises ``TypeError`` for non-ASCII
+        *strings*. A stray byte in a token therefore turned into a 500 — on ``/hook``
+        too, which must answer ``200 {}`` whatever arrives. Bytes have no such limit, and
+        ``surrogatepass`` makes the encoding total.
+        """
+        if not authorization:
+            return False
+        try:
+            presented = authorization.encode("utf-8", "surrogatepass")
+            expected = f"Bearer {app.state.token}".encode("utf-8", "surrogatepass")
+            return secrets.compare_digest(presented, expected)
+        except (TypeError, ValueError):
+            return False
+
     def _check_auth(authorization: str | None) -> None:
-        expected = f"Bearer {app.state.token}"
-        if not authorization or not secrets.compare_digest(authorization, expected):
+        if not _authorized(authorization):
             raise HTTPException(status_code=401, detail="unauthorized")
 
     @app.get("/health")
