@@ -162,7 +162,6 @@ def test_requested_rule_change_with_readme_update(tmp_path, sessions):
 # -- 2. the same feature, written test-first (red, then the code and the docs) --------------------
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M2 any red run before the first production edit counts as pressure")
 def test_tdd_feature_that_rewrites_a_readme_rule(tmp_path, sessions):
     session = sessions(invoicer(tmp_path))
     session.prompt("Allow negative quantities so that an order line can represent a return.")
@@ -357,7 +356,6 @@ def test_header_is_titled():
 """
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M2 any red run before the first production edit counts as pressure")
 def test_preexisting_red_test_then_feature_with_docstring_change(tmp_path, sessions):
     repo = invoicer(tmp_path, **{"invoicer/report.py": BROKEN_REPORT, "tests/test_report.py": TEST_REPORT})
     session = sessions(repo)
@@ -408,7 +406,6 @@ def test_no_colour_for_a_pipe():
 """
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M1 routine 'make sure the tests pass' wording counts as test pressure; M6 'add a CHANGELOG entry' is not a documentation request")
 def test_changelog_entry_rewritten_with_feature(tmp_path, sessions):
     repo = invoicer(
         tmp_path, **{"invoicer/cli.py": CLI, "CHANGELOG.md": CHANGELOG, "tests/test_cli.py": TEST_CLI}
@@ -516,7 +513,6 @@ test("parses a decimal weight", () => {
 """
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M2 any red run before the first production edit counts as pressure")
 @pytest.mark.parametrize("codex", [False, True], ids=["claude", "codex"])
 def test_ts_jsdoc_rule_rewritten_test_first(tmp_path, sessions, codex):
     session = sessions(cart(tmp_path), codex=codex)

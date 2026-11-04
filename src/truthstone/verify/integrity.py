@@ -37,6 +37,7 @@ from truthstone.core.taskstate import TaskState
 from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
 from truthstone.validate import spec_integrity
+from truthstone.verify import runners
 
 log = logging.getLogger(__name__)
 
@@ -82,12 +83,8 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         if not erosions:
             requested = True  # every rule the change touched is one the request asked to change
     first_code_edit = _first_production_edit(state)
-    pressure = spec_integrity.test_pressure_requested(prompt) or (
-        first_code_edit is not None
-        and any(
-            run.passed is False and run.seq is not None and run.seq <= first_code_edit
-            for run in state.verification.outcomes
-        )
+    pressure = spec_integrity.test_pressure_requested(prompt) or _red_before_the_change(
+        state, index, first_code_edit
     )
     if not erosions:
         return []
@@ -122,6 +119,37 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         "not finish as done: say which rule you changed and ask the user to confirm it."
     )
     return [arbiter.Concern(ReasonCategory.SPEC_EROSION, text, finding, can_speak=speaks)]
+
+
+def _red_before_the_change(state: TaskState, index: RepoIndex, first_code_edit: int | None) -> bool:
+    """A failing run that saw the repository as the task found it, and that bears on this change.
+
+    * Before the task's first change of any kind, not merely its first production edit. A red
+      run after the task wrote a test is a test-first session's own red phase, not pressure
+      from the request (audit of 66e1617, M2).
+    * Its failing tests touch the change: a failing test file the task changed, or one covering
+      a production file it changed. A suite that was already red somewhere else puts no
+      pressure on this rule. A run that names no failing file cannot be linked, and counts, as
+      before.
+    """
+    if first_code_edit is None:
+        return False
+    from truthstone.verify import arbiter
+
+    first_change = state.first_change_seq or first_code_edit
+    production = {path for path in state.changed_files if _is_production(path)}
+    covering: set[str] | None = None
+    for run in state.verification.outcomes:
+        if run.passed is not False or run.seq is None or run.seq > first_code_edit or run.seq >= first_change:
+            continue
+        failing = arbiter._failing_paths(run, index)
+        if not failing:
+            return True
+        if covering is None:
+            covering = set(runners.affected_tests(index, production, limit=10_000)) | set(state.changed_files)
+        if failing & covering:
+            return True
+    return False
 
 
 def _first_production_edit(state: TaskState) -> int | None:
