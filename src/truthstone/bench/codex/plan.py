@@ -109,6 +109,12 @@ class Plan:
             raise ValueError("a Claude plan names the accounts it may use")
         if self.observe_plugin not in OBSERVE_PLUGINS:
             raise ValueError(f"observe_plugin must be one of {OBSERVE_PLUGINS}")
+        if self.host == "codex" and self.accounts:
+            from truthstone.bench.codex.accounts import ACCOUNTS
+
+            unknown = sorted(set(self.accounts) - set(ACCOUNTS))
+            if unknown:
+                raise ValueError(f"unknown Codex account(s) {unknown}; known: {sorted(ACCOUNTS)}")
 
     @property
     def observe_variant(self) -> str:
@@ -120,18 +126,33 @@ class Plan:
         """Amendment G1: an observe-arm cell that names the product to its model is void."""
         return self.observe_plugin == "hooks-only"
 
+    @property
+    def uses_accounts(self) -> bool:
+        """Claude plans, and Codex plans that name accounts (amendment G5), schedule each pair
+        on an account; a Codex plan without accounts runs on the default login, as before."""
+        return self.host == "claude" or bool(self.accounts)
+
     def budget_policy(self) -> BudgetPolicy:
-        if self.host != "codex":
-            raise ValueError("a Claude plan's budget is an account policy: use account_policy()")
+        if self.uses_accounts:
+            raise ValueError("this plan's budget is an account policy: use account_policy()")
         return BudgetPolicy(**self.budget)
 
     def account_policy(self) -> Any:
-        """Claude plans: the pre-registered account rules (98% rule, personal reserve)."""
-        from truthstone.bench.codex.claude import AccountPolicy
+        """The pre-registered account rules: Claude's (98% rule, personal reserve), or the
+        Codex accounts' (G5: prefer the dedicated account, reserves on the user's own)."""
+        if self.host == "claude":
+            from truthstone.bench.codex.claude import AccountPolicy
 
-        if self.host != "claude":
-            raise ValueError("only a Claude plan has an account policy")
-        return AccountPolicy(**self.budget)
+            return AccountPolicy(**self.budget)
+        if self.accounts:
+            from truthstone.bench.codex.accounts import CodexAccountPolicy
+
+            known = {f.name for f in fields(CodexAccountPolicy)}  # a plan made without one: defaults
+            data = {k: v for k, v in self.budget.items() if k in known}
+            if "preference" in data:
+                data["preference"] = tuple(data["preference"])
+            return CodexAccountPolicy(**data)
+        raise ValueError("only a plan that names accounts has an account policy")
 
     def pairs(self) -> list[Pair]:
         return [

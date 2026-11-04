@@ -304,7 +304,7 @@ class Runner:
                 pair, order = queue[0]
                 state = states.setdefault(pair.id, PairState())
                 account: str | None = None
-                if self.host == "claude":
+                if self.plan.uses_accounts:
                     choice = self._choose_account()
                     if choice.account is None:
                         if choice.wait_s:
@@ -355,7 +355,7 @@ class Runner:
                     done_pairs += 1
                     continue
                 usage = any(c.get("void_reason") == "usage_limit" for c in cells)
-                if usage and self.host == "claude":
+                if usage and self.plan.uses_accounts:
                     self.consecutive_limit_voids += 1
                     if self.consecutive_limit_voids >= 3:
                         # Readings say go but the provider keeps refusing (a limit /usage does
@@ -411,9 +411,14 @@ class Runner:
             )
 
     def _choose_account(self) -> Any:
+        self._refresh_usage()
+        if self.host == "codex":
+            from truthstone.bench.codex import accounts
+
+            policy = self.account_policy or self.plan.account_policy()
+            return accounts.choose(self.account_readings, policy, allowed=tuple(self.plan.accounts))
         from truthstone.bench.codex import claude
 
-        self._refresh_usage()
         policy = self.account_policy or claude.AccountPolicy()
         return claude.choose_account(self.account_readings, policy, allowed=tuple(self.plan.accounts))
 
@@ -421,6 +426,12 @@ class Runner:
         """The start rule for a pair's second cell: the same caps as scheduling."""
         if account is None:
             return False
+        if self.host == "codex":
+            from truthstone.bench.codex import accounts
+
+            policy = self.account_policy or self.plan.account_policy()
+            ok, _why = accounts.cell_allowed(account, self.account_readings.get(account), policy)
+            return not ok
         from truthstone.bench.codex import claude
 
         policy = self.account_policy or claude.AccountPolicy()
@@ -453,8 +464,13 @@ class Runner:
         }
 
     def _note_stream_reading(self, account: str | None, record: dict) -> None:
-        """Between /usage reads, a cell's own rate_limit_event is the freshest reading."""
+        """Between /usage reads, a cell's own rate_limit_event is the freshest reading. On
+        Codex, the cell's pre-cell reading (taken in its own home, on its account) is."""
         if account is None:
+            return
+        if self.host == "codex":
+            if (record.get("limits_before") or {}).get("primary"):
+                self.account_readings[account] = record["limits_before"]
             return
         from truthstone.bench.codex import claude
 
@@ -467,7 +483,7 @@ class Runner:
 
     def _check_allowance(self, cells: int) -> None:
         """Refuse to start a study the plan's weekly allowance cannot finish."""
-        if self.host == "claude":
+        if self.plan.uses_accounts:
             self._refresh_usage(force=True)
             choice = self._choose_account()
             record = {
@@ -477,6 +493,21 @@ class Runner:
                 "reason": choice.reason,
                 "readings": self.account_readings,
             }
+            if self.host == "codex":
+                from truthstone.bench.codex import accounts
+
+                policy = self.account_policy or self.plan.account_policy()
+                room = {
+                    a: accounts.capacity(a, self.account_readings.get(a), policy) for a in self.plan.accounts
+                }
+                record["capacity"] = {**room, "combined": sum(room.values())}
+                if sum(room.values()) < cells and not self.allow_partial:
+                    (self.run_dir / "allowance.json").write_text(json.dumps(record, indent=2, default=str))
+                    raise Halt(
+                        f"refusing to start: the accounts can take {sum(room.values())} more cell(s) "
+                        f"before their weekly stops {room}, the plan needs {cells}. "
+                        "Pass --allow-partial to run what fits."
+                    )
             (self.run_dir / "allowance.json").write_text(json.dumps(record, indent=2, default=str))
             self.log(f"allowance: {choice.reason}")
             if choice.account is None and not choice.wait_s and not self.allow_partial:
@@ -542,7 +573,11 @@ class Runner:
                 instructions=self.instructions,
             )
             if self.real_codex and self.host == "codex":
-                codex_home = homes.clone_codex_home(ctx.codex_template, work / "c")
+                from truthstone.bench.codex import accounts
+
+                # The pair's account (G5): its login, linked; None is the default login.
+                source = accounts.auth_source(account)
+                codex_home = homes.clone_codex_home(ctx.codex_template, work / "c", source=source)
                 problems, report = self.guard.verify_cell(ctx, codex_home, made.repo)
                 record["limits_before"] = report.get("limits")
                 record["hooks"] = report.get("hooks")
