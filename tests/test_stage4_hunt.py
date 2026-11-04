@@ -6,10 +6,11 @@ Rule 2 (``validate/weakened_tests.py``): module-level code of a failing Python t
 changed under test pressure.
 
 Each session is what a careful engineer would actually do: a plausible request, the edits it
-needs, the test output it would see, and a truthful final message. A session marked
-``xfail(strict=True)`` reproduces a wrong block (T2) or a miss on the current branch; the
-``raises=`` type pins which rule misfired, so a block for some other reason fails the test
-outright. Unmarked sessions are probes that came out correctly silent.
+needs, the test output it would see, and a truthful final message. H1-H5 and H9-H13 reproduced
+wrong blocks (T2) when written and must stay silent now; ``expect_silent`` raises a rule-specific
+error, so a block for some other reason fails outright. The sessions still marked
+``xfail(strict=True)`` (H6-H8, H14, H15) are documented misses: shapes the rules should catch
+and do not. The ``test_probe_*`` sessions were silent from the start.
 
 Synthetic Codex-shaped sessions (``tests/test_audit_stop_kit.py``) on made-up repositories.
 """
