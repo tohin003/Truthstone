@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 
 from truthstone.intent.models import TaskSpec
+from truthstone.verify.baseline import FileBaseline
 from truthstone.verify.runners import VerificationState
 
 # A task that has been running long enough to have touched this many files without any
@@ -33,6 +34,9 @@ class TaskState:
 
     touched_files: set[str] = field(default_factory=set)
     deleted_files: set[str] = field(default_factory=set)
+    # Files this task brought into existence: a TDD red phase may fail only in tests it
+    # wrote itself (G4a).
+    created_files: set[str] = field(default_factory=set)
     verification: VerificationState = field(default_factory=VerificationState)
 
     # How many times the Completion Gate has held this task open. Capped, so a
@@ -40,8 +44,48 @@ class TaskState:
     stop_blocks: int = 0
     scope_challenged: bool = False
 
+    # Verification is a timeline (G2a). Every change and every test run takes the next
+    # number, so the gate can ask what a run actually saw: the latest run decides, and a
+    # change made after the latest pass leaves that pass stale.
+    seq: int = 0
+    last_change_seq: dict[str, int] = field(default_factory=dict)
+    # The tests that covered a file when it was deleted (G5). The index forgets a deleted
+    # file, and with it which tests reached it; without this snapshot deleting covered
+    # code looked like a change nothing tests.
+    deleted_coverage: dict[str, set[str]] = field(default_factory=dict)
+    # Whether each file parsed before this task first changed it (G15). The syntax gate
+    # blames only files the task broke: a template that never parsed is not its doing.
+    parse_baseline: dict[str, bool] = field(default_factory=dict)
+    # Each file as the task found it, taken just before its first change (G2b): a file
+    # whose bytes are back to this is no change, and a Python file first changed after a
+    # passing run is compared with it for a comment-only edit.
+    file_baselines: dict[str, FileBaseline] = field(default_factory=dict)
+    # The code of each touched Python file at each passing run, by the run's sequence
+    # number (G2b, bounded): a file edited after the pass whose code is unchanged — a
+    # comment, formatting — keeps the pass.
+    pass_fingerprints: dict[str, dict[int, str]] = field(default_factory=dict)
+
+    def next_seq(self) -> int:
+        self.seq += 1
+        return self.seq
+
     def touch(self, path: str) -> None:
         self.touched_files.add(path)
+        self.deleted_files.discard(path)  # written again after a deletion
+        self.last_change_seq[path] = self.next_seq()
+
+    def delete(self, path: str, covering: set[str] | None = None) -> None:
+        """Record a deletion: a change to ``path`` that leaves nothing on disk.
+
+        The path stays among the touched files (scope still sees it), and ``covering``
+        keeps the tests that reached it before the index forgot them.
+        """
+        self.touched_files.add(path)
+        self.deleted_files.add(path)
+        self.created_files.discard(path)
+        self.last_change_seq[path] = self.next_seq()
+        if covering:
+            self.deleted_coverage.setdefault(path, set()).update(covering)
 
     @property
     def changed_files(self) -> set[str]:

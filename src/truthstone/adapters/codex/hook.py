@@ -14,7 +14,10 @@ is built to cost as little as a process can:
 Lifecycle work happens only where a process spawn is invisible: ``session-start`` starts
 the daemon if needed, and ``user-prompt-submit`` revives it once if it died. If neither
 can bring it up, the developer is told once per session (``systemMessage``) that the
-session is unguarded — failing open is required, failing open *silently* is not.
+session is unguarded — failing open is required, failing open *silently* is not. A daemon
+that answers but guards less than it seems (switched off, observe-only, or any ``/health``
+degraded reason) is reported the same way: once per session per reason, keyed on the
+reason's ``code``, with the Claude shim's notices and marker files (R9).
 
 Every path exits 0. Codex treats exit 2 as "block, reason on stderr", so a guard that
 exited 2 on its own failure would block the very work it should never impede.
@@ -28,6 +31,9 @@ import socket
 import sys
 
 from truthstone import names
+
+# `os` and `stat` only (no pathlib): where the home is, by the rule every entry point shares.
+from truthstone.daemon import private_paths
 
 MAX_STDIN_BYTES = 1_000_000
 MAX_RESPONSE_BYTES = 256_000
@@ -58,7 +64,9 @@ STALE_DAEMON_NOTICE = (
 
 
 def _home() -> str:
-    return names.data_dir()
+    """The home the daemon uses: resolved through trusted symlinks, by the rule every
+    entry point shares (R11); configured as `names.data_dir` says (former names included)."""
+    return private_paths.home()
 
 
 def _disabled() -> bool:
@@ -66,7 +74,10 @@ def _disabled() -> bool:
 
 
 def _handshake() -> dict | None:
-    path = os.path.join(_home(), "daemon.json")
+    home, trusted = private_paths.resolve_home(private_paths.configured_home())
+    if not trusted:
+        return None  # behind a link someone else could swap: not the daemon's handshake
+    path = os.path.join(home, "daemon.json")
     try:
         if os.path.islink(path):
             return None
@@ -179,8 +190,8 @@ def _health(hs: dict | None) -> dict | None:
     return body if isinstance(body, dict) and body.get("pid") == hs.get("pid") else None
 
 
-def _lifecycle() -> tuple[dict | None, str]:
-    """Make sure a daemon that speaks Codex is up. Returns (handshake, notice)."""
+def _lifecycle() -> tuple[dict | None, str, dict | None]:
+    """Make sure a daemon that speaks Codex is up. Returns (handshake, notice, health)."""
     hs = _handshake()
     health = _health(hs)
     if health is None:
@@ -191,11 +202,25 @@ def _lifecycle() -> tuple[dict | None, str]:
         hs = shim.ensure_daemon()
         health = _health(hs)
     if hs is None or health is None:
-        return None, UNGUARDED_NOTICE
+        return None, UNGUARDED_NOTICE, None
     adapters = health.get("adapters")
     if not isinstance(adapters, list) or "codex" not in adapters:
-        return None, STALE_DAEMON_NOTICE.format(pid=hs.get("pid"))
-    return hs, ""
+        return None, STALE_DAEMON_NOTICE.format(pid=hs.get("pid")), health
+    return hs, "", health
+
+
+def _daemon_notices(health: dict | None, session_id: str) -> list[str]:
+    """Why a daemon that answers still guards less than it seems, once per session per
+    reason (R9): switched off, observe-only, and each ``/health`` degraded reason, keyed on
+    its ``code``. The same notices and marker files as the Claude shim; never raises."""
+    if not health:
+        return []
+    try:
+        from truthstone.adapters.claude_code import protocol, shim
+
+        return shim.pending_notices(health, session_id, protocol.session_mode_from_env(os.environ))
+    except Exception:  # noqa: BLE001 - a notice that cannot be worked out is not worth a failure
+        return []
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -214,13 +239,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     hook = payload.get("hook_event_name") or EVENTS.get(args[0] if args else "", "")
+    session_id = str(payload.get("session_id") or "")
+    health: dict | None = None
     if hook in ("SessionStart", "UserPromptSubmit"):
         try:
-            hs, notice = _lifecycle()
+            hs, notice, health = _lifecycle()
         except Exception:  # noqa: BLE001 - lifecycle problems must never break the session
-            hs, notice = None, UNGUARDED_NOTICE
+            hs, notice, health = None, UNGUARDED_NOTICE, None
         if hs is None:
-            if _notify_once(str(payload.get("session_id") or "")):
+            if _notify_once(session_id):
                 sys.stdout.write(json.dumps({"systemMessage": notice}))
             return 0
         timeout = LIFECYCLE_TIMEOUT_S
@@ -233,7 +260,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         out = post(hs, raw, timeout=timeout)
     except Exception:  # noqa: BLE001 - any transport failure means "no decision"
-        return 0
+        out = {}
+    # Lifecycle events only: the hot path never pays for /health or a marker file.
+    notices = _daemon_notices(health, session_id)
+    if notices:
+        out = dict(out)
+        earlier = out.get("systemMessage")
+        told = "\n".join(notices)
+        out["systemMessage"] = f"{earlier}\n{told}" if isinstance(earlier, str) and earlier else told
     if out:
         sys.stdout.write(json.dumps(out))
     return 0

@@ -18,8 +18,9 @@ are per-session switches, but the shared daemon cannot see this session's enviro
 so its `http` hooks would keep guarding regardless (R10). The shim can, and registers the
 mode with the daemon; the adapter applies it.
 
-Deliberately stdlib-only, with no import of `truthstone.core` or `truthstone.daemon`
-(those pull in pydantic/fastapi and would triple startup time). The handshake-reading
+Deliberately stdlib-only, with no import of `truthstone.core` or the daemon's app
+(those pull in pydantic/fastapi and would triple startup time); only the stdlib helpers
+`daemon/private_paths.py` and, lazily, `daemon/lifecycle.py`. The handshake-reading
 code below is duplicated from `daemon/app.py` for exactly that reason.
 
 Transport failures return no decision and exit 0. The one intentional exception is an
@@ -39,6 +40,9 @@ import time
 
 from truthstone import names
 from truthstone.adapters.claude_code import protocol
+
+# `os` and `stat` only: where the home is, by the rule every entry point shares.
+from truthstone.daemon import private_paths
 
 DEFAULT_TIMEOUT_S = 2.0
 DAEMON_START_TIMEOUT_S = 8.0
@@ -81,11 +85,22 @@ def _start_timeout() -> float:
 
 
 def _home() -> str:
-    return names.data_dir()
+    """The same home the daemon and the CLI use: resolved through trusted symlinks (R11).
+
+    Unresolved, a symlinked ancestor such as Silverblue's `/home -> var/home` made the
+    lifecycle helpers refuse the startup lock, so no daemon was ever started. Where it is
+    configured follows `names.data_dir` (former product names included).
+    """
+    return private_paths.home()
 
 
 def _handshake() -> dict | None:
-    path = os.path.join(_home(), "daemon.json")
+    home, trusted = private_paths.resolve_home(private_paths.configured_home())
+    if not trusted:
+        # Behind a link someone else could swap: the daemon would never publish here, so
+        # whatever is there is not its handshake — and it names where the token goes.
+        return None
+    path = os.path.join(home, "daemon.json")
     try:
         if os.path.islink(path):
             return None
@@ -230,7 +245,12 @@ def ensure_daemon(timeout: float | None = None) -> dict | None:
     # second hook waits for the first daemon to publish its handshake, then reuses it
     # instead of launching a competing process that could clobber credentials.
     try:
-        from truthstone.daemon.lifecycle import interprocess_lock, open_private_append, startup_lock_path
+        from truthstone.daemon.lifecycle import (
+            interprocess_lock,
+            open_private_append,
+            rotate_log,
+            startup_lock_path,
+        )
 
         startup_guard = interprocess_lock(startup_lock_path(_home()), timeout=timeout)
     except Exception:  # noqa: BLE001 - shim must remain dependency/failure tolerant
@@ -252,6 +272,8 @@ def ensure_daemon(timeout: float | None = None) -> dict | None:
         log_dir = _home()
         try:
             os.makedirs(log_dir, exist_ok=True)
+            # Bounded across restarts; the daemon also rotates it while it runs (R17).
+            rotate_log(os.path.join(log_dir, "daemon.log"))
             log_file = open_private_append(os.path.join(log_dir, "daemon.log"))
         except OSError:
             log_file = subprocess.DEVNULL
@@ -356,17 +378,43 @@ def daemon_notices(body: dict, mode: str) -> list[tuple[str, str]]:
                 "restart the daemon).",
             )
         )
-    degraded = body.get("degraded")
-    if isinstance(degraded, list):
-        import zlib
+    import zlib
 
-        for reason in degraded[:5]:
-            if isinstance(reason, str) and reason.strip():
-                # A stable key per reason (``hash()`` is randomised per process, which
-                # would re-raise the same notice on every prompt).
-                kind = f"degraded-{zlib.crc32(reason.strip().encode('utf-8')):08x}"
-                notices.append((kind, f"Truthstone: {reason.strip()}"))
+    for key, reason in _degraded_reasons(body)[:MAX_DEGRADED_NOTICES]:
+        # A stable key per reason (``hash()`` is randomised per process, which would
+        # re-raise the same notice on every prompt). The daemon's ``code`` when it sends
+        # one, so a reworded or re-counted message is still the same notice.
+        kind = f"degraded-{zlib.crc32(key.encode('utf-8')):08x}"
+        notices.append((kind, f"Truthstone: {reason}"))
     return notices
+
+
+# Degradation codes the notices above already cover, with this session's own mode taken
+# into account (an observe-mode session asked for silence).
+_COVERED_CODES = frozenset({"observe_only"})
+MAX_DEGRADED_NOTICES = 5
+
+
+def _degraded_reasons(body: dict) -> list[tuple[str, str]]:
+    """``[(key, message)]`` from ``/health``: ``degraded_detail`` (code + message) when the
+    daemon sends it, else the plain ``degraded`` messages of an older daemon."""
+    detail = body.get("degraded_detail")
+    if isinstance(detail, list) and detail:
+        found = []
+        for item in detail:
+            if not isinstance(item, dict):
+                continue
+            code, message = item.get("code"), item.get("message")
+            if not (isinstance(code, str) and code.strip() and isinstance(message, str) and message.strip()):
+                continue
+            if code.strip() not in _COVERED_CODES:
+                found.append((code.strip(), message.strip()))
+        return found
+    degraded = body.get("degraded")
+    if not isinstance(degraded, list):
+        return []
+    plain = [reason.strip() for reason in degraded if isinstance(reason, str) and reason.strip()]
+    return [(reason, reason) for reason in plain]
 
 
 def pending_notices(body: dict, session_id: str, mode: str) -> list[str]:

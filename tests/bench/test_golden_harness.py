@@ -387,8 +387,10 @@ def test_plans_never_allow_file_editing_tools_bare():
 
 def test_sandbox_paths_hide_the_checkout_run_and_work_root_under_neutral_names(tmp_path):
     home = tmp_path / "home"
+    # rename-tool: keep-begin (the former name's home, on purpose)
     for rel in (".ssh", ".config/git", ".config/gh", f".{naming.PRODUCT}", ".agentguard"):
         (home / rel).mkdir(parents=True)
+    # rename-tool: keep-end
     taskenv = tmp_path / "work" / "state" / "taskenv"
     run_dir = tmp_path / "k" / "bench" / "codex" / "results" / "golden-plan"
     paths = claude_sandbox.SandboxPaths.for_study(

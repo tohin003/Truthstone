@@ -3,11 +3,19 @@
 Uses `git ls-files` where available: it is one subprocess call, it already honours
 .gitignore and nested ignore files, and it is dramatically faster than walking a tree
 that contains node_modules. Falls back to a filtered walk outside git repositories.
+
+The scan runs on the hot path (every post-Bash sweep and every Stop), so it costs one
+`lstat` per listed file plus one per distinct directory. The full canonical containment
+check (`relative_path` plus `resolve`, about 20 syscalls) runs only for paths that
+involve a symlink, which are the only paths it can reject: neither `git ls-files` nor a
+non-following `os.walk` produces `..` or absolute paths, and anything that looks like
+one is rejected lexically before the filesystem is touched (R5).
 """
 
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -20,6 +28,21 @@ from truthstone.repo.models import (
     FileRecord,
 )
 from truthstone.repo.paths import relative_path
+
+# A walk outside git that passes this many files is not a project: it is a home
+# directory, a downloads folder or a whole disk. Indexing a 205k-file home took 24.6 s
+# and 131 MB, and every post-Bash sweep re-walked it for ~22 s (R12). Past this count the
+# walk stops and the index reports itself unavailable. Git repositories are not capped
+# by it: `git ls-files` already honours .gitignore, so a large listing there is source.
+NON_GIT_FILE_LIMIT = 20_000
+
+# Path components that never appear in `git ls-files` or `os.walk` output. A listed path
+# containing one is malformed or hostile, and is rejected without touching the disk.
+_UNSAFE_PARTS: frozenset[str] = frozenset({"", ".", ".."})
+
+
+class TreeTooLarge(Exception):
+    """A tree outside git passed NON_GIT_FILE_LIMIT files and must not be indexed (R12)."""
 
 TEST_DIR_NAMES: frozenset[str] = frozenset({"test", "tests", "__tests__", "spec", "specs", "e2e"})
 TEST_FILE_PREFIXES: tuple[str, ...] = ("test_",)
@@ -71,7 +94,13 @@ def _git_listed_files(root: Path) -> list[str] | None:
 
 
 def _walked_files(root: Path, settings: IndexSettings) -> list[str]:
+    """Every candidate file under ``root``, for trees outside git.
+
+    Raises TreeTooLarge as soon as the walk passes NON_GIT_FILE_LIMIT files, so a home
+    directory costs a fraction of a second rather than a 25-second build.
+    """
     excluded = set(settings.exclude_dirs)
+    limit = NON_GIT_FILE_LIMIT
     out: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root, topdown=True):
         dirnames[:] = [d for d in dirnames if d not in excluded and not d.startswith(".")]
@@ -81,13 +110,62 @@ def _walked_files(root: Path, settings: IndexSettings) -> list[str]:
             if name.startswith("."):
                 continue
             out.append(prefix + name)
+            if len(out) > limit:
+                raise TreeTooLarge(f"not a git repository and more than {limit:,} files")
             if len(out) >= settings.max_files:
                 return out
     return out
 
 
+def _plain_directory(base: str, directory: str, cache: dict[str, bool]) -> bool:
+    """Whether every component of repo-relative ``directory`` is a real directory.
+
+    ``lstat`` on a file follows every component but the last, so a symlinked *parent*
+    is invisible to it. `git ls-files --cached` keeps listing ``pkg/mod.py`` after
+    ``pkg`` has been replaced by a symlink to somewhere else, so parents are checked too:
+    one ``lstat`` per distinct directory, memoised for the scan in ``cache``.
+    """
+    known = cache.get(directory)
+    if known is not None:
+        return known
+    pending: list[str] = []
+    while directory not in cache:
+        pending.append(directory)
+        directory = directory.rpartition("/")[0]
+    plain = cache[directory]
+    for current in reversed(pending):
+        if plain:
+            try:
+                plain = stat.S_ISDIR(os.lstat(os.path.join(base, current)).st_mode)
+            except (OSError, ValueError):
+                plain = False
+        cache[current] = plain
+    return plain
+
+
+def _contained_stat(root: Path, rel: str, full: str) -> os.stat_result | None:
+    """The full containment guard, for paths that involve a symlink.
+
+    Resolves the candidate before it is stat'ed or read, so a link inside the repository
+    cannot smuggle an outside file into the evidence index. Ordinary relative paths keep
+    their original spelling as the index key; this is only a containment check.
+    """
+    if relative_path(root, rel) is None:
+        return None
+    try:
+        st = os.stat(full)
+        if not Path(full).resolve(strict=False).is_relative_to(root):
+            return None
+    except (OSError, RuntimeError, ValueError):
+        return None  # deleted between listing and stat, a broken link, or a link loop
+    return st
+
+
 def scan(root: Path, settings: IndexSettings | None = None) -> dict[str, FileRecord]:
-    """Return every indexable file, keyed by repo-relative posix path."""
+    """Return every indexable file, keyed by repo-relative posix path.
+
+    Raises TreeTooLarge for a tree outside git with more than NON_GIT_FILE_LIMIT files.
+    """
     settings = settings or IndexSettings()
     root = root.resolve()
 
@@ -97,36 +175,38 @@ def scan(root: Path, settings: IndexSettings | None = None) -> dict[str, FileRec
         paths = _walked_files(root, settings)
 
     excluded = set(settings.exclude_dirs)
+    max_bytes = settings.max_file_bytes
+    max_files = settings.max_files
+    base = str(root)
+    plain_dirs: dict[str, bool] = {"": True}
     records: dict[str, FileRecord] = {}
 
     for rel in paths:
-        rel = rel.replace(os.sep, "/")
+        if os.sep != "/":
+            rel = rel.replace(os.sep, "/")
         parts = rel.split("/")
         # `git ls-files` respects .gitignore but not our own exclusions (a vendored
         # node_modules can be committed), so filter regardless of source.
         if from_git and any(part in excluded for part in parts[:-1]):
             continue
-
-        # `git ls-files` and `os.walk` can both return a symlinked file.  Resolve the
-        # candidate before stat/read so a link inside the repository cannot smuggle an
-        # outside file into the evidence index.  Ordinary relative paths retain their
-        # original spelling as the index key; this check is only a containment guard.
-        if relative_path(root, rel) is None:
+        # Lexical containment first: `..`, empty and `.` components, absolute paths and
+        # NUL bytes never come out of git or the walk, so they are refused unread.
+        if any(part in _UNSAFE_PARTS for part in parts) or "\0" in rel or os.path.isabs(rel):
             continue
 
-        full = root / rel
-        try:
-            st = full.stat()
-        except OSError:
-            continue  # deleted between listing and stat, or a broken symlink
-        try:
-            if not full.resolve(strict=False).is_relative_to(root):
-                continue
-        except (OSError, RuntimeError):
-            continue
-        if not os.path.isfile(full):
-            continue
-        if st.st_size > settings.max_file_bytes:
+        full = os.path.join(base, rel)
+        # A leading `~` is expanded by `relative_path`, so such a path keeps the
+        # canonical check; that keeps the result identical to the per-file resolve.
+        if rel[0] != "~" and _plain_directory(base, rel.rpartition("/")[0], plain_dirs):
+            try:
+                st: os.stat_result | None = os.lstat(full)
+            except (OSError, ValueError):
+                continue  # deleted between listing and stat
+            if stat.S_ISLNK(st.st_mode):
+                st = _contained_stat(root, rel, full)
+        else:
+            st = _contained_stat(root, rel, full)
+        if st is None or not stat.S_ISREG(st.st_mode) or st.st_size > max_bytes:
             continue
 
         records[rel] = FileRecord(
@@ -137,7 +217,7 @@ def scan(root: Path, settings: IndexSettings | None = None) -> dict[str, FileRec
             is_test=is_test_path(rel),
             is_config=is_config_path(rel),
         )
-        if len(records) >= settings.max_files:
+        if len(records) >= max_files:
             break
 
     return records

@@ -9,6 +9,9 @@ blow the SPEC §8 latency budget. The daemon holds them warm.
 Why HTTP: Claude Code supports `{"type": "http"}` hooks, which it calls itself. That
 removes Python interpreter startup (30-80ms) from every single tool call. Binding is
 127.0.0.1-only and every request carries a bearer token from a 0600 handshake file.
+
+Hosts: `POST /hook/<name>` is routed through `truthstone.adapters.registry` (H4). The
+daemon knows no host's payload or field names; adding a host never means editing it.
 """
 
 from __future__ import annotations
@@ -29,11 +32,11 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from truthstone.adapters.claude_code import translate as claude
-from truthstone.adapters.codex import translate as codex
+from truthstone.adapters import registry
 from truthstone.core.config import (
     DaemonSettings,
     Settings,
+    daemon_config_error,
     daemon_handshake_path,
     ensure_private_dir,
     get_or_create_token,
@@ -42,11 +45,27 @@ from truthstone.core.config import (
 )
 from truthstone.core.engine import Guard
 from truthstone.core.metrics import METRICS
+from truthstone.daemon import degraded, logs
 from truthstone.daemon.lifecycle import handshake_lock_path, interprocess_lock
 
 log = logging.getLogger(__name__)
 
-ADAPTERS = {"claude-code": claude, "codex": codex}
+# R9: rejected hook requests are counted over this window and reported by /health.
+AUTH_FAILURE_WINDOW_S = 600.0
+# Degradation messages are keyed on by the command hooks (once per session per reason),
+# so they never embed counts or times; those go in `degraded_detail`.
+AUTH_FAILURES_REASON = (
+    "hook requests with a missing or wrong token were rejected in the last 10 minutes, so "
+    "whatever sent them is not being guarded. If that is a Claude Code session installed "
+    "through settings hooks, its token is stale: re-run `truthstone install claude` and "
+    "restart that session."
+)
+OBSERVE_ONLY_REASON = (
+    "the daemon is in observe-only mode: it records findings but says nothing, so no session "
+    "is guarded (`truthstone observe off`, then restart the daemon)."
+)
+STORE_REASON = "its storage is degraded, so what it sees may not be recorded: {reason}"
+ADAPTER_REASON = "the {name} adapter could not be loaded, so that host's hooks are not judged ({error})."
 MAX_HOOK_BODY_BYTES = 1_000_000
 MAX_HEALTH_BODY_BYTES = 64_000
 
@@ -189,19 +208,95 @@ def _health_reports(hs: dict[str, Any], pid: int) -> bool:
             conn.close()
 
 
+def _store_reasons(guard: Guard) -> list[str]:
+    """What the stores say about themselves (``degraded_reason``), when they say anything.
+
+    Read defensively: the attribute may not exist yet, may be a property or a method, and
+    the workspace table may change while it is read. None of that may break ``/health``.
+    """
+    found: list[str] = []
+    try:
+        workspaces = list(dict(getattr(guard, "_workspaces", {}) or {}).values())
+    except Exception:  # noqa: BLE001 - changed while copied: report nothing this time
+        return found
+    for ws in workspaces:
+        store = getattr(ws, "store", None)
+        for holder in (store, getattr(store, "db", None)):
+            try:
+                reason = getattr(holder, "degraded_reason", None)
+                if callable(reason):
+                    reason = reason()
+            except Exception:  # noqa: BLE001 - a store that cannot say is not a new reason
+                continue
+            if isinstance(reason, str) and reason.strip() and reason.strip() not in found:
+                found.append(reason.strip())
+    return found
+
+
+def degradation(app: FastAPI) -> list[degraded.Reason]:
+    """Every reason this daemon is guarding less than it seems (R9)."""
+    found: list[degraded.Reason] = []
+    rejected = app.state.auth_failures.count()
+    if rejected:
+        detail = {
+            "count": rejected,
+            "window_s": int(AUTH_FAILURE_WINDOW_S),
+            "last_s_ago": app.state.auth_failures.seconds_since_last(),
+        }
+        found.append(degraded.Reason("auth_failures", AUTH_FAILURES_REASON, detail=detail))
+    if app.state.guard.settings.observe_only:
+        found.append(degraded.Reason("observe_only", OBSERVE_ONLY_REASON, since=app.state.started_at))
+    for index, reason in enumerate(_store_reasons(app.state.guard)):
+        code = "store" if index == 0 else f"store-{index + 1}"
+        found.append(degraded.Reason(code, STORE_REASON.format(reason=reason[:200])))
+    for name, error in registry.load_errors().items():
+        found.append(degraded.Reason(f"adapter-{name}", ADAPTER_REASON.format(name=name, error=error)))
+    found.extend(degraded.reasons())
+    return found
+
+
 def create_app(token: str, settings: Settings | None = None, guard: Guard | None = None) -> FastAPI:
     app = FastAPI(title="Truthstone", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.token = token
     app.state.guard = guard or Guard(settings)
     app.state.started_at = time.time()
+    # Hook requests refused for their token. Each still gets the fail-open "{}", which is
+    # exactly why they must be counted: a stale token is otherwise indistinguishable from
+    # a quiet, healthy session (R9).
+    app.state.auth_failures = degraded.RecentEvents(AUTH_FAILURE_WINDOW_S)
+
+    def _authorized(authorization: str | None) -> bool:
+        """Constant-time comparison of the bearer header, on bytes (R16).
+
+        The server decodes header bytes as latin-1, so a header can hold any character up
+        to U+00FF, and ``secrets.compare_digest`` raises ``TypeError`` for non-ASCII
+        *strings*. A stray byte in a token therefore turned into a 500 — on ``/hook``
+        too, which must answer ``200 {}`` whatever arrives. Bytes have no such limit, and
+        ``surrogatepass`` makes the encoding total.
+        """
+        if not authorization:
+            return False
+        try:
+            presented = authorization.encode("utf-8", "surrogatepass")
+            expected = f"Bearer {app.state.token}".encode("utf-8", "surrogatepass")
+            return secrets.compare_digest(presented, expected)
+        except (TypeError, ValueError):
+            return False
 
     def _check_auth(authorization: str | None) -> None:
-        expected = f"Bearer {app.state.token}"
-        if not authorization or not secrets.compare_digest(authorization, expected):
+        if not _authorized(authorization):
             raise HTTPException(status_code=401, detail="unauthorized")
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
+        try:
+            reasons = degradation(app)
+        except Exception as exc:  # noqa: BLE001 - logged (safely) and reported in the body
+            # /health is the liveness probe: it must answer, or a client revives a second
+            # daemon. Say that the check itself failed rather than claim all is well.
+            log.error("truthstone: degradation check failed\n%s", logs.safe_traceback(exc))
+            unknown = "the daemon could not check its own state; see daemon.log"
+            reasons = [degraded.Reason("health_check", unknown)]
         return {
             "status": "ok",
             "pid": os.getpid(),
@@ -214,7 +309,13 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
             # Which host routes this daemon serves. A daemon started by an older release
             # keeps running across upgrades; a hook for a host it cannot route would get
             # "no opinion" forever, so clients check this before trusting the silence.
-            "adapters": sorted(ADAPTERS),
+            # Only adapters that actually load are listed.
+            "adapters": registry.available(),
+            # Fail open, but never silently (R9): why this daemon is guarding less than it
+            # seems. `degraded` holds one stable message per reason (the command hooks show
+            # each once per session); `degraded_detail` adds a stable `code` and counts.
+            "degraded": [reason.message for reason in reasons],
+            "degraded_detail": [reason.as_json() for reason in reasons],
         }
 
     @app.get("/metrics")
@@ -234,11 +335,17 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
         try:
             _check_auth(authorization)
         except HTTPException:
-            # Even an auth failure fails open: log it, decide nothing.
-            log.warning("truthstone: rejected unauthenticated hook request")
+            # Even an auth failure fails open: decide nothing. But count it, because the
+            # host cannot tell this "{}" from a healthy one (R9); /health reports it.
+            if app.state.auth_failures.note() == 1:
+                log.warning(
+                    "truthstone: rejected a hook request with a missing or wrong token "
+                    "(further rejections within %d minutes are counted in /health, not logged)",
+                    int(AUTH_FAILURE_WINDOW_S // 60),
+                )
             return JSONResponse({}, status_code=200)
 
-        adapter = ADAPTERS.get(adapter_name)
+        adapter = registry.get(adapter_name)
         if adapter is None:
             return JSONResponse({}, status_code=200)
 
@@ -267,23 +374,31 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
         try:
             # An adapter whose one host payload can stand for several actions (a Codex
             # patch editing several files) routes and combines them itself.
-            handle_payload = getattr(adapter, "handle_payload", None)
+            handle_payload = adapter.handle_payload
             if handle_payload is not None:
                 out = await run_in_threadpool(handle_payload, app.state.guard, payload)
-                return JSONResponse(out, status_code=200)
-            event = adapter.to_event(payload)
-            if event is None:
-                return JSONResponse({}, status_code=200)
-            # Guard.handle performs synchronous indexing, AST and SQLite work. Running it
-            # directly in this async route would stall health checks and every other hook
-            # whenever one repository refresh is slow. The Guard serializes state per
-            # workspace, so moving it to a worker preserves ordering without blocking the
-            # event loop.
-            decision = await run_in_threadpool(app.state.guard.handle, event)
-            out = adapter.from_decision(event, decision, payload.get("hook_event_name", ""))
-            return JSONResponse(out, status_code=200)
-        except Exception:
-            log.exception("truthstone: hook handling failed; returning no-decision")
+            else:
+                event = adapter.to_event(payload)
+                if event is None:
+                    return JSONResponse({}, status_code=200)
+                # Guard.handle performs synchronous indexing, AST and SQLite work. Running
+                # it directly in this async route would stall health checks and every other
+                # hook whenever one repository refresh is slow. The Guard serializes state
+                # per workspace, so moving it to a worker preserves ordering without
+                # blocking the event loop.
+                decision = await run_in_threadpool(app.state.guard.handle, event)
+                out = adapter.from_decision(event, decision, adapter.hook_name(payload))
+            # An adapter bug must not put a non-object on the wire.
+            return JSONResponse(out if isinstance(out, dict) else {}, status_code=200)
+        except Exception as exc:  # noqa: BLE001 - fail open: logged (safely), then no decision
+            # The payload is whatever the agent handled, credentials included, and an
+            # exception's text can quote it (pydantic prints `input_value=...`). Log the
+            # type and where it happened, never the values (R17).
+            log.error(
+                "truthstone: hook handling failed on /hook/%s; returning no-decision\n%s",
+                adapter_name,
+                logs.safe_traceback(exc),
+            )
             return JSONResponse({}, status_code=200)
 
     @app.post("/shutdown")
@@ -300,12 +415,27 @@ def run(host: str | None = None, port: int | None = None, log_level: str = "warn
 
     Defaults come from settings (fixed port, so the installed hook URL stays valid).
     Pass ``port=0`` to grab an ephemeral port — used by tests running daemons in parallel.
+
+    Without an explicit ``port``, an invalid ``[daemon]`` section is refused (exit 2)
+    rather than replaced by the default endpoint: the installed hooks post to the port the
+    developer configured, so a daemon on 8787 would leave every hook failing open in
+    silence (R11). The shim and the CLI spawn ``python -m truthstone.daemon run`` with no
+    port, so this is where that path is checked.
     """
     import socket
 
     import uvicorn
 
     settings = Settings.load()
+    if port is None:
+        problem = daemon_config_error(settings)
+        if problem:
+            sys.stderr.write(f"truthstone: {problem}\n")
+            raise SystemExit(2)
+    # Before any other work, so the store and the index log through it from the start:
+    # one handler for the whole process that never writes a payload value or a secret,
+    # rotates daemon.log, and applies `log_level` from config.toml (R11, R17).
+    logs.install(settings, truthstone_home() / "daemon.log")
     host = host if host is not None else settings.daemon.host
     port = port if port is not None else settings.daemon.port
     try:
@@ -343,7 +473,11 @@ def run(host: str | None = None, port: int | None = None, log_level: str = "warn
     write_handshake(host, port, token)
 
     ensure_private_dir()
-    config = uvicorn.Config(app, host=host, port=port, log_level=log_level, access_log=False)
+    # `log_config=None`: uvicorn's loggers propagate to the root handler `logs.install`
+    # put there, so they are redacted and rotated like everything else.
+    config = uvicorn.Config(
+        app, host=host, port=port, log_level=log_level, access_log=False, log_config=None
+    )
     server = uvicorn.Server(config)
 
     # uvicorn 0.52 does not unwind the stack on SIGTERM, so a `finally` alone never

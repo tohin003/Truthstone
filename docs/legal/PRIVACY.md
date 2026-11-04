@@ -30,7 +30,7 @@ Truthstone works only inside git repositories: the Claude Code and Codex plugins
 
 ### What it stores, on your computer only
 
-Truthstone keeps records in a local SQLite database, by default `~/.truthstone/truthstone.db` (or in the directory that the `TRUTHSTONE_HOME` environment variable names; an installation made under the former name keeps using `~/.agentguard` until you move it). It stores its settings in `~/.truthstone/config.toml`. The records are:
+Truthstone keeps records in a local SQLite database, by default `~/.truthstone/truthstone.db` (or in the directory that the `TRUTHSTONE_HOME` environment variable names; an installation made under the former name keeps using `~/.agentguard` until you move it). It stores its settings in `~/.truthstone/config.toml`. The records are: <!-- rename-tool: keep -->
 
 | Kind of record | What it contains |
 |---|---|

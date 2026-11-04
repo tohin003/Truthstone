@@ -149,6 +149,10 @@ STOPWORDS = frozenset(
         "node_modules", "ruff_cache", "test_pagination", "top_level", "tsconfig", "unparseable",
         "workspace",  # reviewed 2026-11-04 (G8): a generic word, also in product code
         "pytest_cache",  # reviewed 2026-11-04 (G11): a tool's cache directory, in core's ignore list
+        # Reviewed 2026-11-04 (WP0, merging the core fixes): generic, and written on a branch
+        # that never held the golden set. max_bytes: log rotation and scan limits; subcommand:
+        # shell-command parsing; nversion: "\nversion" in a pyproject literal, as nexport.
+        "max_bytes", "nversion", "subcommand",
     }
 )  # fmt: skip
 

@@ -41,9 +41,10 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 from urllib.parse import urlsplit, urlunsplit
 
 from truthstone.core.config import (
@@ -53,18 +54,45 @@ from truthstone.core.config import (
     database_path,
     ensure_private_dir,
 )
+from truthstone.core.enums import EventType
 from truthstone.core.events import AgentEvent
 from truthstone.core.models import Decision
 from truthstone.repo.gitinfo import repository_root
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4  # 4: the `signoffs` table (A1b), created in place on an older database
 
 # Per §6: cap what a single row can hold. A tool argument blob is evidence that an action
 # happened, not a place to archive file contents.
 MAX_ARGUMENT_BYTES = 4_000
 MAX_TEXT_BYTES = 2_000
+
+# How long a statement waits for another connection's write lock (R7). On the hook hot
+# path a busy database must cost a dropped row, never a missed deadline: a hook has 5 s,
+# and SQLite's own 3 s wait per write was enough to blow it (the first event under an
+# external lock took 6.3 s). Opening, migrating and maintaining the database happen off
+# the hot path and can afford to wait for a concurrent maintenance pass or CLI command.
+HOT_BUSY_TIMEOUT_MS = 100
+MAINTENANCE_BUSY_TIMEOUT_MS = 3_000
+
+# Failure logging is rate-limited per (operation, error type): under a held lock every
+# write fails, and a traceback per event once filled the daemon log with 465 lines in
+# seconds. Every failure is still counted (`Database.failure_count`, `stats()`).
+_FAILURE_LOG_INTERVAL_S = 60.0
+
+# A degraded database is retried at most this often, from `Database.shared()` (R1).
+_REOPEN_INTERVAL_S = 30.0
+
+# Bounds for rebuilding one task (R14): the newest rows win, and `truncated` says so.
+MAX_ACTIVITY_EVENTS = 2_000
+MAX_ACTIVITY_VERIFICATIONS = 200
+_POST_TOOL_TYPES = (str(EventType.POST_TOOL_USE), str(EventType.POST_TOOL_FAILURE))
+# Census task counts (H7) over `findings f LEFT JOIN tasks t`: a task is one a prompt
+# opened. An implicit task (H2, depth 'implicit') bounds no described work, so findings
+# in one count as untasked. A task row that is gone still counts by its id.
+_PROMPT_TASKS = "COUNT(DISTINCT CASE WHEN t.depth IS NOT 'implicit' THEN NULLIF(f.task_id, '') END)"
+_UNTASKED = "SUM(CASE WHEN COALESCE(f.task_id, '') = '' OR t.depth = 'implicit' THEN 1 ELSE 0 END)"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -179,6 +207,25 @@ CREATE TABLE IF NOT EXISTS challenges (
     UNIQUE(project_id, task_id, fingerprint)
 );
 CREATE INDEX IF NOT EXISTS idx_challenges_last_ts ON challenges(project_id, last_ts);
+
+-- Developer sign-offs (IMPROVEMENTS.md A1b): one row per held action per session. The
+-- request, then at most one live grant, which the single run it allows consumes. `action`
+-- is a digest of the normalised action, never the command itself; `summary` is the
+-- redacted, bounded text shown to the developer. A table of its own, so creating it is
+-- the whole migration: `CREATE TABLE IF NOT EXISTS` adds it to an existing database.
+CREATE TABLE IF NOT EXISTS signoffs (
+    project_id   TEXT NOT NULL,
+    session_id   TEXT NOT NULL DEFAULT '',
+    code         TEXT NOT NULL,
+    action       TEXT NOT NULL DEFAULT '',
+    summary      TEXT NOT NULL DEFAULT '',
+    requested_at REAL NOT NULL,
+    granted_at   REAL,
+    granted_via  TEXT NOT NULL DEFAULT '',
+    consumed_at  REAL,
+    PRIMARY KEY (project_id, session_id, code)
+);
+CREATE INDEX IF NOT EXISTS idx_signoffs_code ON signoffs(project_id, code, requested_at);
 
 CREATE TABLE IF NOT EXISTS verifications (
     id          TEXT PRIMARY KEY,
@@ -308,15 +355,221 @@ def project_identity(root: str | Path) -> ProjectIdentity:
     )
 
 
+# -- secret redaction (R17) ---------------------------------------------------------
+#
+# Prompts (kept 270 days), tool arguments, verification details and finding text all
+# reach this database, and agents handle credentials constantly: `curl -H "Authorization:
+# Bearer …"`, `.env` files, keys pasted into a prompt. Every text column is redacted on
+# the way in. Each rule is gated on a cheap substring test, so text with nothing
+# credential-shaped in it costs one `lower()` and a few `in` checks; every pattern is
+# linear (no nested quantifiers), and callers bound the input (`_redact_bounded`).
+
+REDACTED = "[REDACTED]"
+# Redact a little past a column's limit before cutting it, so a secret that straddles
+# the cut is still removed whole rather than leaving a recognisable prefix behind.
+_REDACT_MARGIN = 512
+# How much of a prompt is scanned for secrets to scrub from its derived task spec.
+_PROMPT_SCAN_LIMIT = 64 * 1024
+
+# Keyword rules are written once and compiled twice. The plain pattern scans
+# `text.lower()` (SRE cannot skip ahead through a case-insensitive alternation: 4.6 ms ->
+# 0.6 ms on 64 KB of source code); each hit is then re-matched, anchored, against the
+# original text with the IGNORECASE twin, so the output keeps the original casing.
+#
+# A secret-bearing key (`DB_PASSWORD`, `api_key`, `"client_secret"`, `GITHUB_TOKEN`) and
+# its value. The keyword must end the key, so `max_tokens=` and `tokenizer =` are left
+# alone; a `:` separator (YAML, JSON, Python annotations) needs a quoted or
+# secret-looking value, so `password: str` survives.
+_KV_SECRET = (
+    r"(password|passwd|passphrase|secret|token|api[_-]?key|access[_-]?key|"
+    r"secret[_-]?key|private[_-]?key|client[_-]?secret)"
+    r"([\"']?[ \t]*[:=][ \t]*)([\"']?)"
+    r"([^\s\"',;&<>{}\[\]()=][^\s\"',;&<>{}\[\]()]*)"
+)
+# Prose: "my db password hunter2-x". Only a value that contains a digit or a symbol, so
+# "password reset flow" and "password manager" are not touched.
+_PROSE_PASSWORD = r"\b(password|passwd|passphrase)\b([ \t]+(?:is[ \t]+)?)([^\s\"'`]{6,})"
+
+
+def _looks_secret(value: str) -> bool:
+    return len(value) >= 8 or any(c.isdigit() for c in value) or not value.isalnum()
+
+
+def _kv_replacement(match: re.Match[str]) -> str:
+    key, sep, quote, value = match.groups()
+    if match.string.startswith(REDACTED, match.end()):
+        return match.group(0)  # a token rule got here first: keep its "sk-[REDACTED]"
+    if ":" in sep and not quote and not _looks_secret(value):
+        return match.group(0)
+    return f"{key}{sep}{quote}{REDACTED}"
+
+
+def _prose_replacement(match: re.Match[str]) -> str:
+    word, gap, value = match.groups()
+    if REDACTED in value:
+        return match.group(0)
+    if any(c.isdigit() for c in value) or not value.isalnum():
+        return f"{word}{gap}{REDACTED}"
+    return match.group(0)
+
+
+def _keep_prefix(match: re.Match[str]) -> str:
+    return f"{match.group(1)}{REDACTED}"
+
+
+class _Rule(NamedTuple):
+    triggers: tuple[str, ...]  # lower-case substrings; the rule runs only if one occurs
+    pattern: re.Pattern[str]
+    replace: Any  # replacement string, or a function of the match
+    # Keyword rules only: `pattern` scans the lower-cased text, this re-matches each hit.
+    anycase: re.Pattern[str] | None = None
+
+
+def _keyword_rule(triggers: tuple[str, ...], source: str, replace: Any) -> _Rule:
+    return _Rule(triggers, re.compile(source), replace, re.compile(source, re.IGNORECASE))
+
+
+# Token rules start with their literal prefix and check the boundary in a lookbehind
+# *after* it, which lets SRE jump between occurrences of the prefix (~25x faster than a
+# leading lookbehind) while still refusing `task-…`, `mask-…` and other words.
+_SECRET_RULES: tuple[_Rule, ...] = (
+    _Rule(
+        ("private key-----",),
+        re.compile(
+            r"-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----|\Z)",
+            re.DOTALL,
+        ),
+        "[REDACTED PRIVATE KEY]",
+    ),
+    # Anthropic (sk-ant-…), OpenAI (sk-…, sk-proj-…) and look-alikes.
+    _Rule(("sk-",), re.compile(r"(sk-)(?<![A-Za-z0-9]sk-)[A-Za-z0-9_\-]{16,}"), _keep_prefix),
+    # GitHub classic and fine-grained tokens.
+    _Rule(
+        ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"),
+        re.compile(
+            r"(gh[pousr]_(?<![A-Za-z0-9]gh[pousr]_)|github_pat_(?<![A-Za-z0-9]github_pat_))"
+            r"[A-Za-z0-9_]{20,}"
+        ),
+        _keep_prefix,
+    ),
+    # AWS access key ids, long-lived (AKIA) and temporary (ASIA).
+    _Rule(
+        ("akia", "asia"),
+        re.compile(r"(A[KS]IA)(?<![A-Z0-9]A[KS]IA)[0-9A-Z]{16}(?![0-9A-Z])"),
+        _keep_prefix,
+    ),
+    # Slack tokens.
+    _Rule(("xox",), re.compile(r"(xox[abprs]-)(?<![A-Za-z0-9]xox[abprs]-)[A-Za-z0-9-]{10,}"), _keep_prefix),
+    # Google API keys.
+    _Rule(("aiza",), re.compile(r"(AIza)(?<![A-Za-z0-9]AIza)[0-9A-Za-z_\-]{30,}"), _keep_prefix),
+    # `Authorization: Bearer <token>`, any casing.
+    _keyword_rule(("bearer",), r"\b(bearer[ \t]+)[A-Za-z0-9._~+/=\-]{8,}", _keep_prefix),
+    # Credentials in a URL: https://user:password@host/… (bounded runs: never quadratic).
+    _Rule(("://",), re.compile(r"(://[^/\s:@\"']{1,256}:)[^/\s@\"']{1,256}(?=@)"), _keep_prefix),
+    _keyword_rule(
+        ("password", "passwd", "passphrase", "secret", "token", "key"), _KV_SECRET, _kv_replacement
+    ),
+    _keyword_rule(("password", "passwd", "passphrase"), _PROSE_PASSWORD, _prose_replacement),
+)
+
+
+def _scrubbable(token: str) -> bool:
+    """Whether a removed value is distinctive enough to scrub wherever else it appears."""
+    if len(token) < 6 or "-----" in token:
+        return False
+    return not token.isalpha() or not (token.islower() or token.isupper())
+
+
+def _recording(replace: Any, found: set[str]) -> Any:
+    """Wrap a replacement so the values it removes are collected into ``found``."""
+
+    def wrapped(match: re.Match[str]) -> str:
+        old = match.group(0)
+        new = replace(match) if callable(replace) else replace
+        if new != old:
+            keep = 0
+            while keep < min(len(old), len(new)) and old[keep] == new[keep]:
+                keep += 1
+            found.update(token for token in old[keep:].split() if _scrubbable(token))
+        return new
+
+    return wrapped
+
+
+def _apply(rule: _Rule, text: str, found: set[str] | None = None) -> str:
+    replace = rule.replace if found is None else _recording(rule.replace, found)
+    if rule.anycase is None:
+        return rule.pattern.sub(replace, text)
+    lowered = text.lower()
+    if len(lowered) != len(text):  # a few non-ASCII letters change length when lowered
+        return rule.anycase.sub(replace, text)
+    parts: list[str] = []
+    last = 0
+    for hit in rule.pattern.finditer(lowered):
+        if hit.start() < last:
+            continue
+        match = rule.anycase.match(text, hit.start())
+        if match is None:
+            continue
+        parts += (text[last : match.start()], replace(match))
+        last = match.end()
+    if not parts:
+        return text
+    parts.append(text[last:])
+    return "".join(parts)
+
+
+def redact_secrets(text: str, found: set[str] | None = None) -> str:
+    """Replace credential-shaped substrings with ``[REDACTED]``. Linear in ``len(text)``.
+
+    ``found``, if given, collects the removed values, so text *derived* from this one —
+    a task spec's extracted targets, which hold a token without the ``Bearer`` that made
+    it recognisable — can be scrubbed of them too (`_redact_tree(scrub=...)`).
+    """
+    if not text:
+        return text
+    lowered = text.lower()
+    for rule in _SECRET_RULES:
+        if any(trigger in lowered for trigger in rule.triggers):
+            text = _apply(rule, text, found)
+    return text
+
+
+def _redact_bounded(text: str, limit: int) -> str:
+    """Redact, then cut to ``limit``: what every text column stores."""
+    if not isinstance(text, str):
+        text = str(text)
+    return redact_secrets(text[: limit + _REDACT_MARGIN])[:limit]
+
+
+def _redact_tree(value: Any, limit: int = MAX_ARGUMENT_BYTES, scrub: frozenset[str] = frozenset()) -> Any:
+    """Redact every string in a JSON-shaped value (before `json.dumps`, so it stays valid).
+
+    ``scrub``: values already known to be secret (see `redact_secrets(found=...)`),
+    removed wherever they occur, with or without the context that identified them.
+    """
+    if isinstance(value, str):
+        text = _redact_bounded(value, limit)
+        for secret in scrub:
+            if secret in text:
+                text = text.replace(secret, REDACTED)
+        return text
+    if isinstance(value, dict):
+        return {k: _redact_tree(v, limit, scrub) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_redact_tree(v, limit, scrub) for v in value]
+    return value
+
+
 # -- bounded serialisation --------------------------------------------------------
 
 
 def summarize_value(value: Any) -> Any:
-    """Per §6: keep the shape, drop the bulk."""
+    """Per §6: keep the shape, drop the bulk — and never the credentials (R17)."""
     if isinstance(value, str):
         if len(value) <= 200:
-            return value
-        return f"{value[:200]}… <{len(value)} chars>"
+            return redact_secrets(value)
+        return f"{_redact_bounded(value, 200)}… <{len(value)} chars>"
     if isinstance(value, dict):
         return {k: summarize_value(v) for k, v in list(value.items())[:40]}
     if isinstance(value, list):
@@ -333,15 +586,92 @@ def summarize_arguments(arguments: dict[str, Any]) -> str:
     return text[:MAX_ARGUMENT_BYTES]
 
 
+# -- reading rows back (R14) --------------------------------------------------------
+
+# What `summarize_value` leaves of a long string: a prefix and this marker. Not a path.
+_CUT_VALUE = re.compile(r"… <\d+ chars>\Z")
+_STRING_FIELDS: dict[str, re.Pattern[str]] = {}
+
+
+def _load_object(text: str | None) -> tuple[dict[str, Any], bool]:
+    """A stored JSON object, and whether it was intact (rows are cut at their limit)."""
+    try:
+        value = json.loads(text or "{}")
+    except (TypeError, ValueError):
+        return {}, False
+    return (value, True) if isinstance(value, dict) else ({}, False)
+
+
+def _string_field(text: str, key: str) -> str | None:
+    """``"key": "value"`` from JSON that was cut at its row limit. Linear; bounded input."""
+    pattern = _STRING_FIELDS.get(key)
+    if pattern is None:
+        # A JSON string literal: anything but a quote or a backslash, or an escape.
+        source = f'"{re.escape(key)}"' + r'\s*:\s*"((?:[^"\\]|\\.)*)"'
+        pattern = _STRING_FIELDS.setdefault(key, re.compile(source))
+    match = pattern.search(text)
+    if match is None:
+        return None
+    try:
+        value = json.loads(f'"{match.group(1)}"')
+    except ValueError:
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _paths_named(arguments: str | None, keys: tuple[str, ...]) -> tuple[list[str], int]:
+    """The paths a stored event's arguments name under ``keys``, and how many values were
+    unusable because `summarize_value` had cut them."""
+    if not keys:
+        return [], 0
+    parsed, intact = _load_object(arguments)
+    found: list[str] = []
+    skipped = 0
+    for key in keys:
+        value = parsed.get(key) if intact else _string_field(arguments or "", key)
+        if not isinstance(value, str) or not value:
+            continue
+        if _CUT_VALUE.search(value):
+            skipped += 1
+            continue
+        found.append(value)
+    return found, skipped
+
+
+def _no_activity(task_id: str) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "changes": [],
+        "touched": [],
+        "deleted": [],
+        "verifications": [],
+        "timeline": [],
+        "truncated": False,
+        "skipped": 0,
+    }
+
+
 def _safe(default: Any = None):
-    """Storage must never break the agent. Log and carry on (Memory plan §8)."""
+    """Storage must never break the agent. Roll back, report, carry on (Memory plan §8).
+
+    The rollback is the important part (R7). A statement that fails part-way — most often
+    "database is locked" because another process held the write lock — can leave the
+    shared connection inside a transaction. The next read then pins a WAL snapshot, and
+    once the other writer commits, every later write on this connection fails with
+    SQLITE_BUSY_SNAPSHOT, forever: no task, no challenge, nothing persisted until the
+    daemon restarts.
+    """
 
     def deco(fn):
         def wrapper(self, *args, **kwargs):
             try:
                 return fn(self, *args, **kwargs)
-            except Exception:
-                log.exception("truthstone store: %s failed", fn.__name__)
+            except Exception as exc:
+                db = self if isinstance(self, Database) else getattr(self, "db", None)
+                if isinstance(db, Database):
+                    db._after_error(fn.__name__, exc)
+                else:
+                    log.exception("truthstone store: %s failed", fn.__name__)
                 return default() if callable(default) else default
 
         wrapper.__name__ = fn.__name__
@@ -351,46 +681,219 @@ def _safe(default: Any = None):
     return deco
 
 
+def _is_busy(exc: BaseException) -> bool:
+    """SQLITE_BUSY/LOCKED in any of its forms: another connection holds a lock."""
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    name = getattr(exc, "sqlite_errorname", "") or ""
+    return name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")) or "locked" in str(exc)
+
+
+def _describe_error(exc: BaseException) -> str:
+    """Type plus SQLite's own message. Never the statement's parameters (R17)."""
+    if isinstance(exc, sqlite3.Error):
+        name = getattr(exc, "sqlite_errorname", "") or ""
+        return f"{type(exc).__name__}{f' ({name})' if name else ''}: {exc}"
+    return type(exc).__name__
+
+
+def _is_corruption(exc: BaseException) -> bool:
+    """The file is not (or no longer) a usable SQLite database."""
+    if not isinstance(exc, sqlite3.DatabaseError):
+        return False
+    name = getattr(exc, "sqlite_errorname", "") or ""
+    text = str(exc)
+    return name.startswith(("SQLITE_CORRUPT", "SQLITE_NOTADB")) or (
+        "not a database" in text or "malformed" in text
+    )
+
+
+def _open_failure_reason(path: Path, exc: BaseException) -> str:
+    if _is_corruption(exc):
+        return (
+            f"{path} is corrupted ({_describe_error(exc)}); move it aside "
+            f"(mv '{path}' '{path}.corrupt') and restart the daemon to start a fresh one"
+        )
+    if isinstance(exc, sqlite3.Error):
+        return f"cannot open {path} ({_describe_error(exc)})"
+    # Our own refusals (symlinked or non-regular paths) and OS errors: the message is a
+    # path and a reason, never data.
+    return f"cannot open {path} ({type(exc).__name__}: {exc})"
+
+
+class Transaction:
+    """The handle `Database.transaction()` yields. Its `execute` never raises.
+
+    The first failing statement marks the whole transaction failed: later statements are
+    skipped and the transaction is rolled back on exit, so a caller gets all of its rows
+    or none of them. `committed` is the outcome; for a nested transaction it means
+    "folded into the enclosing one", which is durable only once that one commits.
+    """
+
+    __slots__ = ("_conn", "active", "committed", "error")
+
+    def __init__(self) -> None:
+        self._conn: sqlite3.Connection | None = None
+        self.active = False
+        self.committed = False
+        self.error: BaseException | None = None
+
+    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor | None:
+        if not self.active or self._conn is None:
+            return None
+        try:
+            return self._conn.execute(sql, params)
+        except sqlite3.Error as exc:
+            self.fail(exc)
+            return None
+
+    def fail(self, exc: BaseException) -> None:
+        if self.error is None:
+            self.error = exc
+        self.active = False
+
+
 # -- the database -----------------------------------------------------------------
 
 
 class Database:
-    """The single shared connection, schema, maintenance and disk protection."""
+    """The single shared connection, schema, maintenance and disk protection.
+
+    Constructing one never raises (R1). A database that cannot be opened — a corrupted
+    file, an unwritable or refused path, a lock held through the whole migration —
+    yields a *degraded* instance instead: `degraded_reason` says why, writes are no-ops,
+    queries return nothing, and the reason is logged once. Without this, one bad file
+    meant no `Workspace` at all: Truthstone inert and `doctor` crashing.
+    """
 
     _instances: ClassVar[dict[str, Database]] = {}
     _registry_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(self, path: Path, settings: Settings | None = None) -> None:
+        self._init_state(path, settings)
+        try:
+            self._open()
+        except Exception as exc:  # noqa: BLE001 - R1: persistence is never a dependency
+            self._degrade(_open_failure_reason(path, exc))
+
+    def _init_state(self, path: Path, settings: Settings | None) -> None:
         settings = settings or Settings()
         self.path = path
         self.retention: RetentionSettings = settings.retention
         self.disk: DiskSettings = settings.disk
         self._lock = threading.RLock()
+        self._conn: sqlite3.Connection | None = None
         self._last_maintenance = 0.0
         self._writes_disabled = False
+        # Why the database is unusable, or "" when it is fine.
+        self.degraded_reason = ""
+        self._degraded_at = 0.0
+        self._reopenable = True
+        # Depth of `transaction()` contexts open on this connection. Only ever changed
+        # while `_lock` is held, and a transaction holds `_lock` for its whole body.
+        self._tx_depth = 0
+        # Failures are counted, not just logged: "fail open, but never silently".
+        self.failure_count = 0
+        self.last_failure = ""
+        self._failure_lock = threading.Lock()
+        self._failure_logged: dict[tuple[str, str], float] = {}
+        self._failures_unlogged = 0
 
+    def _open(self) -> None:
+        """Connect, configure and migrate. Raises on any failure, leaving no connection."""
+        path = self.path
         if path.is_symlink():
             raise RuntimeError(f"refusing to use symlink as database: {path}")
         if path.exists() and not path.is_file():
             raise RuntimeError(f"refusing to use non-regular database path: {path}")
-        ensure_private_dir(self.path.parent)
-        self._conn = sqlite3.connect(str(path), check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._harden_file_modes()
-        self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.execute("PRAGMA busy_timeout=3000")
-        self._conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+        ensure_private_dir(path.parent)
+        # `isolation_level=None`: no implicit BEGIN. A single write is its own atomic
+        # statement, multi-statement writes go through `transaction()` (BEGIN IMMEDIATE),
+        # and a read can never be left holding a snapshot inside a forgotten transaction.
+        conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         with self._lock:
-            self._conn.executescript(_SCHEMA)
-            self._migrate()
-            self._sanitize_project_remotes()
-            self._conn.execute(
-                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)",
-                (str(SCHEMA_VERSION),),
+            try:
+                conn.row_factory = sqlite3.Row
+                # Patient while opening and migrating; hot-path statements get the short wait.
+                conn.execute(f"PRAGMA busy_timeout={MAINTENANCE_BUSY_TIMEOUT_MS}")
+                # Before journal_mode: switching to WAL writes the header, after which SQLite
+                # silently ignores an auto_vacuum change, and `incremental_vacuum` is a no-op.
+                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                conn.execute("PRAGMA journal_mode=WAL")
+                self._conn = conn
+                self._harden_file_modes()
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.executescript(_SCHEMA)
+                self._migrate()
+                self._sanitize_project_remotes()
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)",
+                    (str(SCHEMA_VERSION),),
+                )
+                self._harden_file_modes()
+                conn.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
+            except BaseException:
+                self._conn = None
+                with contextlib.suppress(Exception):
+                    conn.close()
+                raise
+
+    # -- degraded mode (R1) -------------------------------------------------------
+
+    @classmethod
+    def unavailable(cls, reason: str, path: Path | None = None, settings: Settings | None = None) -> Database:
+        """A degraded instance that never touches the filesystem (e.g. no usable home)."""
+        db = cls.__new__(cls)
+        db._init_state(path or Path(os.devnull), settings)
+        db._reopenable = False
+        db._degrade(reason)
+        return db
+
+    @property
+    def degraded(self) -> bool:
+        return bool(self.degraded_reason)
+
+    def _degrade(self, reason: str) -> None:
+        """Stop using the database, and say why — once per distinct reason."""
+        with self._lock:
+            conn, self._conn = self._conn, None
+            self._degraded_at = time.monotonic()
+            changed = reason != self.degraded_reason
+            self.degraded_reason = reason
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+        if changed:
+            log.warning(
+                "truthstone store: persistence is off: %s. Guarding continues without it.", reason
             )
-            self._conn.commit()
-            self._harden_file_modes()
+
+    def reopen_due(self) -> bool:
+        return (
+            self.degraded
+            and self._reopenable
+            and time.monotonic() - self._degraded_at >= _REOPEN_INTERVAL_S
+        )
+
+    def reopen(self) -> bool:
+        """Try to leave degraded mode in place (every handle shares this object).
+
+        Returns whether the database is usable. Cheap for the common permanent case — a
+        corrupted file fails on its first PRAGMA — and silent unless the reason changes.
+        """
+        with self._lock:
+            if self._conn is not None:
+                return True
+            if not self._reopenable:
+                return False
+            try:
+                self._open()
+            except Exception as exc:  # noqa: BLE001 - still degraded; `_degrade` reports changes
+                self._degrade(_open_failure_reason(self.path, exc))
+                return False
+            self.degraded_reason = ""
+        log.warning("truthstone store: persistence restored (%s)", self.path)
+        return True
 
     def _harden_file_modes(self) -> None:
         """Keep SQLite and its WAL sidecars owner-readable only.
@@ -445,9 +948,9 @@ class Database:
         issue UUIDs) but not impossible, and the census divides by this number.
 
         Copy-and-rename rather than an ALTER, because SQLite cannot change a primary key
-        in place. Failure leaves the old table exactly as it was: an over-strict key
-        under-counts sessions, while a half-finished rebuild loses them, so the old shape
-        is strictly the safer place to stop.
+        in place. The whole rebuild is one transaction, so a failure leaves the old table
+        exactly as it was: an over-strict key under-counts sessions, while a half-finished
+        rebuild loses them, so the old shape is strictly the safer place to stop.
         """
         row = self._conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'"
@@ -456,30 +959,49 @@ class Database:
             return
 
         try:
-            self._conn.execute("ALTER TABLE sessions RENAME TO sessions_legacy")
-            self._conn.executescript(_SCHEMA)
-            self._conn.execute(
+            # One script, one transaction: `executescript` would commit an enclosing
+            # transaction first, so the BEGIN has to live inside the script.
+            self._conn.executescript(
+                "BEGIN IMMEDIATE;\n"
+                "ALTER TABLE sessions RENAME TO sessions_legacy;\n"
+                f"{_SCHEMA}\n"
                 "INSERT OR IGNORE INTO sessions(id, project_id, agent, started_at, ended_at, meta) "
-                "SELECT id, project_id, agent, started_at, ended_at, meta FROM sessions_legacy"
+                "SELECT id, project_id, agent, started_at, ended_at, meta FROM sessions_legacy;\n"
+                "DROP TABLE sessions_legacy;\n"
+                # The renamed table took the index name with it; recreate it on the new one.
+                "CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id, started_at);\n"
+                "COMMIT;\n"
             )
-            self._conn.execute("DROP TABLE sessions_legacy")
-            self._conn.commit()
         except sqlite3.Error:
             log.exception("truthstone store: sessions re-key failed; keeping the old table")
-            self._conn.rollback()
             with contextlib.suppress(sqlite3.Error):
-                self._conn.execute("ALTER TABLE sessions_legacy RENAME TO sessions")
-                self._conn.commit()
+                if self._conn.in_transaction:
+                    self._conn.rollback()
 
     @classmethod
     def shared(cls, settings: Settings | None = None) -> Database:
-        path = database_path()
+        """The process-wide handle for this home's database. Never raises (R1).
+
+        A degraded handle stays shared, so every project sees the same state, and is
+        retried in place at most every `_REOPEN_INTERVAL_S` when asked for again.
+        """
+        try:
+            path = database_path()
+        except Exception as exc:  # noqa: BLE001 - e.g. no resolvable home directory
+            reason = f"no usable Truthstone home ({type(exc).__name__}: {exc})"
+            with cls._registry_lock:
+                existing = cls._instances.get("")
+                if existing is None:
+                    existing = cls._instances[""] = cls.unavailable(reason, settings=settings)
+                return existing
         key = str(path)
         with cls._registry_lock:
             existing = cls._instances.get(key)
             if existing is None:
                 existing = cls(path, settings)
                 cls._instances[key] = existing
+            elif existing.reopen_due():
+                existing.reopen()
             return existing
 
     @classmethod
@@ -493,7 +1015,58 @@ class Database:
 
     def close(self) -> None:
         with self._lock:
-            self._conn.close()
+            if self._conn is not None:
+                self._conn.close()
+
+    # -- failure handling (R7) ----------------------------------------------------
+
+    def _rollback_quietly(self) -> None:
+        """End whatever transaction a failed statement left open on the shared connection.
+
+        Skipped while a `transaction()` context is open on this thread: that context owns
+        the transaction and rolls it back itself. Another thread's context cannot be open
+        here, because a transaction holds `_lock` for its whole body.
+        """
+        with self._lock:
+            if self._tx_depth or self._conn is None:
+                return
+            with contextlib.suppress(sqlite3.Error):
+                if self._conn.in_transaction:
+                    self._conn.rollback()
+
+    def _after_error(self, where: str, exc: BaseException) -> None:
+        self._rollback_quietly()
+        self._note_failure(where, exc)
+        if _is_corruption(exc) and not self._tx_depth:
+            # Corrupted under us: stop writing into it, and say so (R1).
+            self._degrade(_open_failure_reason(self.path, exc))
+
+    def _note_failure(self, where: str, exc: BaseException) -> None:
+        """Count every failure; log the first of each kind per interval."""
+        now = time.monotonic()
+        key = (where, type(exc).__name__)
+        with self._failure_lock:
+            self.failure_count += 1
+            self.last_failure = f"{where}: {_describe_error(exc)}"
+            last = self._failure_logged.get(key)
+            if last is not None and now - last < _FAILURE_LOG_INTERVAL_S:
+                self._failures_unlogged += 1
+                return
+            self._failure_logged[key] = now
+            unlogged, self._failures_unlogged = self._failures_unlogged, 0
+        more = f" ({unlogged} more failure(s) since the last report)" if unlogged else ""
+        if _is_busy(exc):
+            log.warning(
+                "truthstone store: %s dropped: the database is busy (another process holds "
+                "its write lock); guarding continues without persistence%s",
+                where,
+                more,
+            )
+        elif isinstance(exc, sqlite3.Error):
+            log.warning("truthstone store: %s failed: %s%s", where, _describe_error(exc), more)
+        else:
+            # Not a storage condition but a defect: keep the traceback.
+            log.error("truthstone store: %s failed%s", where, more, exc_info=exc)
 
     # -- disk protection ----------------------------------------------------------
 
@@ -513,7 +1086,7 @@ class Database:
 
     @property
     def writes_enabled(self) -> bool:
-        if self._writes_disabled:
+        if self._writes_disabled or self._conn is None:
             return False
         return self.disk_state() != "critical"
 
@@ -532,16 +1105,121 @@ class Database:
 
     # -- primitives ---------------------------------------------------------------
 
-    def write(self, sql: str, params: tuple) -> None:
+    def write(self, sql: str, params: tuple) -> bool:
+        """One statement, atomic on its own. Returns whether it ran.
+
+        Raises on failure (callers are `_safe`), but only after rolling back, so the
+        shared connection is never left inside a transaction. Inside an enclosing
+        `transaction()` the statement simply joins it.
+        """
         if not self.writes_enabled:
-            return  # §8: reliability continues without persistence
+            return False  # §8: reliability continues without persistence
         with self._lock:
-            self._conn.execute(sql, params)
-            self._conn.commit()
+            conn = self._conn
+            if conn is None:
+                return False  # degraded between the check and the lock
+            try:
+                conn.execute(sql, params)
+            except sqlite3.Error:
+                self._rollback_quietly()
+                raise
+        return True
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+        """Rows, or ``[]`` from a degraded database (R1)."""
         with self._lock:
-            return self._conn.execute(sql, params).fetchall()
+            conn = self._conn
+            if conn is None:
+                return []
+            try:
+                return conn.execute(sql, params).fetchall()
+            except sqlite3.Error:
+                self._rollback_quietly()
+                raise
+
+    @contextlib.contextmanager
+    def transaction(self, name: str = "transaction") -> Iterator[Transaction]:
+        """``BEGIN IMMEDIATE … COMMIT`` around a group of writes. Never raises.
+
+        * Every statement goes through the yielded `Transaction`; the first failure
+          rolls the whole group back, and so does an exception from the body, which is
+          logged and swallowed — storage must never break the hot path.
+        * ``BEGIN IMMEDIATE`` takes the write lock up front. A busy database therefore
+          fails at BEGIN, after at most the hot-path busy timeout, with nothing written;
+          a deferred transaction would fail half-way instead.
+        * Nest-safe: inside another transaction it becomes a SAVEPOINT, so an inner
+          failure undoes only the inner work.
+        * With writes disabled (critical disk) or a degraded database, the body still runs
+          and nothing is written.
+
+        ``with db.transaction() as tx: tx.execute(...)`` then check ``tx.committed``.
+        """
+        tx = Transaction()
+        with self._lock:
+            conn = self._conn
+            depth = self._tx_depth
+            savepoint = f"truthstone_{depth}"
+            began = False
+            if conn is not None and self.writes_enabled:
+                try:
+                    conn.execute(f"SAVEPOINT {savepoint}" if depth else "BEGIN IMMEDIATE")
+                except sqlite3.Error as exc:
+                    tx.fail(exc)
+                    self._rollback_quietly()
+                else:
+                    tx._conn = conn
+                    tx.active = began = True
+                    self._tx_depth += 1
+            try:
+                yield tx
+            except Exception as exc:  # noqa: BLE001 - the hot path never sees storage errors
+                tx.fail(exc)
+            except BaseException:
+                tx.active = False  # interrupted: roll back, then let it propagate
+                raise
+            finally:
+                if began:
+                    self._tx_depth -= 1
+                    self._end_transaction(tx, conn, savepoint if depth else None)
+        if tx.error is not None:
+            self._after_error(name, tx.error)
+
+    @staticmethod
+    def _end_transaction(tx: Transaction, conn: sqlite3.Connection, savepoint: str | None) -> None:
+        if tx.active:
+            try:
+                conn.execute(f"RELEASE {savepoint}" if savepoint else "COMMIT")
+            except sqlite3.Error as exc:
+                tx.fail(exc)
+            else:
+                tx.active = False
+                tx.committed = True
+                return
+        tx.active = False
+        with contextlib.suppress(sqlite3.Error):
+            if savepoint:
+                conn.execute(f"ROLLBACK TO {savepoint}")
+                conn.execute(f"RELEASE {savepoint}")
+            elif conn.in_transaction:
+                conn.rollback()
+
+    @contextlib.contextmanager
+    def _maintenance_window(self) -> Iterator[sqlite3.Connection]:
+        """The connection, held, with the patient busy timeout; restored on exit.
+
+        `busy_timeout` is per connection, so it is raised only while `_lock` keeps every
+        hot-path statement out.
+        """
+        with self._lock:
+            conn = self._conn
+            if conn is None:
+                raise sqlite3.OperationalError(f"database unavailable: {self.degraded_reason}")
+            conn.execute(f"PRAGMA busy_timeout={MAINTENANCE_BUSY_TIMEOUT_MS}")
+            try:
+                yield conn
+            finally:
+                with contextlib.suppress(sqlite3.Error):
+                    conn.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
 
     # -- maintenance (Memory plan §7) ---------------------------------------------
 
@@ -557,34 +1235,43 @@ class Database:
         finished and a hundred milliseconds costs nobody anything (§7: "Avoid running
         expensive maintenance during active agent execution").
         """
-        if not force and not self.maintenance_due():
+        if self.degraded or (not force and not self.maintenance_due()):
             return {}
         self._last_maintenance = time.time()
 
         aggressive = self.disk_state() != "healthy" or self.database_over_limit
         removed = self.prune(aggressive=aggressive)
 
-        with self._lock:
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            self._conn.execute("PRAGMA incremental_vacuum")
-            self._conn.commit()
+        with self._maintenance_window() as conn:
+            # Step it to completion: `incremental_vacuum` frees one page per row it
+            # yields, so an execute() whose cursor is dropped reclaims a single page.
+            conn.execute("PRAGMA incremental_vacuum").fetchall()
+            # Checkpoint after the vacuum, so the pages it moved leave the WAL too.
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
             self._harden_file_modes()
 
         if self.size_megabytes() > self.retention.vacuum_threshold_mb or self.database_over_limit:
-            with self._lock:
-                self._conn.execute("VACUUM")
+            with self._maintenance_window() as conn:
+                # A database created before auto_vacuum was set in the right order is
+                # converted by the full VACUUM that is running anyway.
+                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                conn.execute("VACUUM")
                 self._harden_file_modes()
         return removed
 
     @_safe(default=dict)
     def prune(self, aggressive: bool = False) -> dict[str, int]:
         """Apply the retention tiers. `0` days means keep indefinitely."""
+        if self.degraded:
+            return {}
         scale = 0.25 if aggressive else 1.0
         rules = [
             ("events", self.retention.raw_events_days, "ts"),
             ("decisions", self.retention.decisions_days, "ts"),
             ("verifications", self.retention.verifications_days, "started_at"),
             ("metrics", self.retention.metrics_days, "ts"),
+            # A sign-off is part of the decision log it was asked in (A1b).
+            ("signoffs", self.retention.decisions_days, "requested_at"),
         ]
         removed: dict[str, int] = {}
         now = time.time()
@@ -592,10 +1279,9 @@ class Database:
             if days <= 0:
                 continue
             cutoff = now - (days * scale * 86400)
-            with self._lock:
-                cursor = self._conn.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
+            with self._maintenance_window() as conn:
+                cursor = conn.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
                 removed[table] = cursor.rowcount if cursor.rowcount > 0 else 0
-                self._conn.commit()
 
         # Sessions are summaries, but an active session is not a summary yet. Keep it
         # (and its open task) even if a daemon happens to run maintenance after a long
@@ -605,8 +1291,10 @@ class Database:
         summary_days = self.retention.session_summaries_days
         if summary_days > 0:
             cutoff = now - (summary_days * scale * 86400)
-            with self._lock:
-                cursor = self._conn.execute(
+            with self._maintenance_window() as conn:
+                # One transaction for the pair; on failure `_safe` rolls it back.
+                conn.execute("BEGIN IMMEDIATE")
+                cursor = conn.execute(
                     "DELETE FROM sessions WHERE started_at < ? AND ended_at IS NOT NULL",
                     (cutoff,),
                 )
@@ -616,7 +1304,7 @@ class Database:
                 # whose session summary has already disappeared (or was never recorded
                 # because persistence was unavailable). Open tasks survive unless their
                 # session is definitively gone and the task itself is old.
-                cursor = self._conn.execute(
+                cursor = conn.execute(
                     "DELETE FROM tasks WHERE "
                     "(status <> 'open' AND COALESCE(closed_at, created_at) < ?) OR "
                     "(status = 'open' AND created_at < ? AND NOT EXISTS ("
@@ -626,7 +1314,7 @@ class Database:
                     (cutoff, cutoff),
                 )
                 removed["tasks"] = cursor.rowcount if cursor.rowcount > 0 else 0
-                self._conn.commit()
+                conn.execute("COMMIT")
         else:
             # Keep the keys stable for callers (CLI/reporting) while honoring the
             # documented `0 means keep indefinitely` retention setting.
@@ -638,30 +1326,28 @@ class Database:
         # orphan rows left by an interrupted write. A challenge without its task cannot
         # participate in rationing, so retaining it would only consume storage.
         removed["challenges"] = 0
-        with self._lock:
+        with self._maintenance_window() as conn:
             # Include project_id in the join: task ids are normally UUIDs, but callers
             # and older databases may contain human-readable ids reused across projects.
             # A bare `task_id NOT IN (...)` cleanup would violate project isolation.
-            cursor = self._conn.execute(
+            cursor = conn.execute(
                 "DELETE FROM challenges WHERE NOT EXISTS ("
                 "  SELECT 1 FROM tasks t WHERE t.id=challenges.task_id "
                 "  AND t.project_id=challenges.project_id"
                 ")"
             )
             removed["challenges"] += max(cursor.rowcount, 0)
-            self._conn.commit()
 
         # Findings belong to decisions; a finding whose decision is gone is unreadable.
         # Violations worth keeping are promoted to `memories` in Phase 9.
-        with self._lock:
-            cursor = self._conn.execute(
+        with self._maintenance_window() as conn:
+            cursor = conn.execute(
                 "DELETE FROM findings AS f WHERE NOT EXISTS ("
                 "  SELECT 1 FROM decisions d WHERE d.id=f.decision_id "
                 "  AND d.project_id=f.project_id"
                 ")"
             )
             removed["findings"] = max(cursor.rowcount, 0)
-            self._conn.commit()
         return removed
 
     def size_megabytes(self) -> float:
@@ -681,11 +1367,13 @@ class Database:
     def stats(self) -> dict[str, Any]:
         tables = (
             "projects", "sessions", "tasks", "events", "decisions",
-            "findings", "challenges", "verifications", "metrics", "memories",
+            "findings", "challenges", "verifications", "metrics", "memories", "signoffs",
         )
-        counts = {
-            table: int(self.query(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]) for table in tables
-        }
+        counts: dict[str, int] = {}
+        for table in tables:
+            rows = self.query(f"SELECT COUNT(*) AS n FROM {table}")
+            if rows:
+                counts[table] = int(rows[0]["n"])
         return {
             "path": str(self.path),
             "size_mb": round(self.size_megabytes(), 2),
@@ -695,6 +1383,10 @@ class Database:
             "database_over_limit": self.database_over_limit,
             "max_database_mb": self.disk.max_database_mb,
             "rows": counts,
+            # R1: why persistence is off, if it is. Empty when the database is usable.
+            "degraded_reason": self.degraded_reason,
+            "failures": self.failure_count,
+            "last_failure": self.last_failure,
         }
 
 
@@ -716,7 +1408,31 @@ class ProjectStore:
 
     @classmethod
     def for_workspace(cls, workspace: str | Path, settings: Settings | None = None) -> ProjectStore:
-        return cls(Database.shared(settings), project_identity(workspace))
+        """A handle for one project. Never raises (R1): see `Database` on degraded mode."""
+        try:
+            db = Database.shared(settings)
+        except Exception as exc:  # noqa: BLE001 - shared() is total; this is belt and braces
+            reason = f"storage failed to initialise ({type(exc).__name__})"
+            db = Database.unavailable(reason, settings=settings)
+        try:
+            identity = project_identity(workspace)
+        except Exception as exc:  # noqa: BLE001 - identity is attribution, not a precondition
+            log.warning(
+                "truthstone store: project identity unavailable (%s); using the path", type(exc).__name__
+            )
+            root = os.path.abspath(os.path.expanduser(str(workspace)))
+            identity = ProjectIdentity(
+                id=hashlib.sha256(root.encode()).hexdigest()[:16],
+                root=root,
+                name=os.path.basename(root),
+                git_remote="",
+            )
+        return cls(db, identity)
+
+    @property
+    def degraded_reason(self) -> str:
+        """Why persistence is off for this project ("" when it is on). R1."""
+        return self.db.degraded_reason
 
     @_safe()
     def _register(self) -> None:
@@ -739,9 +1455,10 @@ class ProjectStore:
     ) -> None:
         if not session_id:
             return
+        meta_text = json.dumps(_redact_tree(meta or {}))[:MAX_TEXT_BYTES]
         self.db.write(
             "INSERT OR IGNORE INTO sessions(id, project_id, agent, started_at, meta) VALUES(?,?,?,?,?)",
-            (session_id, self.project_id, agent, time.time(), json.dumps(meta or {})[:MAX_TEXT_BYTES]),
+            (session_id, self.project_id, agent, time.time(), meta_text),
         )
 
     @_safe()
@@ -756,17 +1473,16 @@ class ProjectStore:
         # let SessionEnd for such a payload close every anonymous task in the project.
         if not session_id or not self.db.writes_enabled:
             return
-        with self.db._lock:
-            self.db._conn.execute(
+        with self.db.transaction("close_session") as tx:
+            tx.execute(
                 "UPDATE sessions SET ended_at=? WHERE id=? AND project_id=?",
                 (ended_at, session_id, self.project_id),
             )
-            self.db._conn.execute(
+            tx.execute(
                 "UPDATE tasks SET status='closed', closed_at=? "
                 "WHERE project_id=? AND session_id=? AND status='open'",
                 (ended_at, self.project_id, session_id),
             )
-            self.db._conn.commit()
 
     # -- tasks --------------------------------------------------------------------
 
@@ -782,6 +1498,12 @@ class ProjectStore:
         if not session_id:
             return ""
         task_id = uuid.uuid4().hex
+        # The spec is derived from the prompt: intent extraction lifts tokens out of it
+        # (a bearer token becomes a "target") without the context that marks them as
+        # secret. Collect what redacting the prompt removed and scrub it from the spec.
+        found: set[str] = set()
+        stored_prompt = redact_secrets(str(prompt or "")[:_PROMPT_SCAN_LIMIT], found)[:MAX_TEXT_BYTES]
+        spec_text = json.dumps(_redact_tree(spec or {}, scrub=frozenset(found)), default=str)
         self.db.write(
             "INSERT INTO tasks(id, project_id, session_id, prompt, spec, complexity, depth, created_at) "
             "VALUES(?,?,?,?,?,?,?,?)",
@@ -789,8 +1511,8 @@ class ProjectStore:
                 task_id,
                 self.project_id,
                 session_id,
-                prompt[:MAX_TEXT_BYTES],
-                json.dumps(spec or {}, default=str)[:MAX_ARGUMENT_BYTES],
+                stored_prompt,
+                spec_text[:MAX_ARGUMENT_BYTES],
                 complexity,
                 depth,
                 time.time(),
@@ -816,72 +1538,110 @@ class ProjectStore:
 
     # -- events & decisions -------------------------------------------------------
 
+    _EVENT_SQL = (
+        "INSERT OR REPLACE INTO events"
+        "(id, project_id, session_id, task_id, type, agent, tool, arguments, ts) "
+        "VALUES(?,?,?,?,?,?,?,?,?)"
+    )
+    _DECISION_SQL = (
+        "INSERT OR REPLACE INTO decisions"
+        "(id, project_id, event_id, task_id, session_id, tool, action, would_have, reason, "
+        " level, latency_ms, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"
+    )
+    _FINDING_SQL = (
+        "INSERT INTO findings"
+        "(project_id, decision_id, task_id, category, verdict, failure_mode, severity, "
+        " subject, summary, detail, evidence, fingerprint, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    )
+
+    def _event_row(self, event: AgentEvent) -> tuple:
+        return (
+            event.event_id,
+            self.project_id,
+            event.session_id,
+            event.task_id,
+            str(event.event),
+            event.agent,
+            event.tool,
+            summarize_arguments(event.arguments),
+            event.ts,
+        )
+
+    def _decision_row(self, event: AgentEvent, decision: Decision, decision_id: str, now: float) -> tuple:
+        return (
+            decision_id,
+            self.project_id,
+            event.event_id,
+            event.task_id,
+            event.session_id,
+            event.tool,
+            str(decision.action),
+            str(decision.would_have or ""),
+            _redact_bounded(decision.reason, MAX_TEXT_BYTES),
+            int(decision.level),
+            decision.latency_ms,
+            now,
+        )
+
+    def _finding_rows(
+        self, event: AgentEvent, decision: Decision, decision_id: str, now: float
+    ) -> list[tuple]:
+        return [
+            (
+                self.project_id,
+                decision_id,
+                event.task_id,
+                str(f.category),
+                str(f.verdict),
+                str(f.failure_mode),
+                str(f.severity),
+                _redact_bounded(f.subject, 200),
+                _redact_bounded(f.summary, 500),
+                _redact_bounded(f.detail, MAX_TEXT_BYTES),
+                json.dumps(_redact_tree([e.model_dump() for e in f.evidence]), default=str)[
+                    :MAX_ARGUMENT_BYTES
+                ],
+                f.fingerprint(),
+                now,
+            )
+            for f in decision.findings
+        ]
+
     @_safe()
     def record_event(self, event: AgentEvent) -> None:
-        self.db.write(
-            "INSERT OR REPLACE INTO events"
-            "(id, project_id, session_id, task_id, type, agent, tool, arguments, ts) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
-            (
-                event.event_id,
-                self.project_id,
-                event.session_id,
-                event.task_id,
-                str(event.event),
-                event.agent,
-                event.tool,
-                summarize_arguments(event.arguments),
-                event.ts,
-            ),
-        )
+        self.db.write(self._EVENT_SQL, self._event_row(event))
 
     @_safe(default="")
     def record_decision(self, event: AgentEvent, decision: Decision) -> str:
         decision_id = decision.decision_id or uuid.uuid4().hex
         now = time.time()
-        self.db.write(
-            "INSERT OR REPLACE INTO decisions"
-            "(id, project_id, event_id, task_id, session_id, tool, action, would_have, reason, "
-            " level, latency_ms, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                decision_id,
-                self.project_id,
-                event.event_id,
-                event.task_id,
-                event.session_id,
-                event.tool,
-                str(decision.action),
-                str(decision.would_have or ""),
-                decision.reason[:MAX_TEXT_BYTES],
-                int(decision.level),
-                decision.latency_ms,
-                now,
-            ),
-        )
-        for f in decision.findings:
-            self.db.write(
-                "INSERT INTO findings"
-                "(project_id, decision_id, task_id, category, verdict, failure_mode, severity, "
-                " subject, summary, detail, evidence, fingerprint, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    self.project_id,
-                    decision_id,
-                    event.task_id,
-                    str(f.category),
-                    str(f.verdict),
-                    str(f.failure_mode),
-                    str(f.severity),
-                    f.subject[:200],
-                    f.summary[:500],
-                    f.detail[:MAX_TEXT_BYTES],
-                    json.dumps(
-                        [e.model_dump() for e in f.evidence], default=str
-                    )[:MAX_ARGUMENT_BYTES],
-                    f.fingerprint(),
-                    now,
-                ),
-            )
+        self.db.write(self._DECISION_SQL, self._decision_row(event, decision, decision_id, now))
+        for row in self._finding_rows(event, decision, decision_id, now):
+            self.db.write(self._FINDING_SQL, row)
         return decision_id
+
+    @_safe(default="")
+    def record_event_and_decision(self, event: AgentEvent, decision: Decision) -> str:
+        """The event, its decision and the decision's findings: one transaction (R7).
+
+        Returns the decision id once all of it is committed, or ``""`` when nothing was
+        persisted (busy database, writes disabled, any failure) — never a partial record,
+        and never an exception. One commit per event instead of two or more also halves
+        the WAL traffic on the hot path.
+        """
+        decision_id = decision.decision_id or uuid.uuid4().hex
+        now = time.time()
+        # Build every row before taking the write lock: serialising arguments and
+        # evidence is the slow part, and the lock should be held for the inserts only.
+        rows = [
+            (self._EVENT_SQL, self._event_row(event)),
+            (self._DECISION_SQL, self._decision_row(event, decision, decision_id, now)),
+            *((self._FINDING_SQL, row) for row in self._finding_rows(event, decision, decision_id, now)),
+        ]
+        with self.db.transaction("record_event_and_decision") as tx:
+            for sql, params in rows:
+                tx.execute(sql, params)
+        return decision_id if tx.committed else ""
 
     @_safe(default=list)
     def recent_decisions(self, limit: int = 50) -> list[dict]:
@@ -921,17 +1681,97 @@ class ProjectStore:
 
         Rows with an empty `failure_mode` predate the census and are excluded — counting
         them as anything would be inventing data.
+
+        `tasks` counts tasks a prompt opened; `untasked` is the occurrences outside one.
+        A host without a prompt event opens no such task, and counting each of its
+        decisions as a task of its own (as this once did) made every observation look
+        like a separate piece of work (H7). The implicit task such a host now gets (H2)
+        keeps the engine's bookkeeping, but bounds no work anyone described, so its
+        occurrences count as untasked too.
         """
         rows = self.db.query(
-            "SELECT failure_mode, COUNT(*) AS occurrences, "
-            "       COUNT(DISTINCT COALESCE(task_id, decision_id)) AS tasks, "
-            "       COUNT(DISTINCT fingerprint) AS distinct_subjects, "
-            "       MAX(ts) AS last_seen "
-            "FROM findings WHERE project_id=? AND ts>? AND failure_mode NOT IN ('', ?) "
-            "GROUP BY failure_mode ORDER BY occurrences DESC",
+            "SELECT f.failure_mode, COUNT(*) AS occurrences, "
+            f"      {_PROMPT_TASKS} AS tasks, "
+            f"      {_UNTASKED} AS untasked, "
+            "       COUNT(DISTINCT f.fingerprint) AS distinct_subjects, "
+            "       MAX(f.ts) AS last_seen "
+            "FROM findings f "
+            "LEFT JOIN tasks t ON t.id = f.task_id AND t.project_id = f.project_id "
+            "WHERE f.project_id=? AND f.ts>? AND f.failure_mode NOT IN ('', ?) "
+            "GROUP BY f.failure_mode ORDER BY occurrences DESC",
             (self.project_id, since, "not_a_failure"),
         )
         return [dict(r) for r in rows]
+
+    @_safe(default=list)
+    def failure_mode_counts_by_host(self, since: float) -> list[dict]:
+        """`failure_mode_counts` per host (H7). ``agent`` is the session's host, else the
+        event's when the session row is gone, else "" (unattributed)."""
+        rows = self.db.query(
+            "SELECT COALESCE(s.agent, e.agent, '') AS agent, f.failure_mode, "
+            "       COUNT(*) AS occurrences, "
+            f"      {_PROMPT_TASKS} AS tasks, "
+            f"      {_UNTASKED} AS untasked, "
+            "       COUNT(DISTINCT f.fingerprint) AS distinct_subjects, "
+            "       MAX(f.ts) AS last_seen "
+            "FROM findings f "
+            "LEFT JOIN tasks t ON t.id = f.task_id AND t.project_id = f.project_id "
+            "LEFT JOIN decisions d ON d.id = f.decision_id AND d.project_id = f.project_id "
+            "LEFT JOIN sessions s ON s.id = d.session_id AND s.project_id = f.project_id "
+            "LEFT JOIN events e ON e.id = d.event_id AND e.project_id = f.project_id "
+            "WHERE f.project_id=? AND f.ts>? AND f.failure_mode NOT IN ('', ?) "
+            "GROUP BY 1, 2",
+            (self.project_id, since, "not_a_failure"),
+        )
+        return [dict(r) for r in rows]
+
+    @_safe(default=dict)
+    def activity_by_host(self, since: float) -> dict[str, dict[str, Any]]:
+        """Per host (``sessions.agent``, else ``events.agent``): sessions, tasks,
+        decisions, and how many events of each type it delivered (H7). What a host never
+        sent, no detector that needs it can have looked at."""
+        pid = self.project_id
+        hosts: dict[str, dict[str, Any]] = {}
+
+        def host(name: str | None) -> dict[str, Any]:
+            return hosts.setdefault(name or "", {"sessions": 0, "tasks": 0, "decisions": 0, "events": {}})
+
+        # A host without a session-start or prompt event never gets a sessions row; its
+        # events still name their session.
+        for row in self.db.query(
+            "SELECT agent, COUNT(DISTINCT sid) AS n FROM ("
+            "  SELECT agent, id AS sid FROM sessions WHERE project_id=? AND started_at>? "
+            "  UNION SELECT agent, session_id AS sid FROM events "
+            "        WHERE project_id=? AND ts>? AND session_id != ''"
+            ") GROUP BY agent",
+            (pid, since, pid, since),
+        ):
+            host(row["agent"])["sessions"] = int(row["n"])
+        # Tasks a prompt opened; H2's implicit tasks are bookkeeping, not work anyone
+        # described. A session with no sessions row is attributed by its events.
+        for row in self.db.query(
+            "SELECT COALESCE(s.agent, (SELECT e.agent FROM events e WHERE e.project_id = t.project_id "
+            "       AND e.session_id = t.session_id LIMIT 1), '') AS agent, COUNT(*) AS n FROM tasks t "
+            "LEFT JOIN sessions s ON s.id = t.session_id AND s.project_id = t.project_id "
+            "WHERE t.project_id=? AND t.created_at>? AND t.depth IS NOT 'implicit' GROUP BY 1",
+            (pid, since),
+        ):
+            host(row["agent"])["tasks"] = int(row["n"])
+        for row in self.db.query(
+            "SELECT COALESCE(s.agent, e.agent, '') AS agent, COUNT(*) AS n FROM decisions d "
+            "LEFT JOIN sessions s ON s.id = d.session_id AND s.project_id = d.project_id "
+            "LEFT JOIN events e ON e.id = d.event_id AND e.project_id = d.project_id "
+            "WHERE d.project_id=? AND d.ts>? GROUP BY 1",
+            (pid, since),
+        ):
+            host(row["agent"])["decisions"] = int(row["n"])
+        for row in self.db.query(
+            "SELECT agent, type, COUNT(*) AS n FROM events WHERE project_id=? AND ts>? "
+            "GROUP BY agent, type",
+            (pid, since),
+        ):
+            host(row["agent"])["events"][row["type"]] = int(row["n"])
+        return hosts
 
     @_safe(default=list)
     def failure_mode_examples(self, mode: str, since: float, limit: int = 3) -> list[dict]:
@@ -964,8 +1804,12 @@ class ProjectStore:
         return {
             "sessions": sessions,
             "observe_only_sessions": observed_sessions,
+            # Tasks a prompt opened, as everywhere in the census: an implicit task (H2)
+            # bounds no work anyone described (H7).
             "tasks": scalar(
-                "SELECT COUNT(*) FROM tasks WHERE project_id=? AND created_at>?", (pid, since)
+                "SELECT COUNT(*) FROM tasks WHERE project_id=? AND created_at>? "
+                "AND depth IS NOT 'implicit'",
+                (pid, since),
             ),
             "decisions": scalar(
                 "SELECT COUNT(*) FROM decisions WHERE project_id=? AND ts>?", (pid, since)
@@ -975,12 +1819,16 @@ class ProjectStore:
                 "AND would_have NOT IN ('', 'allow')",
                 (pid, since),
             ),
-            "first_seen": (
-                self.db.query(
-                    "SELECT COALESCE(MIN(started_at), 0) FROM sessions "
-                    "WHERE project_id=? AND started_at>?",
-                    (pid, since),
-                )[0][0]
+            "first_seen": next(
+                (
+                    row[0]
+                    for row in self.db.query(
+                        "SELECT COALESCE(MIN(started_at), 0) FROM sessions "
+                        "WHERE project_id=? AND started_at>?",
+                        (pid, since),
+                    )
+                ),
+                0,  # a degraded database returns no rows (R1)
             ),
         }
 
@@ -1009,7 +1857,7 @@ class ProjectStore:
             "VALUES(?,?,?,?,1,?,?) "
             "ON CONFLICT(project_id, task_id, fingerprint) "
             "DO UPDATE SET times=times+1, last_ts=excluded.last_ts",
-            (self.project_id, task_id, fingerprint, subject[:200], now, now),
+            (self.project_id, task_id, fingerprint, _redact_bounded(subject, 200), now, now),
         )
 
     @_safe()
@@ -1018,6 +1866,133 @@ class ProjectStore:
             "UPDATE challenges SET resolved=1 WHERE project_id=? AND task_id=? AND fingerprint=?",
             (self.project_id, task_id, fingerprint),
         )
+
+    # -- developer sign-off (IMPROVEMENTS.md A1b) ---------------------------------
+    #
+    # The one place storage decides an outcome: a grant that cannot be read was never
+    # given. Each method returns a status rather than a bare value, so a caller can tell
+    # "nothing outstanding" from "storage unavailable" — and both mean no grant.
+
+    @_safe(default=lambda: ("unavailable", None))
+    def signoff_settle(
+        self,
+        session_id: str,
+        code: str,
+        action: str,
+        summary: str,
+        ttl_s: float,
+        now: float | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """At a sign-off decision: use the developer's grant for this exact action, or ask.
+
+        One transaction, so a grant is consumed by exactly one run:
+
+        * ``("granted", {"code", "granted_via", "granted_at"})`` — a grant for this code
+          and action, unconsumed and no older than ``ttl_s``, was consumed just now;
+        * ``("requested", None)`` — none: the request is recorded (an expired, consumed or
+          mismatched grant is cleared), so the developer can grant it;
+        * ``("unavailable", None)`` — nothing could be read or written. No grant.
+        """
+        now = time.time() if now is None else now
+        if not self.db.writes_enabled:
+            return ("unavailable", None)
+        key = (self.project_id, session_id, code)
+        result: tuple[str, dict[str, Any] | None] = ("unavailable", None)
+        with self.db.transaction("signoff_settle") as tx:
+            cursor = tx.execute(
+                "SELECT action, granted_at, granted_via, consumed_at FROM signoffs "
+                "WHERE project_id=? AND session_id=? AND code=?",
+                key,
+            )
+            row = cursor.fetchone() if cursor is not None else None
+            live = (
+                row is not None
+                and row["action"] == action
+                and row["granted_at"] is not None
+                and row["consumed_at"] is None
+                and row["granted_at"] >= now - ttl_s
+            )
+            if live:
+                tx.execute(
+                    "UPDATE signoffs SET consumed_at=? "
+                    "WHERE project_id=? AND session_id=? AND code=? AND consumed_at IS NULL",
+                    (now, *key),
+                )
+                grant = {"code": code, "granted_via": row["granted_via"], "granted_at": row["granted_at"]}
+                result = ("granted", grant)
+            else:
+                tx.execute(
+                    "INSERT INTO signoffs(project_id, session_id, code, action, summary, requested_at) "
+                    "VALUES(?,?,?,?,?,?) "
+                    "ON CONFLICT(project_id, session_id, code) DO UPDATE SET "
+                    "action=excluded.action, summary=excluded.summary, "
+                    "requested_at=excluded.requested_at, granted_at=NULL, granted_via='', "
+                    "consumed_at=NULL",
+                    (*key, action, _redact_bounded(summary, 500), now),
+                )
+                result = ("requested", None)
+        return result if tx.committed else ("unavailable", None)
+
+    @_safe(default=lambda: ("unavailable", None))
+    def signoff_grant(
+        self, code: str, via: str, session_id: str | None = None, now: float | None = None
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Record the developer's yes for an outstanding request with this code.
+
+        ``session_id`` confines it to one session (a reply in that session); ``None``
+        takes the newest outstanding request in this project (``truthstone approve``).
+        Outstanding means requested and not yet consumed: a code whose single run already
+        happened grants nothing until it is asked for again.
+
+        ``("granted", {"code", "session_id", "summary", "requested_at"})``, ``("unknown",
+        None)`` when nothing outstanding has this code, or ``("unavailable", None)``.
+        """
+        now = time.time() if now is None else now
+        if not self.db.writes_enabled:
+            return ("unavailable", None)
+        result: tuple[str, dict[str, Any] | None] = ("unknown", None)
+        with self.db.transaction("signoff_grant") as tx:
+            if session_id is None:
+                cursor = tx.execute(
+                    "SELECT session_id, summary, requested_at FROM signoffs "
+                    "WHERE project_id=? AND code=? AND consumed_at IS NULL "
+                    "ORDER BY requested_at DESC LIMIT 1",
+                    (self.project_id, code),
+                )
+            else:
+                cursor = tx.execute(
+                    "SELECT session_id, summary, requested_at FROM signoffs "
+                    "WHERE project_id=? AND session_id=? AND code=? AND consumed_at IS NULL",
+                    (self.project_id, session_id, code),
+                )
+            row = cursor.fetchone() if cursor is not None else None
+            if row is not None:
+                tx.execute(
+                    "UPDATE signoffs SET granted_at=?, granted_via=? "
+                    "WHERE project_id=? AND session_id=? AND code=?",
+                    (now, via, self.project_id, row["session_id"], code),
+                )
+                result = (
+                    "granted",
+                    {
+                        "code": code,
+                        "session_id": row["session_id"],
+                        "summary": row["summary"],
+                        "requested_at": row["requested_at"],
+                    },
+                )
+        return result if tx.committed else ("unavailable", None)
+
+    @_safe(default=list)
+    def signoff_requests(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Sign-off requests not yet used, newest first: ``{"code", "session_id",
+        "summary", "requested_at", "granted_at", "granted_via"}``."""
+        rows = self.db.query(
+            "SELECT code, session_id, summary, requested_at, granted_at, granted_via FROM signoffs "
+            "WHERE project_id=? AND consumed_at IS NULL ORDER BY requested_at DESC LIMIT ?",
+            (self.project_id, limit),
+        )
+        return [dict(row) for row in rows]
 
     # -- verification -------------------------------------------------------------
 
@@ -1054,13 +2029,167 @@ class ProjectStore:
             )
         ]
 
+    # -- rebuilding a task after a restart (R14) ----------------------------------
+    #
+    # TaskState lives in the engine's memory only, so a daemon restart mid-task (or an
+    # eviction from its window) forgot what the task had done, and Stop after failing tests
+    # returned allow. Everything needed to rebuild it is already recorded — the task row,
+    # its post-tool events and its verification runs. These return it, bounded and in
+    # order; the engine decides what to rebuild from it.
+
+    @_safe(default=None)
+    def task_record(self, task_id: str) -> dict[str, Any] | None:
+        """The task as it was opened, or ``None`` (unknown task, or no storage).
+
+        ``{"task_id", "session_id", "prompt", "spec", "spec_complete", "complexity",
+        "depth", "status", "created_at", "closed_at"}``. ``prompt`` and ``spec`` are as
+        stored: redacted (R17) and bounded. ``spec`` is the stored TaskSpec dict; when the
+        stored text was cut at its row limit it cannot be parsed, ``spec`` is ``{}`` and
+        ``spec_complete`` is False — re-derive the spec from ``prompt`` then.
+        """
+        if not task_id:
+            return None
+        rows = self.db.query(
+            "SELECT id, session_id, prompt, spec, complexity, depth, status, created_at, closed_at "
+            "FROM tasks WHERE id=? AND project_id=?",
+            (task_id, self.project_id),
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        spec, complete = _load_object(row["spec"])
+        return {
+            "task_id": row["id"],
+            "session_id": row["session_id"],
+            "prompt": row["prompt"],
+            "spec": spec,
+            "spec_complete": complete,
+            "complexity": row["complexity"],
+            "depth": row["depth"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "closed_at": row["closed_at"],
+        }
+
+    @_safe(default=lambda: _no_activity(""))
+    def task_activity(
+        self,
+        task_id: str,
+        path_keys: Iterable[str],
+        *,
+        change_tools: Iterable[str] | None = None,
+        removal_tools: Iterable[str] = (),
+        max_events: int = MAX_ACTIVITY_EVENTS,
+        max_verifications: int = MAX_ACTIVITY_VERIFICATIONS,
+    ) -> dict[str, Any]:
+        """What a task did, oldest first, from what was recorded.
+
+        * ``changes`` — one entry per path named by a post-tool event (success or
+          failure): ``{"at", "ts", "type", "tool", "path", "removed"}``. The store knows
+          no host's argument names (``tests/test_core_host_neutral.py``), so the caller
+          says which argument keys hold paths (``path_keys``), which tools count at all
+          (``change_tools``; ``None`` = every tool, as the engine touches today) and which
+          remove their path (``removal_tools``).
+        * ``touched`` / ``deleted`` — the distinct paths of those changes, first-seen
+          order: what ``TaskState.touched_files`` / ``deleted_files`` held.
+        * ``verifications`` — the task's recorded runs: ``{"at", "kind", "status",
+          "started_at", "finished_at", "detail", "detail_complete"}``, where ``detail`` is
+          what the engine stored (command, summary, failed, ...).
+        * ``timeline`` — changes and verifications merged in the order the daemon
+          handled them, as ``{"kind": "change" | "verification", "index": i}`` into the
+          lists above: the order the G2a sequence numbers need.
+        * ``truncated`` — older rows were left out by the bounds (the newest are kept);
+          ``skipped`` — path values that were cut at the row limit, so are no paths.
+
+        ``at`` is when the daemon handled the row (the event's decision; the run's
+        start), which orders concurrent hooks correctly where the events' own ``ts``
+        (when the host's payload was read) may not. Paths are as recorded: what the host
+        sent, relative ones rebased to the event's cwd; normalize them against the index.
+        Never raises: unknown task or no storage gives the same shape, empty.
+        """
+        keys = tuple(dict.fromkeys(key for key in path_keys if isinstance(key, str) and key))
+        allowed = None if change_tools is None else frozenset(change_tools)
+        removing = frozenset(removal_tools)
+        out = _no_activity(task_id)
+        if not task_id:
+            return out
+        event_limit = max(0, int(max_events))
+        events = self.db.query(
+            "SELECT id, type, tool, arguments, ts FROM events "
+            "WHERE project_id=? AND task_id=? AND type IN (?, ?) "
+            "ORDER BY ts DESC, rowid DESC LIMIT ?",
+            (self.project_id, task_id, *_POST_TOOL_TYPES, event_limit + 1),
+        )
+        if len(events) > event_limit:
+            out["truncated"] = True
+            events = events[:event_limit]
+        events.reverse()
+        handled: dict[str, float] = {}
+        if events:
+            for row in self.db.query(
+                "SELECT event_id, ts FROM decisions WHERE project_id=? AND task_id=? AND ts>=?",
+                (self.project_id, task_id, events[0]["ts"]),
+            ):
+                handled[row["event_id"]] = row["ts"]
+        touched: dict[str, None] = {}
+        deleted: dict[str, None] = {}
+        for row in events:
+            if allowed is not None and row["tool"] not in allowed:
+                continue
+            paths, skipped = _paths_named(row["arguments"], keys)
+            out["skipped"] += skipped
+            removed = row["tool"] in removing
+            for path in paths:
+                out["changes"].append(
+                    {
+                        "at": handled.get(row["id"], row["ts"]),
+                        "ts": row["ts"],
+                        "type": row["type"],
+                        "tool": row["tool"],
+                        "path": path,
+                        "removed": removed,
+                    }
+                )
+                (deleted if removed else touched).setdefault(path, None)
+        out["touched"], out["deleted"] = list(touched), list(deleted)
+
+        run_limit = max(0, int(max_verifications))
+        runs = self.db.query(
+            "SELECT kind, status, detail, started_at, finished_at FROM verifications "
+            "WHERE project_id=? AND task_id=? ORDER BY started_at DESC, rowid DESC LIMIT ?",
+            (self.project_id, task_id, run_limit + 1),
+        )
+        if len(runs) > run_limit:
+            out["truncated"] = True
+            runs = runs[:run_limit]
+        for row in reversed(runs):
+            detail, complete = _load_object(row["detail"])
+            out["verifications"].append(
+                {
+                    "at": row["started_at"],
+                    "kind": row["kind"],
+                    "status": row["status"],
+                    "started_at": row["started_at"],
+                    "finished_at": row["finished_at"],
+                    "detail": detail,
+                    "detail_complete": complete,
+                }
+            )
+
+        entries = [("change", i, c["at"]) for i, c in enumerate(out["changes"])]
+        entries += [("verification", i, v["at"]) for i, v in enumerate(out["verifications"])]
+        # Stable: equal times keep changes before runs, each in its own recorded order.
+        entries.sort(key=lambda entry: entry[2])
+        out["timeline"] = [{"kind": kind, "index": index} for kind, index, _ in entries]
+        return out
+
     # -- metrics (SPEC §37) -------------------------------------------------------
 
     @_safe()
     def record_metric(self, name: str, value: float, labels: dict | None = None) -> None:
         self.db.write(
             "INSERT INTO metrics(project_id, name, value, labels, ts) VALUES(?,?,?,?,?)",
-            (self.project_id, name, float(value), json.dumps(labels or {})[:500], time.time()),
+            (self.project_id, name, float(value), json.dumps(_redact_tree(labels or {}))[:500], time.time()),
         )
 
     @_safe(default=list)
@@ -1113,9 +2242,9 @@ class ProjectStore:
                 memory_id,
                 self.project_id,
                 memory_type,
-                content[:MAX_TEXT_BYTES],
-                source[:500],
-                json.dumps(source_files or [])[:MAX_TEXT_BYTES],
+                _redact_bounded(content, MAX_TEXT_BYTES),
+                _redact_bounded(source, 500),
+                json.dumps(_redact_tree(source_files or []))[:MAX_TEXT_BYTES],
                 float(confidence),
                 validation_status,
                 session_id,

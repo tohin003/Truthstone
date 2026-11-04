@@ -6,7 +6,7 @@
 | Author | Architect session (Opus 5.5, max effort, no subagents, no model runs) |
 | Date | 2026-11-04 |
 | Base | `integration/overnight` at `74a658d` (package `truthstone`) |
-| Also read | claude-w's branch `worktree-claude-w-core` at `e8deb96` (package still `agentguard`): `docs/IMPROVEMENTS.md` §0–§8, `docs/ADAPTER-CONTRACT.md`, `docs/CODEX.md`, `docs/CLAUDE-PLUGIN.md`, `verify/claims.py`, `verify/completion_gate.py`, `verify/runners.py`, `verify/commands.py` · the Sol dev pilot at `golden` (`bench/codex/results/golden-dev-sol/`, all 20 cells: `rollout.jsonl`, `evidence.json`, `grade.json`, `final.diff`, `transcript.json`, `hooks/`) · the golden dev split `tests/fixtures/golden/dev/` · `docs/BENCH-golden.md` · Pebble's `requirements.py`, `open_doubt.py`, `edit_scope.py`, `source_audit.py` (read-only) · the Pebble proof analysis (`scratchpad/team/pebble-proof.md`) |
+| Also read | claude-w's branch `worktree-claude-w-core` at `e8deb96` (package still `agentguard`): `docs/IMPROVEMENTS.md` §0–§8, `docs/ADAPTER-CONTRACT.md`, `docs/CODEX.md`, `docs/CLAUDE-PLUGIN.md`, `verify/claims.py`, `verify/completion_gate.py`, `verify/runners.py`, `verify/commands.py` · the Sol dev pilot at `golden` (`bench/codex/results/golden-dev-sol/`, all 20 cells: `rollout.jsonl`, `evidence.json`, `grade.json`, `final.diff`, `transcript.json`, `hooks/`) · the golden dev split `tests/fixtures/golden/dev/` · `docs/BENCH-golden.md` · Pebble's `requirements.py`, `open_doubt.py`, `edit_scope.py`, `source_audit.py` (read-only) · the Pebble proof analysis (`scratchpad/team/pebble-proof.md`) <!-- rename-tool: keep --> |
 | Not opened | `tests/fixtures/golden/heldout/`, `tests/fixtures/golden/candidates/`. See §6.5 for exactly what of the held-out split this author has seen. |
 
 **Contents.** [0 Summary](#0-summary) · [1 Evidence](#1-evidence-what-careful-agents-get-wrong-and-what-truthstone-got-wrong) · [2 Thesis](#2-thesis-where-value-remains) · [3 Architecture](#3-architecture) · [4 Mechanisms](#4-mechanisms) · [5 Acceptance targets](#5-acceptance-targets-and-how-each-is-computed) · [6 Iteration and anti-overfitting](#6-iteration-method-and-anti-overfitting-rules) · [7 Work packages](#7-work-packages) · [8 Risks](#8-risks-and-trade-offs) · [9 What Truthstone must not do](#9-what-truthstone-must-not-do) · [A Per-cell table](#appendix-a-the-20-dev-cells-three-builds) · [B Prototypes](#appendix-b-prototype-checks-run-for-this-document)
@@ -224,8 +224,8 @@ The end-to-end hook transport was measured separately by claude-w:
 
 - **Pebble** (`pebble-proof.md` §2.3):
   - In the five code-centric families, unguarded Codex/Sol false-completed in 2/75 cells (≈ 3%) and Claude Code in 0/75.
-  - Pebble 1.9.26–1.9.28, with AgentGuard inside, passed *fewer* coding cells than the bare competitors (friction).
-  - In 510 published Pebble cells, AgentGuard's own gate never fired.
+  - Pebble 1.9.26–1.9.28, with AgentGuard inside, passed *fewer* coding cells than the bare competitors (friction). <!-- rename-tool: keep -->
+  - In 510 published Pebble cells, AgentGuard's own gate never fired. <!-- rename-tool: keep -->
 - **Literature** (collected in IMPROVEMENTS §4.1):
   - ImpossibleBench: GPT-5 cheats on 54–76% of impossible variants. In more than 79% of Claude's cheating cases, the cheat modifies tests.
   - The Opus 5.5 system card: about 80% of hacks on impossible tasks are "knowingly incomplete work".
@@ -1219,7 +1219,7 @@ IMPROVEMENTS M7 (contract-matrix tests).
 
 **Not started:** G12, G14 (gate half), A7, H6.
 
-**Prerequisite for every package.** claude-w's branch still uses the `agentguard` package and predates the
+**Prerequisite for every package.** claude-w's branch still uses the `agentguard` package and predates the <!-- rename-tool: keep -->
 `truthstone` rename on `integration/overnight`. WP0 reconciles the two before any v0.2 code lands.
 
 **Order:**
@@ -1237,7 +1237,7 @@ WP9 can run any time after WP0.
 | **Effort** | M |
 | **Depends on** | Nothing (this is claude-w's current plan) |
 
-**What.** Merge `integration/overnight` (the `agentguard` → `truthstone` rename, the golden harness) into claude-w's
+**What.** Merge `integration/overnight` (the `agentguard` → `truthstone` rename, the golden harness) into claude-w's <!-- rename-tool: keep -->
 branch. Then land the round-B items v0.2 depends on:
 
 - G5-bash (Bash-made changes reach the task);

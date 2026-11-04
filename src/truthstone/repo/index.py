@@ -23,7 +23,9 @@ Two rules govern this module:
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import threading
 import time
 from collections import defaultdict, deque
@@ -39,6 +41,7 @@ from truthstone.repo.models import (
     FileRecord,
     GitState,
     ImportRecord,
+    ModuleExports,
     SymbolRecord,
 )
 from truthstone.repo.paths import relative_path
@@ -52,6 +55,80 @@ _PY_SOURCE_ROOTS: tuple[str, ...] = ("", "src/", "lib/", "app/", "source/")
 _JS_EXTENSIONS: tuple[str, ...] = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 _JS_INDEX_FILES: tuple[str, ...] = tuple(f"/index{ext}" for ext in _JS_EXTENSIONS)
 
+# Test-file name endings stripped to find the source a test covers by naming convention.
+_TEST_NAME_SUFFIXES: tuple[str, ...] = (
+    "_test.py", ".test.ts", ".test.tsx", ".test.js", ".spec.ts", ".spec.js", "_test.go",
+)
+
+
+def _test_stem(test_path: str) -> str:
+    """`tests/test_user.py` -> "user", `src/api/users.test.ts` -> "users"."""
+    stem = test_path.rsplit("/", 1)[-1].removeprefix("test_")
+    for suffix in _TEST_NAME_SUFFIXES:
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem.rsplit(".", 1)[0]
+
+
+def _source_stem(path: str) -> str:
+    """The name a source file is matched by: its basename up to the last dot."""
+    return path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+
+def _home_directories() -> list[Path]:
+    """The user's home: ``$HOME`` and, when it differs, the account's own home."""
+    homes: list[Path] = []
+    with contextlib.suppress(RuntimeError, KeyError, OSError):
+        homes.append(Path.home())
+    try:
+        import pwd  # POSIX only
+
+        homes.append(Path(pwd.getpwuid(os.getuid()).pw_dir))
+    except (ImportError, KeyError, OSError, AttributeError):
+        pass
+    return homes
+
+
+def _refusal(root: Path) -> str:
+    """Why ``root`` must never be indexed, or "" when it may be (R12).
+
+    A session started in ``~`` (or ``/``) would otherwise index everything below it:
+    on a synthetic 205k-file home that blocked SessionStart for 5 s, took 24.6 s and
+    131 MB to build, and made every post-Bash sweep cost ~22 s.
+    """
+    if root.parent == root:
+        return "the workspace is the filesystem root"
+    for home in _home_directories():
+        try:
+            if root == home.resolve() or os.path.samefile(root, home):
+                return "the workspace is the home directory"
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return ""
+
+
+@dataclass(frozen=True, slots=True)
+class IndexDelta:
+    """What one sweep found changed on disk since the index last looked (G5).
+
+    Paths are repo-relative. ``swept`` is False when no sweep ran: the index is not
+    built (or not available), or ``min_interval`` had not elapsed. An empty delta with
+    ``swept=False`` therefore means "not looked", never "nothing changed".
+    """
+
+    added: frozenset[str] = frozenset()
+    modified: frozenset[str] = frozenset()
+    removed: frozenset[str] = frozenset()
+    swept: bool = False
+
+    @property
+    def changed(self) -> frozenset[str]:
+        """Every path the sweep saw change, deletions included."""
+        return self.added | self.modified | self.removed
+
+    def counts(self) -> dict[str, int]:
+        return {"added": len(self.added), "modified": len(self.modified), "removed": len(self.removed)}
+
 
 @dataclass(slots=True)
 class ParsedFile:
@@ -61,6 +138,8 @@ class ParsedFile:
     # are still real (positive evidence is always safe to trust), but only a clean parse
     # licenses concluding that something is *absent* from the file.
     parsed: bool = False
+    # Python only: `__all__`, PEP 562 `__getattr__` and namespace writes (E1).
+    exports: ModuleExports | None = None
 
 
 class RepoIndex:
@@ -81,6 +160,8 @@ class RepoIndex:
         self.module_map: dict[str, str] = {}
         self.dependents: dict[str, set[str]] = defaultdict(set)
         self.tests_by_source: dict[str, set[str]] = defaultdict(set)
+        # Basename stem -> non-test paths, rebuilt with the test map (R5).
+        self._sources_by_stem: dict[str, list[str]] = {}
 
         self.dependencies = DependencyInfo()
         self._git = GitCache(self.root)
@@ -91,6 +172,19 @@ class RepoIndex:
         self.last_refresh: float = 0.0
         self._build_thread: threading.Thread | None = None
         self._built = threading.Event()
+        # Non-empty when this root must not be indexed (R12): why, for `status`.
+        self._unavailable: str = ""
+
+    @property
+    def status(self) -> str:
+        """``"building"``, ``"ready"`` or ``"unavailable: <reason>"`` (R12).
+
+        Unavailable means the index will not answer at all: `is_built` stays False, so
+        every question resolves to "unknown", and no sweep re-walks the tree.
+        """
+        if self._unavailable:
+            return f"unavailable: {self._unavailable}"
+        return "ready" if self.is_built else "building"
 
     # -- building -----------------------------------------------------------------
     #
@@ -101,6 +195,8 @@ class RepoIndex:
 
     def build_async(self) -> RepoIndex:
         """Start building in the background. Returns immediately."""
+        if self._unavailable or self._refused():
+            return self  # never index $HOME or /, and do not retry a refused tree
         with self._lock:
             if self._build_thread is not None and self._build_thread.is_alive():
                 return self
@@ -113,22 +209,60 @@ class RepoIndex:
     def _build_quietly(self) -> None:
         try:
             self.build()
-        except Exception:
+        except Exception as exc:
             log.exception("truthstone: index build failed for %s", self.root)
+            self._become_unavailable(f"index build failed ({type(exc).__name__})")
         finally:
             self._built.set()
 
     def ready(self, timeout: float = 0.0) -> bool:
-        """Whether the index can answer questions. Optionally waits."""
+        """Whether the index can answer questions. Optionally waits.
+
+        An unavailable index answers False at once, so no caller waits for a build that
+        is never going to happen.
+        """
         if self.is_built:
             return True
+        if self._unavailable:
+            return False
         if timeout > 0:
             self._built.wait(timeout)
         return self.is_built
 
+    def _refused(self) -> bool:
+        """Refuse a root that must never be indexed. True when refused."""
+        reason = _refusal(self.root)
+        if reason:
+            self._become_unavailable(reason)
+        return bool(reason)
+
+    def _become_unavailable(self, reason: str) -> None:
+        """Stop answering: "unknown" for every question, no sweeps, and say why.
+
+        Fail open, but never silently: the reason is logged (before anyone can observe
+        the new state) and kept in `status`.
+        """
+        if not self._unavailable:
+            log.warning("truthstone: not indexing %s: %s", self.root, reason)
+        with self._lock:
+            self.is_built = False
+            self._unavailable = reason
+            self.files = {}
+            self.parsed = {}
+            self.dependencies = DependencyInfo()
+            self._rebuild_derived()
+        self._built.set()  # last: whoever waits in ready() wakes to a settled state
+
     def build(self) -> RepoIndex:
+        if self._refused():
+            return self
         with self._lock, Timer() as t:
-            self.files = scanner.scan(self.root, self.settings)
+            try:
+                files = scanner.scan(self.root, self.settings)
+            except scanner.TreeTooLarge as exc:
+                self._become_unavailable(str(exc))
+                return self
+            self.files = files
             self.parsed = {}
             for path, record in self.files.items():
                 self.parsed[path] = self._parse(path, record)
@@ -136,6 +270,7 @@ class RepoIndex:
             self._rebuild_derived()
             self.built_at = time.time()
             self.last_refresh = time.monotonic()
+            self._unavailable = ""  # an explicit rebuild of a tree that shrank
             self.is_built = True
             self._built.set()
 
@@ -151,6 +286,8 @@ class RepoIndex:
         because it re-stats every file; this costs ~1ms, and PostToolUse already tells
         us precisely which file changed.
         """
+        if self._unavailable:
+            return False
         rel = relative_path(self.root, path)
         if rel is None:
             return False
@@ -191,25 +328,48 @@ class RepoIndex:
     def refresh(self, min_interval: float = 0.0) -> dict[str, int]:
         """Re-parse only what changed. Returns counts for logging/tests.
 
-        `min_interval` guards against re-statting a large tree on every event.
+        `min_interval` guards against re-statting a large tree on every event. An index
+        that is not built yet is built here; `refresh_delta` reports the changed paths.
+        An unavailable index (R12) is never swept.
         """
+        if self._unavailable:
+            return IndexDelta().counts()
         if not self.is_built:
             self.build()
             return {"added": len(self.files), "modified": 0, "removed": 0}
+        return self.refresh_delta(min_interval).counts()
 
+    def refresh_delta(self, min_interval: float = 0.0) -> IndexDelta:
+        """Sweep the tree, re-parse what changed, and say exactly which paths changed.
+
+        The same sweep as `refresh()`, returning the path sets rather than counts, so a
+        change made outside Edit/Write (`sed -i`, a codemod, a generator, `rm`, `git mv`)
+        can be attributed (G5). Unlike `refresh()` it never builds: without a baseline
+        there is no delta, so an unbuilt index answers ``swept=False``, as does a call
+        inside `min_interval` of the previous sweep.
+        """
+        if not self.is_built:
+            return IndexDelta()
         if min_interval and (time.monotonic() - self.last_refresh) < min_interval:
-            return {"added": 0, "modified": 0, "removed": 0}
+            return IndexDelta()
 
         with self._lock:
             self.last_refresh = time.monotonic()
-            current = scanner.scan(self.root, self.settings)
-            added = current.keys() - self.files.keys()
-            removed = self.files.keys() - current.keys()
+            try:
+                current = scanner.scan(self.root, self.settings)
+            except scanner.TreeTooLarge as exc:
+                # The tree grew past the cap since it was built: stop answering rather
+                # than answer from a picture we can no longer keep complete (R12).
+                self._become_unavailable(str(exc))
+                return IndexDelta()
+            previous = self.files
+            added = current.keys() - previous.keys()
+            removed = previous.keys() - current.keys()
             modified = {
                 path
-                for path in current.keys() & self.files.keys()
-                if current[path].mtime_ns != self.files[path].mtime_ns
-                or current[path].size != self.files[path].size
+                for path in current.keys() & previous.keys()
+                if current[path].mtime_ns != previous[path].mtime_ns
+                or current[path].size != previous[path].size
             }
 
             for path in removed:
@@ -218,11 +378,16 @@ class RepoIndex:
                 self.parsed[path] = self._parse(path, current[path])
 
             self.files = current
-            if added | removed | modified:
+            if added or removed or modified:
                 self.dependencies = manifests.read_dependencies(self.root, self.files)
                 self._rebuild_derived()
 
-        return {"added": len(added), "modified": len(modified), "removed": len(removed)}
+        return IndexDelta(
+            added=frozenset(added),
+            modified=frozenset(modified),
+            removed=frozenset(removed),
+            swept=True,
+        )
 
     def _parse(self, path: str, record: FileRecord) -> ParsedFile:
         if not record.parsable:
@@ -244,8 +409,8 @@ class RepoIndex:
 
         try:
             if record.lang == "python":
-                syms, imps, clean = symbols_python.extract(source, path)
-                return ParsedFile(symbols=syms, imports=imps, parsed=clean)
+                syms, imps, clean, exports = symbols_python.extract_module(source, path)
+                return ParsedFile(symbols=syms, imports=imps, parsed=clean, exports=exports)
             if symbols_ts.available(record.lang):
                 syms, imps, clean = symbols_ts.extract(source, path, record.lang)
                 return ParsedFile(symbols=syms, imports=imps, parsed=clean)
@@ -364,36 +529,39 @@ class RepoIndex:
         return None
 
     def _build_test_map(self) -> None:
+        """Map every source file to the tests that cover it, in one linear pass.
+
+        The naming convention is answered from a stem -> non-test paths dictionary built
+        once per rebuild. It used to rescan every file for every test file, which made
+        each edit cost O(tests x files): 126 ms on a real 1,410-file repository and
+        2.5 s on a 42k-file monorepo, inside the event lock (R5).
+        """
+        sources_by_stem: dict[str, list[str]] = defaultdict(list)
+        tests: list[str] = []
         for path, record in self.files.items():
-            if not record.is_test:
-                continue
+            if record.is_test:
+                tests.append(path)
+            else:
+                sources_by_stem[_source_stem(path)].append(path)
+        self._sources_by_stem = sources_by_stem
+
+        for path in tests:
             # A test covers whatever it imports from inside the repo.
-            for imported in self.parsed.get(path, ParsedFile()).imports:
-                if imported.resolved and not self.files[imported.resolved].is_test:
-                    self.tests_by_source[imported.resolved].add(path)
+            parsed = self.parsed.get(path)
+            if parsed is not None:
+                for imported in parsed.imports:
+                    if imported.resolved and not self.files[imported.resolved].is_test:
+                        self.tests_by_source[imported.resolved].add(path)
             # Plus the naming convention, which holds even when imports are indirect.
             for source in self._conventional_targets(path):
                 self.tests_by_source[source].add(path)
 
     def _conventional_targets(self, test_path: str) -> list[str]:
-        name = test_path.rsplit("/", 1)[-1]
-        stem = name
-        for prefix in ("test_",):
-            stem = stem.removeprefix(prefix)
-        for suffix in ("_test.py", ".test.ts", ".test.tsx", ".test.js", ".spec.ts", ".spec.js", "_test.go"):
-            if stem.endswith(suffix):
-                stem = stem[: -len(suffix)]
-                break
-        else:
-            stem = stem.rsplit(".", 1)[0]
-
+        """Non-test files whose name matches ``test_path`` by convention."""
+        stem = _test_stem(test_path)
         if not stem:
             return []
-        return [
-            path
-            for path, record in self.files.items()
-            if not record.is_test and path.rsplit("/", 1)[-1].rsplit(".", 1)[0] == stem
-        ]
+        return list(self._sources_by_stem.get(stem, ()))
 
     # -- queries ------------------------------------------------------------------
 
@@ -444,6 +612,24 @@ class RepoIndex:
 
     def resolve_module(self, module: str) -> str | None:
         return self.module_map.get(module)
+
+    def resolve_relative_module(self, importer: str, module: str, level: int) -> str | None:
+        """The file `from <level dots><module> import ...` names, written in `importer`.
+
+        Relative to the importer's package, as Python resolves it; `importer` need not be
+        indexed yet (it may be the file being created). Absolute when `level` is 0.
+        """
+        if level <= 0:
+            return self.resolve_module(module)
+        return self._resolve_python_import(ImportRecord(raw=module, level=level), importer)
+
+    def module_exports(self, path: str) -> ModuleExports | None:
+        """What `from <module> import ...` can reach beyond its own bindings (E1).
+
+        None when unknown: not a Python file, not parsed cleanly, or not indexed.
+        """
+        parsed = self.parsed.get(self.normalize(path))
+        return parsed.exports if parsed is not None and parsed.parsed else None
 
     def search_names(self, fragment: str, limit: int = 10) -> list[SymbolRecord]:
         """Symbols whose name contains `fragment`, case-insensitively.
@@ -526,6 +712,7 @@ class RepoIndex:
             by_lang[record.lang] += 1
         return {
             "root": str(self.root),
+            "status": self.status,
             "files": len(self.files),
             "parsed_files": sum(1 for p in self.parsed.values() if p.parsed),
             "symbols": len(self.symbols_by_qualname),

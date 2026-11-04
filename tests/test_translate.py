@@ -265,19 +265,33 @@ def _gate_finding(mode=None, severity=None):
 
 class TestGateGaveUp:
     def test_a_muted_gate_tells_the_developer(self):
+        """G10: the core flags the give-up explicitly (`Decision.unverified_finish`)."""
         event = claude.to_event(stop_event(stop_hook_active=True))
-        decision = Decision(action=DecisionAction.ALLOW, findings=[_gate_finding()])
+        decision = Decision(
+            action=DecisionAction.ALLOW,
+            findings=[_gate_finding()],
+            unverified_finish="2 file(s) changed and no tests were run",
+        )
         out = claude.from_decision(event, decision, "Stop")
         assert set(out) == {"systemMessage"}
         assert "2 file(s) changed and no tests were run" in out["systemMessage"]
         assert "decision" not in out, "it informs; it does not hold the turn again"
+
+    def test_findings_alone_are_not_a_give_up(self):
+        """An honest hand-back or a subagent's census evaluation carries findings too;
+        only the core's flag means the gate gave up."""
+        event = claude.to_event(stop_event())
+        decision = Decision(action=DecisionAction.ALLOW, findings=[_gate_finding()])
+        assert claude.from_decision(event, decision, "Stop") == {}
 
     def test_observe_mode_stays_silent(self):
         """`observe.silence()` keeps findings for the census and sets `would_have`."""
         from truthstone.core.observe import silence
 
         event = claude.to_event(stop_event())
-        blocked = Decision(action=DecisionAction.BLOCK, reason="r", findings=[_gate_finding()])
+        blocked = Decision(
+            action=DecisionAction.BLOCK, reason="r", findings=[_gate_finding()], unverified_finish="x"
+        )
         assert claude.from_decision(event, silence(blocked), "Stop") == {}
 
     def test_informational_findings_are_not_a_give_up(self):

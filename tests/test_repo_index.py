@@ -14,7 +14,15 @@ from pathlib import Path
 
 import pytest
 
-from truthstone.repo import RepoIndex
+from truthstone.repo import RepoIndex, symbols_ts
+
+# TS/JS/Go/Rust symbols need the optional `treesitter` extra (pyproject.toml). Without it
+# these tests used to FAIL — reporting a missing optional dependency as a defect. They now
+# skip with the reason, and CI runs them in a job that installs the extra (R3).
+requires_treesitter = pytest.mark.skipif(
+    not symbols_ts.available("typescript"),
+    reason="optional `treesitter` extra not installed (uv sync --extra treesitter)",
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -143,6 +151,7 @@ class TestPythonSymbols:
         assert index.is_parsed("src/shop/broken.py") is False
         assert index.is_parsed("src/shop/empty.py") is True
 
+    @requires_treesitter
     def test_symbols_survive_a_partially_broken_file(self, jsrepo):
         """Positive evidence is always safe: a symbol that is there, is there."""
         target = jsrepo / "src" / "utils" / "pagination.ts"
@@ -154,6 +163,7 @@ class TestPythonSymbols:
 
 
 class TestTypeScriptSymbols:
+    @requires_treesitter
     def test_extracts_classes_methods_interfaces_and_functions(self, jsrepo):
         index = RepoIndex(jsrepo).build()
         assert index.find_symbol("UserRepository")[0].kind == "class"
@@ -186,6 +196,7 @@ class TestImportGraph:
             "src/shop/models.py", depth=3
         )
 
+    @requires_treesitter
     def test_resolves_relative_typescript_imports(self, jsrepo):
         index = RepoIndex(jsrepo).build()
         assert "src/repositories/userRepo.ts" in index.dependents_of("src/models.ts")

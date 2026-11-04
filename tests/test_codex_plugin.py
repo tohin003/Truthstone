@@ -168,6 +168,7 @@ class TestPackage:
 # `hooks/list` (declaration/content), so the reimplementation itself is pinned to Codex.
 # Re-pinned 2026-11-04 for README.md, LICENSE, SECURITY.md, the git-work-tree gate and the
 # publisher details (declarations unchanged); confirm via Codex hooks/list before release.
+# rename-tool: re-pinned for Truthstone by scripts/rename_product.py; confirm via Codex hooks/list.
 EXPECTED_DECLARATIONS = {
     "session_start:0:0": "sha256:16dff026e1a8d1e64802603624e8b79a31721cd548267e454c61785e61eb44f1",
     "user_prompt_submit:0:0": "sha256:84136a898ae55a7db4af13318f1a7d1cb886b9887902badeb965c2cee8c56aea",

@@ -74,9 +74,10 @@ class TestEvents:
         assert post.result == {"stdout": "hello-codex\n", "exit_code": None, "interrupted": False}
 
     def test_a_read_is_not_judged_as_a_write(self):
-        """Codex reads through Bash. A certain read skips the write-path checks..."""
-        assert codex.to_events(load("PreToolUse.Bash")) == []  # `echo hello-codex`
-        # ...but its PostToolUse is still recorded.
+        """Codex reads through Bash. The core's one classifier says it is a read (A4)..."""
+        (event,) = codex.to_events(load("PreToolUse.Bash"))  # `echo hello-codex`
+        assert codex.is_read_only_command(event.arg("command"))
+        # ...and its PostToolUse is still recorded.
         assert [e.tool for e in codex.to_events(load("PostToolUse.Bash"))] == ["Bash"]
 
     def test_rewritten_command_is_what_post_tool_use_reports(self):
@@ -113,7 +114,6 @@ class TestEvents:
             "cat a.py | head -20",
             "rg foo src && git status",
             "git -C sub log --oneline",
-            "sed -n '1,20p' f.py",
             'find . -name "*.py"',
             "ls ; pwd",
             "grep 'a|b' f",
@@ -125,7 +125,6 @@ class TestEvents:
     @pytest.mark.parametrize(
         "command",
         [
-            "wc -l < f",  # unsure means validated, never skipped
             "cat a > b",
             "ls; rm x",
             "ls && rm -rf build",
@@ -140,9 +139,6 @@ class TestEvents:
             "cat a & rm b",
             "echo ok || rm x",
             "python -c 1",
-            "X=1 ls",
-            "pytest -q",
-            "./ls",
             "ls\nrm x",
             "",
         ],
@@ -318,7 +314,9 @@ class TestOutputs:
         spec = out["hookSpecificOutput"]
         assert spec["permissionDecision"] == "deny"
         assert spec["permissionDecisionReason"].startswith(render.SIGN_OFF)
-        assert "ask the user to confirm, then re-run" in spec["permissionDecisionReason"].lower()
+        # No code on this decision, so nothing can grant it: no re-run is promised (A1b).
+        assert "ask the user to carry this out themselves" in spec["permissionDecisionReason"].lower()
+        assert "re-run will be held again" in spec["permissionDecisionReason"].lower()
         assert "force push" in out["systemMessage"]
 
     def test_any_other_review_is_context_not_a_block(self):
@@ -517,16 +515,20 @@ class TestThroughTheGuard:
         assert handle(guard, payload(repo, "PostToolUse", tool_response="api\nmodels.py\n", **bash)) == {}
         assert handle(guard, payload(repo, "SessionStart", source="startup")) == {}
 
-    def test_force_push_needs_sign_off_and_is_not_asked_twice(self, guard, repo):
+    def test_force_push_needs_sign_off_every_time(self, guard, repo):
         handle(guard, payload(repo, "UserPromptSubmit", prompt="Publish the branch"))
         bash = {"tool_name": "Bash", "tool_input": {"command": "git push --force origin main"}}
         first = handle(guard, payload(repo, "PreToolUse", **bash))
         assert first["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert first["hookSpecificOutput"]["permissionDecisionReason"].startswith(render.SIGN_OFF)
         assert "systemMessage" in first
-        # Today's core raises a concern once per task (IMPROVEMENTS.md A1 will change that):
-        # a re-run after the developer confirms goes through.
-        assert handle(guard, payload(repo, "PreToolUse", **bash)) == {}
+        # IMPROVEMENTS.md A1: an irreversible command is never rationed. Truthstone cannot
+        # see whether the developer confirmed or refused the first sign-off request, and on
+        # Codex a deny is the only way to ask — so a plain re-run is denied again rather
+        # than silently going through.
+        second = handle(guard, payload(repo, "PreToolUse", **bash))
+        assert second["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert second["hookSpecificOutput"]["permissionDecisionReason"].startswith(render.SIGN_OFF)
 
     def test_an_unguarded_variable_delete_is_challenged_with_the_guarded_form(self, guard, repo):
         handle(guard, payload(repo, "UserPromptSubmit", prompt="Clean the build output"))

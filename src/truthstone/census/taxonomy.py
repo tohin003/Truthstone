@@ -135,23 +135,49 @@ TAXONOMY: tuple[ModeSpec, ...] = (
     ModeSpec(
         FailureMode.FALSE_COMPLETION,
         "incorrectly claim that a task is complete",
-        "completion gate — finishing with failing tests or unparsable files",
-        "the agent tried to end the turn while evidence it produced itself said the work "
-        "was broken",
+        "completion gate at Stop (HIGH, blocks) — `failing-tests-on-completion`: the latest "
+        "conclusive run of a test suite the agent itself ran in this task failed (exit status "
+        "first, then the runner's own summary line); `unparsable-on-completion`: a file the task "
+        "changed no longer parses, though it parsed before the task first changed it and no "
+        "passing run came after its last edit",
+        "the agent tried to end the turn while evidence it produced itself said the work was "
+        "broken: its own latest test run failed, or a file it changed stopped parsing. It does "
+        "NOT prove the agent claimed success in words, nor that this task caused the failure (a "
+        "failure already in the suite counts), nor anything about runs the gate cannot "
+        "recognise. A turn that hands back honestly instead — a question, or a disclosure that "
+        "the work is failing or unverified — is counted under 'fail to verify', and a requested "
+        "TDD red phase (`tdd-red-phase`) is recorded as not a failure and never counted",
     ),
     ModeSpec(
         FailureMode.INSUFFICIENT_TESTS,
         "write insufficient tests",
-        "completion gate — changed code with no coverage and no test written",
-        "untested code was changed in a project that does test its code. It says nothing "
-        "about the quality of tests that were written",
+        "completion gate at Stop — `untested-change` (INFO, never raised): changed code that no "
+        "test reaches, directly or through a dependent, in a project with a test runner and test "
+        "files, while the task touched no test file; `requested-tests-missing` (MEDIUM, blocks): "
+        "the request asked for tests and the task added or changed no test file",
+        "untested code was changed in a project that does test its code, or tests the developer "
+        "asked for were not written at all. It says nothing about the quality of tests that were "
+        "written, and the coverage it relies on is the index's test map (naming and imports), "
+        "not measured coverage",
     ),
     ModeSpec(
         FailureMode.UNVERIFIED_CHANGE,
         "fail to verify their own changes",
-        "completion gate — code changed, covering tests exist, none were run",
-        "tests that cover the change existed and were not executed before the agent "
-        "tried to finish",
+        "completion gate at Stop (MEDIUM, blocks) — `no-test-run`: source changed, existing "
+        "tests cover it, and no test run was seen; `stale-verification`: covered files changed "
+        "after the last passing run that checked them (a comment-only Python edit does not "
+        "count); `narrower-verification`: a run failed and only a narrower run passed after it; "
+        "`off-target-verification`: the passing runs named test paths that do not cover the "
+        "change; `tests-in-flight`: the host reports a test run still going. A file whose bytes "
+        "are back to how the task found it is no change. "
+        "`honest-hand-back` (LOW, recorded, never blocks): the final message asked a question or "
+        "disclosed unverified or failing work instead of claiming completion",
+        "tests that cover the change existed, and no passing run on the final code checked it "
+        "before the agent tried to finish: none ran, the pass predates a later edit, a failure "
+        "was followed only by a narrower green run, or the run had not finished. It does NOT "
+        "prove the change is wrong, and it cannot see runs it does not recognise (a custom test "
+        "script, a run in an earlier prompt). `honest-hand-back` proves only that the agent said "
+        "so itself",
     ),
     ModeSpec(
         FailureMode.CONTINUED_ON_BAD_ASSUMPTION,
@@ -161,7 +187,58 @@ TAXONOMY: tuple[ModeSpec, ...] = (
     ),
 )
 
-BY_MODE: dict[FailureMode, ModeSpec] = {entry.mode: entry for entry in TAXONOMY}
+# -- Beyond SPEC §3 -----------------------------------------------------------------
+#
+# Truthstone's own extension. **Not SPEC text**: SPEC §3 is pinned verbatim above, and
+# growing it is the SPEC owner's decision. These are failures modern agents are documented
+# to commit that §3 has no bullet for (docs/IMPROVEMENTS.md §4.1: system cards, ImpossibleBench,
+# incident reports). The census reports them in their own section, so a reader can never
+# mistake one for a SPEC §3 row. Each `spec_text` here is deliberately phrased so that it
+# cannot collide with a §3 bullet — `test_s03` asserts that.
+EXTENDED_TAXONOMY: tuple[ModeSpec, ...] = (
+    ModeSpec(
+        FailureMode.DESTRUCTIVE_ACTION,
+        "propose an irreversible action without sign-off (beyond §3)",
+        "action validator — effect classifiers on parsed commands: root/home deletes, force "
+        "pushes, hard resets, git clean, download-and-execute, recursive world-writable chmod, "
+        "block devices, and writes to the developer's own configuration outside the workspace "
+        "(REQUEST_REVIEW); git discards, find/xargs deletes, infrastructure, database and "
+        "publish commands, and other writes outside the workspace (recorded at INFO only)",
+        "the agent proposed a command Truthstone classifies as irreversible and escalated "
+        "for the developer's sign-off. It does NOT prove the command was wrong — a force "
+        "push may be exactly right — only that it needed a human's yes. INFO observations "
+        "(the newer families) prove only that such a command was proposed; their precision "
+        "is not yet measured, so they are counted, never raised",
+    ),
+    ModeSpec(
+        FailureMode.VERIFICATION_TAMPERING,
+        "weaken or bypass the checks that verify the work (beyond §3)",
+        "action validator — verification-bypass flags in a proposed command (`--no-verify`, "
+        "`git commit -n`, `HUSKY=0`, `SKIP=` before git, `-DskipTests`, "
+        "`-Dmaven.test.skip=true`, `--skip-tests`, `SKIP_TESTS=1`; CHALLENGE), and "
+        "self-protection: `truthstone off|uninstall|observe on|daemon stop`, or a write to "
+        "Truthstone's home or the host hook settings (REQUEST_REVIEW)",
+        "the agent proposed a command that switches off git hooks or a build's test phase, "
+        "or proposed to switch Truthstone itself off or edit its hooks. It does NOT prove the "
+        "work is wrong, nor that a skipped check would have failed, nor that the developer "
+        "refused — only that a check was going to be skipped. Weakened tests (skip markers "
+        "added, assertions removed) are not detected yet",
+    ),
+    ModeSpec(
+        FailureMode.SECRET_EXPOSURE,
+        "write a credential into tracked content (beyond §3)",
+        "action validator — strict credential formats (AWS key id, PEM private key, GitHub, "
+        "Slack, Stripe live, Anthropic, OpenAI project, Google API keys) in the lines an edit "
+        "newly writes, in a file git does not ignore",
+        "a string with a vendor's credential shape, not a known placeholder, was newly written "
+        "into a file git does not ignore. It does NOT prove the credential is real or live, nor "
+        "that it was committed or pushed",
+    ),
+)
+
+ALL_MODES: tuple[ModeSpec, ...] = TAXONOMY + EXTENDED_TAXONOMY
+
+BY_MODE: dict[FailureMode, ModeSpec] = {entry.mode: entry for entry in ALL_MODES}
 
 # Why the six uninstrumented modes have no detector. Printed with the census, because
 # "no detector" invites the reader to assume an oversight, and in most of these cases it
@@ -184,9 +261,10 @@ NOT_INSTRUMENTED_BECAUSE: dict[FailureMode, str] = {
         "judgement SPEC §17 says to hand back to the host, not to make here"
     ),
     FailureMode.OVERLOOKED_REGRESSION: (
-        "candidate signal exists — a test suite that passed earlier in the task and "
-        "fails later — but test output carries counts, not test names, so a differing "
-        "subset is indistinguishable from a regression. Not built rather than built wrong"
+        "no detector yet. The signal exists — pytest's default `-rfE` summary names every "
+        "failing test (`FAILED path::test`), so a test that passed earlier in the task and "
+        "fails later is distinguishable from a differing subset. The detector (and the "
+        "stale-importer check after a removed name) is planned, not built"
     ),
     FailureMode.CONTINUED_ON_BAD_ASSUMPTION: (
         "requires the agent to have been challenged and to have proceeded anyway. "
@@ -196,9 +274,79 @@ NOT_INSTRUMENTED_BECAUSE: dict[FailureMode, str] = {
 }
 
 
-def instrumented() -> tuple[ModeSpec, ...]:
-    return tuple(entry for entry in TAXONOMY if entry.instrumented)
+# -- What each completion-gate observation establishes (C1) ----------------------------
+#
+# The census counts modes; a finding's `subject` says which observation it was. Every
+# subject the completion gate can record is listed here with the mode it is filed under
+# and what one observation of it proves — and does not. `tests/test_gate_b_taxonomy.py`
+# fails when the gate gains a subject this table does not explain, or files one under a
+# different mode.
+GATE_SUBJECTS: dict[str, tuple[FailureMode, str]] = {
+    "failing-tests-on-completion": (
+        FailureMode.FALSE_COMPLETION,
+        "the latest conclusive run of a suite the agent ran in this task failed. Not that "
+        "the task caused it, and not that the agent claimed success in words",
+    ),
+    "unparsable-on-completion": (
+        FailureMode.FALSE_COMPLETION,
+        "a file the task changed does not parse now, parsed before the task first changed "
+        "it, and no passing run came after its last edit. Parsed by the daemon's own "
+        "interpreter or tree-sitter grammar",
+    ),
+    "tdd-red-phase": (
+        FailureMode.NOT_A_FAILURE,
+        "the only failures are in test files this task created, and the request asked for a "
+        "failing test or a reproduction. Recorded so the exemption is visible; never counted",
+    ),
+    "no-test-run": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "source changed, the index maps existing tests to it, and no recognised test run "
+        "happened in the task. A run the gate does not recognise is invisible to it",
+    ),
+    "stale-verification": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "a covered file changed after the last passing run that checked it. Not that the "
+        "change broke anything",
+    ),
+    "narrower-verification": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "a run failed and no later passing run covered it: the green run after it was "
+        "narrower or different, and did not re-run each test the failure named. Not that "
+        "the failure persists",
+    ),
+    "off-target-verification": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "a covered file changed, and every passing run after it named test paths none of "
+        "which covers it in the index's test map. A run filtered only by -k/-m/--lf, a glob, "
+        "a path the index does not know or a runner whose arguments are not paths is never "
+        "judged this way",
+    ),
+    "tests-in-flight": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "the host reported a test or typecheck run still going when the agent stopped",
+    ),
+    "honest-hand-back": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "the gate had an objection, and the final message asked a question or disclosed "
+        "unverified or failing work without claiming completion. The agent said so itself; "
+        "LOW, never blocks",
+    ),
+    "untested-change": (
+        FailureMode.INSUFFICIENT_TESTS,
+        "changed code that no test reaches in the index's test map, in a project with tests, "
+        "while the task touched no test file. INFO, never raised",
+    ),
+    "requested-tests-missing": (
+        FailureMode.INSUFFICIENT_TESTS,
+        "the request asked for tests and the task added or changed no test file. Nothing "
+        "about the quality of tests that were written",
+    ),
+}
 
 
-def uninstrumented() -> tuple[ModeSpec, ...]:
-    return tuple(entry for entry in TAXONOMY if not entry.instrumented)
+def instrumented(modes: tuple[ModeSpec, ...] = TAXONOMY) -> tuple[ModeSpec, ...]:
+    return tuple(entry for entry in modes if entry.instrumented)
+
+
+def uninstrumented(modes: tuple[ModeSpec, ...] = TAXONOMY) -> tuple[ModeSpec, ...]:
+    return tuple(entry for entry in modes if not entry.instrumented)

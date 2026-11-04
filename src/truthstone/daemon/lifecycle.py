@@ -15,6 +15,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 
+from truthstone.daemon import private_paths
+
 try:  # POSIX (Linux/macOS/BSD), where Truthstone normally runs.
     import fcntl
 except ImportError:  # pragma: no cover - exercised only on Windows.
@@ -28,22 +30,18 @@ except ImportError:  # pragma: no cover - exercised only on POSIX.
 
 DEFAULT_LOCK_TIMEOUT_S = 10.0
 POLL_S = 0.025
-_TRUSTED_SYSTEM_ALIASES = {
-    Path("/tmp"): Path("/private/tmp"),
-    Path("/var"): Path("/private/var"),
-}
+# daemon.log is the daemon's stdout and stderr. It is rotated past this size, both by the
+# process that spawns a daemon and by the daemon itself (`daemon/logs.py`), keeping this
+# many old files: at most about (DAEMON_LOG_BACKUPS + 1) * DAEMON_LOG_MAX_BYTES in all.
+DAEMON_LOG_MAX_BYTES = 4 * 1024 * 1024
+DAEMON_LOG_BACKUPS = 2
 
 
 def _trusted_system_alias(path: Path, mode: int) -> bool:
-    """Allow macOS's root-owned /tmp and /var aliases, but no user symlink."""
-    target = _TRUSTED_SYSTEM_ALIASES.get(path)
-    if target is None:
-        return False
-    try:
-        info = os.lstat(path)
-        return info.st_uid == 0 and mode & 0o022 == 0 and path.resolve(strict=False) == target
-    except OSError:
-        return False
+    """A link only the system could have placed, never a user's — the same rule as
+    ``core/config.py`` (``daemon/private_paths.py``). It used to accept macOS's /tmp and
+    /var aliases only, so a lock under Silverblue's `/home -> var/home` was refused."""
+    return private_paths.trusted_system_link(str(path), mode)
 
 
 def _assert_no_symlink_components(path: Path) -> None:
@@ -148,6 +146,35 @@ def open_private_append(path: str | Path) -> BinaryIO:
         with contextlib.suppress(OSError):
             os.close(fd)
         raise
+
+
+def rotate_log(
+    path: str | Path, max_bytes: int | None = None, backups: int | None = None
+) -> bool:
+    """Move an oversized log aside: ``log`` -> ``log.1`` -> ... -> ``log.<backups>``.
+
+    Returns whether it rotated. Only a regular file at least ``max_bytes`` long is moved,
+    and only by ``rename``, which never follows a symlink. The oldest backup is replaced,
+    so the log and its backups together stay below ``(backups + 1) * max_bytes`` plus
+    whatever is written after the last check. Never raises: a log that cannot be rotated
+    is still a log.
+    """
+    limit = DAEMON_LOG_MAX_BYTES if max_bytes is None else max_bytes
+    keep = DAEMON_LOG_BACKUPS if backups is None else max(1, backups)
+    target = Path(path)
+    try:
+        info = os.lstat(target)
+        if not stat.S_ISREG(info.st_mode) or info.st_size < limit:
+            return False
+        _assert_no_symlink_components(target.parent)
+        for index in range(keep - 1, 0, -1):
+            older = target.with_name(f"{target.name}.{index}")
+            if os.path.lexists(older):
+                os.replace(older, target.with_name(f"{target.name}.{index + 1}"))
+        os.replace(target, target.with_name(f"{target.name}.1"))
+        return True
+    except OSError:
+        return False
 
 
 def create_private_marker(path: str | Path, content: str = "") -> bool:

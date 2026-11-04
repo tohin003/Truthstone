@@ -27,6 +27,12 @@ class SyntaxProblem:
     message: str
 
 
+def parses(root: Path, path: str) -> bool:
+    """Whether a file parses as it is on disk now. A missing file counts as parsing: a
+    file about to be created has no syntax to break (G15's baseline)."""
+    return not check_files(root, {path})
+
+
 def check_files(root: Path, paths: set[str]) -> list[SyntaxProblem]:
     """Files that no longer parse. An unreadable or deleted file is not a problem here."""
     problems: list[SyntaxProblem] = []

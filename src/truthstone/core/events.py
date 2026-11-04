@@ -26,6 +26,18 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset(
 # Tools that write to the workspace. These get the full pipeline.
 MUTATING_TOOLS: frozenset[str] = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 
+# A file removal (`arguments["file_path"]`). Not one of Claude Code's tools — Claude
+# deletes through Bash — but the core's vocabulary for one: the Codex adapter maps a
+# patch's `*** Delete File` to it, and a move to a Write of the destination plus a
+# Delete of the source. A deletion is a change: it is validated, and the Completion Gate
+# still asks for the tests that covered the deleted file (G5).
+DELETE_TOOLS: frozenset[str] = frozenset({"Delete"})
+
+# Tools that run a shell command (`arguments["command"]`): where test runs come from.
+# PowerShell is Claude Code's primary shell on Windows, and its failing runs reach the
+# core through the same PostToolUseFailure contract as Bash's.
+SHELL_TOOLS: frozenset[str] = frozenset({"Bash", "PowerShell"})
+
 
 class AgentEvent(BaseModel):
     """One thing an agent did or is about to do."""
@@ -48,6 +60,21 @@ class AgentEvent(BaseModel):
     prompt_text: str | None = None
     last_assistant_message: str | None = None
 
+    # Stop: work the host is still running in the background, one dict per task with
+    # `id`, `type` ("shell", ...), `status` ("running", ...) and `command`. A test run
+    # still in flight is not a verified finish (G7). Adapters fill it where the host
+    # reports it (Claude Code: Stop's `background_tasks`).
+    pending_tasks: list[dict[str, Any]] = Field(default_factory=list)
+
+    # What the host knows that a payload does not say (H5). Recognised keys:
+    #   read_only: bool    — this tool cannot change the workspace (an embedding host's own
+    #                        searches, git reads, snapshot test runs); it skips validation
+    #                        and touches nothing. Only True adds read-only-ness.
+    #   tests_waived: bool — on a prompt: the host's own answer to "were tests waived?",
+    #                        which overrides the prompt lexicon either way.
+    # Upstreamed from Pebble's vendored seams (`raw["host_read_only"]`, `tests_waiver`).
+    host_hints: dict[str, Any] = Field(default_factory=dict)
+
     # Host-specific extras kept verbatim so adapters can round-trip without loss.
     raw: dict[str, Any] = Field(default_factory=dict)
 
@@ -61,11 +88,17 @@ class AgentEvent(BaseModel):
 
     @property
     def is_read_only(self) -> bool:
-        return self.tool in READ_ONLY_TOOLS
+        return self.tool in READ_ONLY_TOOLS or self.host_hints.get("read_only") is True
 
     @property
     def is_mutating(self) -> bool:
-        return self.tool in MUTATING_TOOLS
+        if self.host_hints.get("read_only") is True:
+            return False
+        return self.tool in MUTATING_TOOLS or self.tool in DELETE_TOOLS
+
+    @property
+    def is_delete(self) -> bool:
+        return self.tool in DELETE_TOOLS
 
     def arg(self, name: str, default: Any = None) -> Any:
         return self.arguments.get(name, default)

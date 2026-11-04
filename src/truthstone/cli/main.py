@@ -7,8 +7,11 @@ So the CLI is deliberately small. The commands that matter are `install`, `docto
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -19,8 +22,11 @@ import typer
 from truthstone import names
 from truthstone.core.config import (
     Settings,
+    daemon_config_error,
+    describe_unknown_key,
     ensure_private_dir,
     get_or_create_token,
+    token_path,
     truthstone_home,
     write_private_text,
 )
@@ -63,14 +69,30 @@ def daemon_run(
     """Run the daemon in the foreground."""
     from truthstone.daemon.app import run
 
+    settings = Settings.load()
+    _refuse_invalid_daemon_endpoint(settings, explicit_port=port is not None)
+    # `run()` sets up logging itself: a redacting, rotating handler plus `log_level`.
     run(host=host, port=port, log_level=log_level)
+
+
+def _refuse_invalid_daemon_endpoint(settings: Settings, explicit_port: bool = False) -> None:
+    """Never start (or install hooks for) a guessed endpoint: the hooks would miss it (R11)."""
+    problem = None if explicit_port else daemon_config_error(settings)
+    if problem:
+        _bad(problem)
+        raise typer.Exit(2)
 
 
 @daemon_app.command("start")
 def daemon_start(timeout: float = typer.Option(10.0, help="Seconds to wait for readiness.")) -> None:
     """Start the daemon in the background."""
     from truthstone.daemon.app import daemon_is_alive, read_handshake
-    from truthstone.daemon.lifecycle import interprocess_lock, open_private_append, startup_lock_path
+    from truthstone.daemon.lifecycle import (
+        interprocess_lock,
+        open_private_append,
+        rotate_log,
+        startup_lock_path,
+    )
 
     home = truthstone_home()
     with interprocess_lock(startup_lock_path(home), timeout=timeout) as locked:
@@ -83,9 +105,13 @@ def daemon_start(timeout: float = typer.Option(10.0, help="Seconds to wait for r
             _echo(f"already running (pid {hs.get('pid')}) on {hs.get('host')}:{hs.get('port')}")
             raise typer.Exit(0)
 
+        _refuse_invalid_daemon_endpoint(Settings.load())
+
         from truthstone.adapters.claude_code.shim import daemon_python_argv
 
         home.mkdir(parents=True, exist_ok=True)
+        # Bounded across restarts; the daemon also rotates it while it runs (R17).
+        rotate_log(home / "daemon.log")
         log_file = open_private_append(home / "daemon.log")
         try:
             # `-P` plus a cwd of TRUTHSTONE_HOME: this command is usually typed inside a
@@ -210,8 +236,13 @@ def install_cmd(
         _bad(str(exc))
         raise typer.Exit(2) from exc
 
+    # The hook URL is baked into Claude's settings from [daemon]. An invalid [daemon]
+    # would bake in the default port, which the daemon then refuses to serve (R11).
+    settings = Settings.load()
+    _refuse_invalid_daemon_endpoint(settings)
+
     try:
-        result, changed = inst.install(path, dry_run=dry_run)
+        result, changed = inst.install(path, settings=settings, dry_run=dry_run)
     except RuntimeError as exc:
         _bad(str(exc))
         raise typer.Exit(1) from exc
@@ -337,37 +368,167 @@ def uninstall_cmd(
 # ---------------------------------------------------------------- diagnostics
 
 
+# Languages whose symbols, imports and blast radius come from the optional tree-sitter
+# grammars (the `treesitter` extra). Python needs nothing: it uses the stdlib `ast`.
+_TREESITTER_EXTENSIONS = frozenset(
+    {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs", ".java", ".rb"}
+)
+
+
+class _DoctorReport:
+    """Counts problems; runs each section so that one failing never stops the rest."""
+
+    def __init__(self) -> None:
+        self.problems = 0
+        self._first = True
+
+    def bad(self, msg: str) -> None:
+        _bad(msg)
+        self.problems += 1
+
+    def section(self, title: str | None, check, default=None):
+        if title is not None:
+            _echo(title if self._first else f"\n{title}")
+            self._first = False
+        try:
+            return check()
+        except Exception as exc:  # noqa: BLE001 - doctor reports a broken check, never crashes
+            self.bad(f"{title or 'this check'} could not be completed: {type(exc).__name__}: {exc}")
+            return default
+
+
+@contextlib.contextmanager
+def _quiet_truthstone_logs():
+    """Doctor reports problems itself; the store's log lines would only repeat them."""
+    logger = logging.getLogger("truthstone")
+    previous = logger.level
+    logger.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        logger.setLevel(previous)
+
+
 @app.command("doctor")
 def doctor() -> None:
-    """Check that everything Truthstone needs is present and wired up."""
+    """Check that everything Truthstone needs is present and wired up.
+
+    Each section is independent: one that cannot complete (a corrupted database, an
+    unreadable settings file) is reported as a problem and the others still run.
+    """
+    report = _DoctorReport()
+    try:
+        settings = Settings.load()
+    except Exception as exc:  # noqa: BLE001 - e.g. no resolvable home directory
+        settings = Settings()
+        report.bad(f"could not load the configuration ({type(exc).__name__}: {exc}); checking defaults")
+
+    with _quiet_truthstone_logs():
+        report.section("environment", lambda: _doctor_environment(report, settings))
+        report.section("config", lambda: _doctor_config(report, settings))
+        report.section("storage", lambda: _doctor_storage(report))
+        report.section("daemon", lambda: _doctor_daemon(report, settings))
+        report.section("index", lambda: _doctor_index(settings))
+        installed_anywhere = report.section(
+            "claude code", lambda: _doctor_claude_hooks(report, settings), default=False
+        )
+        plugin_active = report.section(None, lambda: _doctor_plugin(bool(installed_anywhere)), default=False)
+        report.section(None, _doctor_unverified_hosts)
+        codex_attached, codex_problems = report.section(None, _doctor_codex, default=(False, 0))
+        report.problems += codex_problems
+        if not installed_anywhere and not plugin_active and not codex_attached:
+            report.bad("no Claude Code or Codex hooks installed — this project is currently unguarded")
+
+    _echo()
+    if report.problems:
+        _bad(f"{report.problems} problem(s) found")
+        raise typer.Exit(1)
+    _ok("ready")
+
+
+def _doctor_environment(report: _DoctorReport, settings: Settings) -> None:
     import shutil
-    import socket
 
-    from truthstone.adapters.claude_code import install as inst
-    from truthstone.daemon.app import daemon_is_alive, read_handshake
-
-    settings = Settings.load()
-    problems = 0
-
-    _echo("environment")
     _ok(f"python {sys.version.split()[0]}")
-    for tool, required in (("git", True), ("rg", False)):
-        if shutil.which(tool):
-            _ok(f"{tool} found")
-        elif required:
-            _bad(f"{tool} not found — git evidence will be unavailable")
-            problems += 1
-        else:
-            _warn(f"{tool} not found — falling back to a slower filesystem walk")
+    if shutil.which("git"):
+        _ok("git found")
+    else:
+        report.bad("git not found — git evidence will be unavailable")
+    # (No `rg` check: nothing in Truthstone runs ripgrep.)
+    if _treesitter_available():
+        _ok("tree-sitter grammars installed (JS/TS, Go, Rust, Java and Ruby symbols)")
+        return
+    counts = _files_needing_treesitter(Path.cwd(), set(settings.index.exclude_dirs))
+    if counts:
+        listed = ", ".join(f"{n} {ext}" for ext, n in sorted(counts.items(), key=lambda kv: -kv[1])[:4])
+        _warn(
+            f"the tree-sitter extra is not installed, and this project has {listed} files: they get "
+            "no symbols, imports or blast radius, so a hallucinated reference in them goes unchallenged. "
+            "Install Truthstone with its `treesitter` extra (truthstone[treesitter])."
+        )
+    else:
+        _echo("  · tree-sitter extra not installed (not needed here: no JS/TS/Go/Rust/Java/Ruby files)")
 
-    _echo("\nconfig")
+
+def _treesitter_available() -> bool:
+    """Whether the optional grammars are importable, without importing them."""
+    import importlib.util
+
+    try:
+        return all(
+            importlib.util.find_spec(name) is not None
+            for name in ("tree_sitter", "tree_sitter_language_pack")
+        )
+    except (ImportError, ValueError):
+        return False
+
+
+def _files_needing_treesitter(root: Path, excluded: set[str], budget: int = 20_000) -> dict[str, int]:
+    """Source files tree-sitter would parse under ``root``, by extension.
+
+    Bounded: stops after ``budget`` directory entries, so doctor stays fast even when
+    run from $HOME or a huge monorepo.
+    """
+    counts: dict[str, int] = {}
+    stack = [root]
+    seen = 0
+    while stack and seen < budget:
+        try:
+            entries = os.scandir(stack.pop())
+        except OSError:
+            continue
+        with entries:
+            for entry in entries:
+                seen += 1
+                if seen >= budget:
+                    break
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if entry.name not in excluded and not entry.name.startswith("."):
+                            stack.append(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        ext = os.path.splitext(entry.name)[1].lower()
+                        if ext in _TREESITTER_EXTENSIONS:
+                            counts[ext] = counts.get(ext, 0) + 1
+                except OSError:
+                    continue
+    return counts
+
+
+def _doctor_config(report: _DoctorReport, settings: Settings) -> None:
     _echo(f"  home: {truthstone_home()}")
     for note in names.migration_notes():  # data or settings still under a former product name
         _warn(note)
     _echo(f"  daemon: {settings.daemon.base_url}")
-    if settings.config_warning:
-        _warn(f"using safe defaults because {settings.config_warning}")
-        problems += 1
+    for warning in settings.config_warnings:
+        _warn(warning)
+    if settings.config_warnings:
+        report.problems += 1
+    for key in settings.unknown_keys:
+        _warn(describe_unknown_key(key))
+    endpoint_problem = daemon_config_error(settings)
+    if endpoint_problem:
+        report.bad(endpoint_problem)
     if not settings.enabled:
         _warn("Truthstone is DISABLED (TRUTHSTONE_DISABLE is set, or config says enabled=false)")
     elif settings.observe_only:
@@ -376,67 +537,260 @@ def doctor() -> None:
         # to prevent, arrived at from the other direction.
         _warn("OBSERVE-ONLY is on — findings are recorded but nothing is ever said")
 
-    _echo("\nstorage")
+
+def _doctor_storage(report: _DoctorReport) -> None:
     from truthstone.core.store import Database
 
     stats = Database.shared().stats()
-    if settings.config_warning:
-        _bad(settings.config_warning)
-        problems += 1
+    if not stats:
+        report.bad("could not read the database statistics")
+        return
     _echo(f"  {stats['path']}  ({stats['size_mb']} MB)")
+    if stats.get("degraded_reason"):
+        report.bad(f"persistence is OFF (guarding continues): {stats['degraded_reason']}")
     if stats["disk_state"] == "healthy":
         _ok(f"{stats['free_disk_mb']:.0f} MB free")
     elif stats["disk_state"] == "low":
         _warn(f"{stats['free_disk_mb']:.0f} MB free — pruning aggressively")
     else:
-        _bad(f"{stats['free_disk_mb']:.0f} MB free — persistence paused (guarding continues)")
-        problems += 1
+        report.bad(f"{stats['free_disk_mb']:.0f} MB free — persistence paused (guarding continues)")
 
-    _echo("\ndaemon")
-    if daemon_is_alive():
-        hs = read_handshake() or {}
-        _ok(f"running (pid {hs.get('pid')}) on http://{hs.get('host')}:{hs.get('port')}")
-    else:
+
+def _doctor_daemon(report: _DoctorReport, settings: Settings) -> None:
+    import socket
+
+    from truthstone.adapters.codex.hook import _health
+    from truthstone.daemon.app import daemon_is_alive, read_handshake
+
+    if not daemon_is_alive():
         _warn("not running — start it with `truthstone daemon start`")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.2)
             if s.connect_ex((settings.daemon.host, settings.daemon.port)) == 0:
-                _bad(
+                report.bad(
                     f"port {settings.daemon.port} is occupied by something else — "
                     "change [daemon].port in config.toml and re-run `truthstone install`"
                 )
-                problems += 1
+        return
 
-    _echo("\nclaude code")
+    hs = read_handshake() or {}
+    _ok(f"running (pid {hs.get('pid')}) on http://{hs.get('host')}:{hs.get('port')}")
+    if hs.get("port") != settings.daemon.port or hs.get("host") != settings.daemon.host:
+        report.bad(
+            f"it listens on {hs.get('host')}:{hs.get('port')} but config.toml says "
+            f"{settings.daemon.host}:{settings.daemon.port}, which is where installed hooks post — "
+            "restart it: truthstone daemon stop && truthstone daemon start"
+        )
+    token = _read_token()
+    running_token = hs.get("token")
+    if token is not None and isinstance(running_token, str) and not _same_secret(running_token, token):
+        report.bad(
+            f"it runs with a different token than {token_path()}, so it rejects hooks installed "
+            "since — restart it: truthstone daemon stop && truthstone daemon start"
+        )
+
+    health = _health(hs)
+    if health is None:
+        _warn("could not read the daemon's /health")
+        return
+    restart = "restart it to pick up the current settings: truthstone daemon stop && truthstone daemon start"
+    if health.get("enabled") is False:
+        if settings.enabled:
+            report.bad(f"the running daemon is DISABLED (started with TRUTHSTONE_DISABLE?) — {restart}")
+        else:
+            _warn("the running daemon is DISABLED")
+    if health.get("observing") is True:
+        if not settings.observe_only:
+            report.bad(
+                "the running daemon is OBSERVE-ONLY, so no session is guarded "
+                f"(started with TRUTHSTONE_OBSERVE?) — {restart}"
+            )
+        else:
+            _warn("the running daemon is OBSERVE-ONLY: findings are recorded, nothing is said")
+    for line in _degraded_lines(health):
+        _warn(line)
+
+
+def _degraded_lines(health: dict) -> list[str]:
+    """Every reason `/health` gives for guarding less than it seems (R9), with its detail.
+
+    ``degraded_detail`` (code, message and counts) when the daemon sends it; the plain
+    ``degraded`` messages of an older daemon otherwise.
+    """
+    detail = health.get("degraded_detail")
+    if isinstance(detail, list) and detail:
+        lines = []
+        for item in detail:
+            if not isinstance(item, dict) or not str(item.get("message") or "").strip():
+                continue
+            facts = [f"code={item.get('code')}"] if item.get("code") else []
+            for key, value in sorted(item.items()):
+                if key in ("code", "message"):
+                    continue
+                if key == "since" and isinstance(value, int | float):
+                    facts.append(f"since {max(0.0, time.time() - value):.0f}s ago")
+                else:
+                    facts.append(f"{key}={value}")
+            suffix = f" ({', '.join(facts)})" if facts else ""
+            lines.append(f"degraded: {str(item['message']).strip()}{suffix}")
+        return lines
+    degraded = health.get("degraded")
+    if not isinstance(degraded, list):
+        return []
+    return [f"degraded: {reason}" for reason in degraded if isinstance(reason, str) and reason.strip()]
+
+
+# How long `doctor` waits for the current workspace's index before reporting it as building.
+DOCTOR_INDEX_WAIT_S = 3.0
+
+
+def _doctor_index(settings: Settings, wait_s: float | None = None) -> None:
+    """The index status of the current workspace (R12), as the daemon would see it.
+
+    The workspace is the repository containing the working directory, as for the agent.
+    A refused root ($HOME, `/`, a huge non-git tree) answers at once; a large repository
+    that has not finished within `wait_s` is reported as building, never waited for.
+    """
+    from truthstone.repo import RepoIndex
+    from truthstone.repo.gitinfo import repository_root
+
+    wait_s = DOCTOR_INDEX_WAIT_S if wait_s is None else wait_s
+    root = repository_root(Path.cwd())
+    index = RepoIndex(root, settings.index)
+    index.build_async()
+    index.ready(timeout=wait_s)
+    status = index.status
+    if status == "ready":
+        _ok(f"ready: {len(index.files)} files ({root})")
+    elif status.startswith("unavailable"):
+        # Expected when run from $HOME: a warning, not a problem. But the agent should not
+        # be started here either, since nothing it does is checked against a repository.
+        _warn(
+            f"{status} ({root}). Truthstone does not index it, so an agent started here is "
+            "not checked against a repository; start it inside one."
+        )
+    else:
+        _echo(
+            f"  · still building after {wait_s:.0f}s ({root}): a large repository; "
+            "the daemon builds it in the background"
+        )
+
+
+def _read_token() -> str | None:
+    """The token file's content, read-only; ``None`` when there is none (never creates it)."""
+    path = token_path()
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8").strip() or None
+    except (OSError, UnicodeError):
+        return None
+
+
+def _same_secret(a: str, b: str) -> bool:
+    # Bytes, not str: compare_digest raises on non-ASCII str (R16).
+    return secrets.compare_digest(a.encode("utf-8", "surrogatepass"), b.encode("utf-8", "surrogatepass"))
+
+
+def _claude_hook_mismatches(path: Path, settings: Settings, token: str | None) -> list[str]:
+    """How the Truthstone http hooks in one Claude settings file disagree with this
+    install: the URL they post to, and the bearer token they carry. Read-only."""
+    from truthstone.adapters.claude_code import settings_scan
+
+    data = settings_scan.load_json(path)
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    urls: set[str] = set()
+    auths: list[object] = []
+    for groups in hooks.values() if isinstance(hooks, dict) else ():
+        for group in groups if isinstance(groups, list) else ():
+            entries = group.get("hooks") if isinstance(group, dict) else None
+            for hook in entries if isinstance(entries, list) else ():
+                if settings_scan.is_ours_hook(hook) and hook.get("type") == "http":
+                    urls.add(str(hook.get("url")))
+                    headers = hook.get("headers")
+                    auths.append(headers.get("Authorization") if isinstance(headers, dict) else None)
+    problems = []
+    expected = f"{settings.daemon.base_url}/hook/claude-code"
+    stray = sorted(url for url in urls if url != expected)
+    if stray:
+        problems.append(f"post to {stray[0]}, but the daemon is configured for {expected}")
+    if auths and token is None:
+        problems.append(f"carry a token, but {token_path()} does not exist")
+    elif auths and not all(isinstance(a, str) and _same_secret(a, f"Bearer {token}") for a in auths):
+        problems.append(
+            f"carry a different token than {token_path()} (installed from another TRUTHSTONE_HOME?), "
+            "so the daemon rejects every one of them and nothing is guarded"
+        )
+    return problems
+
+
+def _doctor_claude_hooks(report: _DoctorReport, settings: Settings) -> bool:
+    """The settings-hooks half of the Claude Code section. Returns whether any are installed."""
+    from truthstone.adapters.claude_code import install as inst
+
+    token = _read_token()
+    installed_anywhere = False
     for label, path in (
         ("global", inst.global_settings_path()),
         ("project", inst.project_settings_path()),
     ):
-        if inst.is_installed(path):
-            _ok(f"{label} hooks installed ({path})")
-            markers = (inst.settings_scan.OWNERSHIP_HEADER, inst.settings_scan.SHIM_MODULE)
-            if names.written_under_former_name(path.read_text(encoding="utf-8"), *markers):
-                _warn(f"written under a former name — `truthstone install claude --{label}` refreshes them")
-        else:
+        if not inst.is_installed(path):
             _echo(f"  · {label} hooks not installed ({path})")
+            continue
+        installed_anywhere = True
+        mismatches = _claude_hook_mismatches(path, settings, token)
+        if mismatches:
+            report.bad(
+                f"{label} hooks in {path} {'; they '.join(mismatches)} — re-run "
+                f"`truthstone install claude --{label}`"
+            )
+        else:
+            _ok(f"{label} hooks installed ({path})")
+        markers = (inst.settings_scan.OWNERSHIP_HEADER, inst.settings_scan.SHIM_MODULE)
+        if names.written_under_former_name(path.read_text(encoding="utf-8"), *markers):
+            _warn(f"written under a former name — `truthstone install claude --{label}` refreshes them")
+    return installed_anywhere
 
-    installed_anywhere = any(
-        inst.is_installed(path)
-        for path in (inst.global_settings_path(), inst.project_settings_path())
-    )
-    plugin_active = _doctor_plugin(installed_anywhere)
 
-    codex_attached, codex_problems = _doctor_codex()
-    problems += codex_problems
-    if not installed_anywhere and not plugin_active and not codex_attached:
-        _bad("no Claude Code or Codex hooks installed — this project is currently unguarded")
-        problems += 1
+# Other hosts that read Claude Code's `.claude/settings*.json` (H8): what betrays each one.
+_SETTINGS_READERS = (
+    ("Cursor", (".cursor",), (".cursor",), ("cursor", "cursor-agent")),
+    ("GitHub Copilot CLI", (".copilot",), (), ("copilot",)),
+)
 
-    _echo()
-    if problems:
-        _bad(f"{problems} problem(s) found")
-        raise typer.Exit(1)
-    _ok("ready")
+
+def _unverified_host_signs() -> list[tuple[str, list[str]]]:
+    """``[(host, [what was found])]`` for each settings-reading host with a sign here."""
+    import shutil
+
+    found = []
+    for name, home_dirs, project_dirs, binaries in _SETTINGS_READERS:
+        signs = [f"~/{entry}" for entry in home_dirs if (Path.home() / entry).is_dir()]
+        signs += [f"./{entry}" for entry in project_dirs if (Path.cwd() / entry).is_dir()]
+        signs += [f"`{binary}` on PATH" for binary in binaries if shutil.which(binary)]
+        if signs:
+            found.append((name, signs))
+    return found
+
+
+def _doctor_unverified_hosts() -> None:
+    """Say so where another host may run Truthstone's Claude hooks unguarded (H8).
+
+    Cursor and GitHub Copilot CLI read `.claude/settings*.json`. Their command hooks may
+    run Truthstone's shim while its HTTP tool hooks are not called, so the integration
+    looks installed and guards nothing. Not verified live either way: a warning, never a
+    problem.
+    """
+    signs = _unverified_host_signs()
+    if not signs:
+        return
+    _echo("\nother hosts")
+    for name, found in signs:
+        _warn(
+            f"{name} found ({', '.join(found)}). It reads .claude/settings*.json, so it may run "
+            "Truthstone's command hooks without its HTTP tool hooks: Truthstone's Claude hooks are "
+            f"only verified for Claude Code, and guarding under {name} is unverified."
+        )
 
 
 def _doctor_codex() -> tuple[bool, int]:
@@ -616,6 +970,73 @@ def why_cmd(
             _echo(f"    evidence: {ev.get('path') or ev.get('symbol') or ev.get('source')}")
 
 
+@app.command("approve")
+def approve_cmd(
+    codes: list[str] | None = typer.Argument(
+        None, help="The sign-off code(s) Truthstone showed for the held action, e.g. K7M2QX."
+    ),
+    cwd: Path | None = typer.Option(
+        None, "--cwd", help="The project the action is held in (default: the current directory)."
+    ),
+) -> None:
+    """Sign off a held action, once (IMPROVEMENTS.md A1b).
+
+    Where the host cannot ask you itself (Codex), Truthstone holds an irreversible action
+    and shows a code. This lets that exact action run one more time, within the sign-off
+    window. Replying `approve <CODE>` in the session does the same. With no code, lists
+    the requests waiting in this project.
+    """
+    from truthstone.core.models import SIGNOFF_TTL_S
+    from truthstone.core.store import Store
+    from truthstone.validate import signoff
+
+    root = (cwd or Path.cwd()).expanduser().resolve()
+    store = Store.for_workspace(root)
+    if store.degraded_reason:
+        _bad(f"storage is unavailable, so nothing can be signed off: {store.degraded_reason}")
+        raise typer.Exit(1)
+    minutes = max(1, round(SIGNOFF_TTL_S / 60))
+    if not codes:
+        _list_signoffs(store, minutes)
+        return
+
+    failed = False
+    for raw in codes:
+        found = signoff.codes_in(raw)
+        if not found:
+            _bad(f"'{raw}' is not a sign-off code (six letters and digits, e.g. K7M2QX)")
+            failed = True
+        for code in found:
+            status, row = signoff.grant_from_terminal(store, code)
+            if status == "granted" and row is not None:
+                _ok(f"{code} approved: {row['summary']}")
+                _echo(f"  the agent may run it once, unchanged, within {minutes} minutes")
+            elif status == "unknown":
+                _bad(f"no sign-off request with code {code} is waiting in {store.identity.root}")
+                _echo("  a code is used up by the run it allowed; `truthstone approve` lists what is waiting")
+                failed = True
+            else:
+                _bad(f"could not record the approval of {code}: storage is busy or read-only; try again")
+                failed = True
+    if failed:
+        raise typer.Exit(1)
+
+
+def _list_signoffs(store, minutes: int) -> None:
+    pending = store.signoff_requests()
+    if not pending:
+        _echo(f"no sign-off requests waiting in {store.identity.root}")
+        return
+    now = time.time()
+    _echo(f"sign-off requests waiting in {store.identity.root}:")
+    for row in pending:
+        age = max(0, int(now - float(row["requested_at"])) // 60)
+        granted = row["granted_at"] is not None and now - float(row["granted_at"]) < minutes * 60
+        note = "  (approved, not yet used)" if granted else ""
+        _echo(f"  {row['code']}  {age:>4} min ago  {str(row['summary'])[:90]}{note}")
+    _echo("allow one once with:  truthstone approve <CODE>")
+
+
 # ---------------------------------------------------------------- repository
 
 
@@ -627,10 +1048,18 @@ def index_cmd(
     """Build the repository index and report what it found (SPEC §32)."""
     from truthstone.repo import RepoIndex
 
-    index = RepoIndex(workspace).build()
+    index = RepoIndex(workspace, Settings.load().index).build()
     summary = index.summary()
+    status = str(summary.get("status") or index.status)
 
     _echo(f"{summary['root']}")
+    if status.startswith("unavailable"):
+        # R12 refuses $HOME, `/` and huge non-git trees. Rows of zeros would read as an
+        # empty repository; say what happened instead, and fail.
+        _bad(f"index {status}")
+        _echo("  Truthstone does not index this directory, so nothing here is checked against it.")
+        raise typer.Exit(1)
+    _echo(f"  status        {status}")
     _echo(f"  files         {summary['files']}  ({summary['parsed_files']} parsed for symbols)")
     _echo(f"  symbols       {summary['symbols']}")
     _echo(f"  tests         {summary['test_files']} files covering {summary['tested_sources']} sources")
@@ -970,7 +1399,11 @@ def db_stats() -> None:
     _echo(f"database: {stats['path']}")
     _echo(f"  size       {stats['size_mb']} MB")
     _echo(f"  free disk  {stats['free_disk_mb']} MB  ({stats['disk_state']})")
-    _echo(f"  writes     {'enabled' if stats['writes_enabled'] else 'DISABLED (low disk)'}")
+    if stats.get("degraded_reason"):
+        _echo("  writes     DISABLED (database unavailable)")
+        _bad(stats["degraded_reason"])
+    else:
+        _echo(f"  writes     {'enabled' if stats['writes_enabled'] else 'DISABLED (low disk)'}")
     _echo("\nrows")
     for table, count in stats["rows"].items():
         _echo(f"  {table:<16}{count}")

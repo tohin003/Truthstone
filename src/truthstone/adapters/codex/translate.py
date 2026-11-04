@@ -35,14 +35,24 @@ like this:
 Reads are not writes
 --------------------
 Codex has no separate read tools: ``cat``, ``rg``, ``ls`` and ``git status`` all arrive as
-``Bash``. A command that is unambiguously read-only (``is_read_only_command``) is not sent
-through the core's pre-tool checks, so scope and evidence checks never fire on a read. Its
-PostToolUse is still recorded. Anything the classifier is not sure about is validated.
+``Bash``, and every one of them goes to the core, exactly as Claude Code's Bash calls do.
+The core has the one shell classifier (``validate.shell`` + ``validate.checks.read_only``):
+after its Level-0 checks (risk, self-protection, verification bypass), a command that only
+reads or only runs the tests skips evidence and scope (``IMPROVEMENTS.md`` A4). This
+adapter used to keep a second classifier and drop "read-only" commands before the core saw
+them, which skipped the Level-0 checks too — and the two classifiers disagreed: it read
+``cat f;rm -rf /`` as a read, since ``shlex`` does not split a ``;`` glued to a word.
 
 Unknown tools (MCP tools, ``update_plan``, ...) are never validated as writes either: their
 PreToolUse is ignored, their PostToolUse is recorded under the tool's own name with the
 arguments namespaced under ``input``, so no ``file_path`` they carry is taken for an edit.
 The installer does not subscribe to them in the first place.
+
+MCP tools (H5, ``adapters/mcp.py``): Codex's own MCP-resource readers (``read_mcp_resource``
+and the two listings) are known read-only, so they reach the core with
+``host_hints["read_only"]`` and skip every write-path check. A server's
+``mcp__<server>__<tool>`` is unknown — Codex passes hooks no annotations — and is never
+marked read-only.
 """
 
 from __future__ import annotations
@@ -52,12 +62,14 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from truthstone.adapters import mcp
 from truthstone.adapters.codex import patch as patchlib
 from truthstone.adapters.codex import render as rendering
 from truthstone.core.enums import DecisionAction, EventType
 from truthstone.core.events import AgentEvent
 from truthstone.core.models import Decision
 from truthstone.repo.paths import relative_path
+from truthstone.validate import checks, shell
 
 AGENT_NAME = "codex"
 
@@ -134,67 +146,17 @@ def shell_result(tool_response: Any) -> Any:
     return {"stdout": tool_response, "exit_code": None, "interrupted": False}
 
 
-# Commands that only read. Deliberately short: a command missing from here is simply
-# validated, which costs a little latency and nothing else.
-_READ_ONLY = frozenset(
-    {
-        "cat", "head", "tail", "wc", "ls", "pwd", "echo", "printf", "grep", "egrep", "fgrep",
-        "rg", "ag", "tree", "stat", "du", "df", "which", "type", "whereis", "uname", "whoami",
-        "id", "basename", "dirname", "realpath", "readlink", "cut", "nl", "od", "hexdump",
-        "diff", "cmp", "comm", "jq", "true", "test", "[",
-    }
-)
-_GIT_READ_ONLY = frozenset(
-    {"status", "log", "diff", "show", "rev-parse", "ls-files", "blame", "describe", "grep", "shortlog"}
-)
-_FIND_WRITES = frozenset(
-    {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"}
-)
-_SED_PRINT = re.compile(r"\d+(,(\d+|\$))?p|\$p")
-# Anything that can write, substitute, background or redirect. `&&` and `||` are fine.
-_UNSAFE_SHELL = re.compile(r"[<>`]|\$\(|(?<!&)&(?!&)|\btee\b")
-
-
 def is_read_only_command(command: str) -> bool:
-    """Whether a shell command certainly cannot change anything. Unsure means False."""
-    if not isinstance(command, str) or not command.strip() or "\n" in command.strip():
-        return False
-    if _UNSAFE_SHELL.search(command):
-        return False
-    try:
-        tokens = shlex.split(command.replace("&&", " ; ").replace("||", " ; ").replace("|", " ; "))
-    except ValueError:
-        return False
-    segments: list[list[str]] = [[]]
-    for token in tokens:
-        if token == ";":
-            segments.append([])
-        else:
-            segments[-1].append(token)
-    segments = [segment for segment in segments if segment]
-    return bool(segments) and all(_segment_is_read_only(segment) for segment in segments)
+    """Whether the core counts a shell command as read-only: the core's own classifier
+    (``validate.checks.read_only`` over ``validate.shell.parse``), never a second one.
 
-
-def _segment_is_read_only(argv: list[str]) -> bool:
-    name = argv[0]
-    if "=" in name:  # VAR=value prefixes change the environment of what follows
+    The adapter does not act on it: every Bash call goes to the core, which applies this
+    same classifier itself, after its Level-0 checks (module docstring). It stays here for
+    callers and tests that ask the question directly. Unsure means False.
+    """
+    if not isinstance(command, str) or not command.strip():
         return False
-    if name in _READ_ONLY:
-        return True
-    if name == "find":
-        return not any(arg in _FIND_WRITES for arg in argv[1:])
-    if name == "sed":
-        flags = [arg for arg in argv[1:] if arg.startswith("-")]
-        scripts = [arg for arg in argv[1:] if not arg.startswith("-")]
-        return flags == ["-n"] and bool(scripts) and _SED_PRINT.fullmatch(scripts[0]) is not None
-    if name == "git":
-        rest = argv[1:]
-        while rest and rest[0] in ("-C", "--no-pager", "-P"):
-            rest = rest[2:] if rest[0] == "-C" else rest[1:]
-        if any(arg.startswith("--output") for arg in rest):
-            return False  # `git diff --output=FILE` writes
-        return bool(rest) and rest[0] in _GIT_READ_ONLY
-    return False
+    return checks.read_only(shell.parse(command))
 
 
 # -- payload -> events --------------------------------------------------------------
@@ -231,9 +193,8 @@ def to_events(payload: dict[str, Any], root: Path | None = None) -> list[AgentEv
     tool_input = payload.get("tool_input")
     response = payload.get("tool_response")
     if tool == SHELL_TOOL:
+        # Every command, reads included: the core classifies it (module docstring).
         command = shell_command(tool_input)
-        if pre and command is not None and is_read_only_command(command):
-            return []  # a read: nothing for the write-path checks to judge
         return [
             AgentEvent(
                 **base,
@@ -244,14 +205,16 @@ def to_events(payload: dict[str, Any], root: Path | None = None) -> list[AgentEv
         ]
     if tool == PATCH_TOOL:
         return _patch_events(payload, base, tool_input, response, root)
-    if pre:
+    hints = mcp.host_hints(AGENT_NAME, tool)
+    if pre and not hints:
         return []  # unknown or MCP tool: never judged as a write
     return [
         AgentEvent(
             **base,
             tool=tool if isinstance(tool, str) and tool else "unknown",
             arguments={"input": tool_input},
-            result=response,
+            result=None if pre else response,
+            host_hints=hints,
         )
     ]
 
@@ -386,6 +349,14 @@ def _label(event: AgentEvent) -> str:
     return rel or path
 
 
+def _strictness(pair: tuple[AgentEvent, Decision]) -> tuple[int, int]:
+    """Rank by action, then by what observe mode says the action would have been (every
+    observe-mode decision is an ALLOW, so the would-have is what tells them apart)."""
+    decision = pair[1]
+    would_have = decision.would_have
+    return _STRICTNESS[decision.action], _STRICTNESS[would_have] if would_have is not None else -1
+
+
 def combine(results: list[tuple[AgentEvent, Decision]]) -> tuple[AgentEvent, Decision]:
     """One decision for a multi-file patch: the strictest wins, every concern is kept.
 
@@ -393,10 +364,25 @@ def combine(results: list[tuple[AgentEvent, Decision]]) -> tuple[AgentEvent, Dec
     single answer, so it takes the strictest action of any file, and its reason lists the
     concern for each file that had one — so the agent can address all of them at once
     rather than discovering them one retry at a time.
+
+    The answer *is* the strictest file's decision, copied, with only these fields merged:
+    the reason (every concern, labelled), findings, level, latency, context, and
+
+    * ``signoff_required`` — true if any file needs the developer's sign-off, together
+      with that file's ``signoff_code`` where decisions carry one. A sign-off must never
+      be lost on the way to a heuristic (``render.is_irreversible``) that may not
+      recognise it;
+    * ``would_have`` — the strictest of the files' would-haves (observe mode);
+    * ``updated_arguments`` — always dropped. A rewrite belongs to one action, and a
+      multi-file answer must never apply one file's rewrite to another.
+
+    Every other field — ``unverified_finish``, and any field added to ``Decision`` later —
+    rides along from the strictest decision unchanged.
     """
     if len(results) == 1:
         return results[0]
-    strictest_event, strictest = max(results, key=lambda pair: _STRICTNESS[pair[1].action])
+    ranked = sorted(results, key=_strictness, reverse=True)  # stable: file order breaks ties
+    strictest_event, strictest = ranked[0]
     concerns = [
         (event, decision)
         for event, decision in results
@@ -412,16 +398,26 @@ def combine(results: list[tuple[AgentEvent, Decision]]) -> tuple[AgentEvent, Dec
     else:
         reason = strictest.reason
     contexts = [d.additional_context for _, d in results if d.additional_context]
-    merged = Decision(
-        action=strictest.action,
-        reason=reason,
-        findings=[finding for _, decision in results for finding in decision.findings],
-        level=max(decision.level for _, decision in results),
-        latency_ms=sum(decision.latency_ms for _, decision in results),
-        additional_context="\n\n".join(dict.fromkeys(contexts)) or None,
-        decision_id=strictest.decision_id,
-    )
-    return strictest_event, merged
+    would_haves = [d.would_have for _, d in results if d.would_have is not None]
+    would_have = max(would_haves, key=_STRICTNESS.__getitem__) if would_haves else None
+    update: dict[str, Any] = {
+        "reason": reason,
+        "findings": [finding for _, decision in results for finding in decision.findings],
+        "level": max(decision.level for _, decision in results),
+        "latency_ms": sum(decision.latency_ms for _, decision in results),
+        "additional_context": "\n\n".join(dict.fromkeys(contexts)) or None,
+        "updated_arguments": None,
+        "would_have": would_have,
+    }
+    signoff = next((d for _, d in ranked if d.signoff_required), None)
+    if signoff is not None:
+        update["signoff_required"] = True
+        # The one-shot sign-off code travels with the file that needs it. Read through
+        # getattr: the field is newer than this adapter, and a decision type without it
+        # simply has nothing to carry.
+        if "signoff_code" in type(strictest).model_fields:
+            update["signoff_code"] = getattr(signoff, "signoff_code", None)
+    return strictest_event, strictest.model_copy(update=update, deep=True)
 
 
 def handle_payload(guard: Any, payload: dict[str, Any]) -> dict[str, Any]:

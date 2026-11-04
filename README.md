@@ -15,7 +15,7 @@ Truthstone was previously named AgentGuard. Installs made under the old name kee
 working:
 
 - **Settings.** Every `AGENTGUARD_*` environment variable still applies when its
-  `TRUTHSTONE_*` counterpart is unset (`AGENTGUARD_HOME`, `AGENTGUARD_DISABLE`, `AGENTGUARD_OBSERVE`).
+  `TRUTHSTONE_*` counterpart is unset (`AGENTGUARD_NO_BOOTSTRAP`, `AGENTGUARD_HOME`, `AGENTGUARD_DISABLE`).
 - **Data.** An existing `~/.agentguard` directory stays in use until `~/.truthstone`
   exists; `truthstone doctor` prints the command that moves it.
 - **Hooks.** Hooks written by `agentguard install` are recognised:

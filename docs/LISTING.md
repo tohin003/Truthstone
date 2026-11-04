@@ -2,7 +2,7 @@
 
 This kit prepares the **skills-only companion plugin** for OpenAI's Plugin Directory, which ChatGPT and Codex share, and for free discovery lists. Nothing here has been submitted anywhere.
 
-`Truthstone Practices` and `truthstone-practices` are the final names, since the rename from AgentGuard on 2026-11-04 (`docs/RENAME.md`). A published name must not change again; [§10](#10-renaming) describes the tooling if it ever has to.
+`Truthstone Practices` and `truthstone-practices` are the final names, since the rename from AgentGuard on 2026-11-04 (`docs/RENAME.md`). A published name must not change again; [§10](#10-renaming) describes the tooling if it ever has to. <!-- rename-tool: keep -->
 
 Rules were verified on 2026-11-04 against the raw Markdown of the official pages listed in [§4](#4-compliance-checklist).
 
@@ -223,7 +223,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 | Clause [G] | How we comply |
 |---|---|
 | "provide functionality or workflows that are not natively supported by the products' built-in capabilities and that meaningfully help satisfy common user intents expressed in conversation" | The six protocols are specific workflows the products do not run by default: a three-state requirement ledger that includes prohibitions and the evidence-after-last-edit rule, the complete-evidence rule for absence claims, scope and convention checks, plan sizing with override rules, the irreversible-command pre-flight and a full-diff audit. They trigger on ordinary requests to finish, fix, plan or review. This is a reviewer's judgement call; see §11 |
-| "Only use intellectual property that you own or have permission to use." | Original text and an original logo, under Apache-2.0. The former name, AgentGuard, collided with other products; the rename to Truthstone resolved that (see §11) |
+| "Only use intellectual property that you own or have permission to use." | Original text and an original logo, under Apache-2.0. The former name, AgentGuard, collided with other products; the rename to Truthstone resolved that (see §11) <!-- rename-tool: keep --> |
 | "Do not engage in misleading or copycat designs, impersonation, spam, or static frames with no meaningful interaction." | Original protocols drawn from this repository's own design (Appendix); no imitation of other plugins |
 | "Plugins should not imply that they are made or endorsed by OpenAI." | No such wording; enforced by `LISTING-COPY` |
 | "Plugins must behave predictably and reliably… Errors… must be handled with clear messaging or fallback behaviors." | Each skill defines its fallback. When a check cannot run, the item is reported "not verified" with the exact command, never as passed |
@@ -480,7 +480,7 @@ After renaming:
    - the published precedent of similar skills-only plugins: `codex-engineering-guardrails`, `agent-shipproof`, `rumbo-coding-agent-reliability` and `master-change-guard` are all listed in the live catalog
 2. **"Skills-only plugins may be subject to additional eligibility requirements."** These are undisclosed and can't be designed against.
 3. **"Core value requires local execution or file access" → partner contact.** The plugin runs nothing itself, but its best use is in a repository-aware agent. Mitigations: the copy says the skills use the host's own tools and still apply to pasted code. If a reviewer disagrees, the remedy is a conversation with an OpenAI representative, not a package change.
-4. **Name and IP.** Several unrelated products were called "AgentGuard", and GoPlus ships a Claude plugin whose manifest name is `agentguard`. That risked the "IP you own" clause, Anthropic's "Name matches a known brand" hold, and user confusion, which is why the product was renamed Truthstone. (The automated rename had rewritten this sentence to say the conflict was with "Truthstone"; it was not.) On 2026-11-04, `truthstone` was free in both Anthropic marketplaces, and a web and GitHub search found no conflicting software brand; the closest use is "TruthStone PM", a 2026 landing page. That is not a trademark clearance.
+4. **Name and IP.** Several unrelated products were called "AgentGuard", and GoPlus ships a Claude plugin whose manifest name is `agentguard`. That risked the "IP you own" clause, Anthropic's "Name matches a known brand" hold, and user confusion, which is why the product was renamed Truthstone. (The automated rename had rewritten this sentence to say the conflict was with "Truthstone"; it was not.) On 2026-11-04, `truthstone` was free in both Anthropic marketplaces, and a web and GitHub search found no conflicting software brand; the closest use is "TruthStone PM", a 2026 landing page. That is not a trademark clearance. <!-- rename-tool: keep -->
 5. **Trial or demo perception.** The single mention of the separate runtime could be read as an upsell. It is phrased as a limitation, contains no link and no pricing word, and every skill is complete without it. Removing that sentence is a one-line edit if a reviewer objects.
 6. **Identity verification bug.** Reported between 2026-08-20 and 2026-10-07; no fix has been announced.
 7. **Unknown portal behaviour.** These rules were verified from documentation, not from an upload:

@@ -32,13 +32,15 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from truthstone.adapters import mcp
 from truthstone.adapters.claude_code.protocol import (
     SESSION_MODE_EVENT,
     SESSION_MODE_FIELD,
     SESSION_MODES,
     session_mode_message,
 )
-from truthstone.core.enums import DecisionAction, EventType, FailureMode, Severity
+from truthstone.core import hosts
+from truthstone.core.enums import DecisionAction, EventType
 from truthstone.core.events import AgentEvent
 from truthstone.core.models import Decision
 
@@ -60,33 +62,41 @@ __all__ = [
 AGENT_NAME = "claude-code"
 
 
-@dataclass(frozen=True)
-class ClaudeRendering:
-    """How each core intent is expressed to Claude Code. The one place to change it.
+@dataclass(frozen=True, slots=True)
+class ClaudeRendering(hosts.HostCapabilities):
+    """Claude Code's capability profile plus its native decision words. The one place to
+    change how each core intent is expressed to Claude Code.
 
-    ``docs/ADAPTER-CONTRACT.md`` calls this a host-capability profile: the core states
-    intent (a ``Decision``); the profile says which native channel carries it.
+    Derived from the core's ``hosts.CLAUDE_CODE`` (``docs/ADAPTER-CONTRACT.md``): the
+    capability fields are that profile's, the core's ladder (``hosts.render``) decides
+    what to say, and the fields below only spell it.
     """
 
-    # PreToolUse ``permissionDecision`` per intent. Never "allow" (Truthstone does not
-    # grant permissions) and never "defer" (see the module docstring).
+    # PreToolUse ``permissionDecision`` per ladder kind. Never "allow" (Truthstone does
+    # not grant permissions) and never "defer" (see the module docstring). A rewrite is
+    # an ``ask`` too, carrying ``updatedInput``: the developer approves the narrowed input.
     deny: str = "deny"  # CHALLENGE / BLOCK: the reason goes back to Claude
-    review: str = "ask"  # REQUEST_REVIEW: the developer's own permission prompt
-    rewrite: str = "ask"  # MODIFY: ``updatedInput`` + ask, the developer approves it
-    # Stop / SubagentStop: ``decision: "block"`` keeps the turn going (Claude Code caps
-    # consecutive continuations at 8; Truthstone's own cap is lower).
-    stop_block: bool = True
-    # The universal ``systemMessage`` field: shown to the developer, never to Claude.
-    system_message: bool = True
+    review: str = "ask"  # REQUEST_REVIEW, and MODIFY: the developer's own permission prompt
     # Events that accept ``decision: "block"`` after a tool ran. PostToolUseFailure does
-    # not: it takes ``additionalContext`` only.
+    # not: it takes ``additionalContext`` only. (The ladder's post-tool rule says the same.)
     post_tool_block_events: tuple[str, ...] = ("PostToolUse",)
 
+    @property
+    def stop_block(self) -> bool:
+        """Stop / SubagentStop ``decision: "block"`` keeps the turn going (Claude Code caps
+        consecutive continuations at 8; Truthstone's own cap is lower)."""
+        return self.stop_continue != "none"
 
-CLAUDE = ClaudeRendering()
+    @property
+    def system_message(self) -> bool:
+        """The universal ``systemMessage`` field: shown to the developer, never to Claude."""
+        return self.system_message_visible
+
+
+CLAUDE = ClaudeRendering(**hosts.profile_fields(hosts.CLAUDE_CODE))
 
 # Kept as a module constant: tests and callers assert against it.
-MODIFY_PERMISSION = CLAUDE.rewrite
+MODIFY_PERMISSION = CLAUDE.review
 FORBIDDEN_PERMISSIONS = frozenset({"allow", "defer"})
 
 # Claude Code hook event name -> normalized event type.
@@ -228,19 +238,43 @@ def to_event(payload: dict[str, Any]) -> AgentEvent | None:
     else:
         result = payload.get("tool_response", payload.get("tool_output"))
 
+    tool = payload.get("tool_name")
     return AgentEvent(
         event=event_type,
         agent=AGENT_NAME,
         workspace=payload.get("cwd") or ".",
         session_id=session_id,
-        tool=payload.get("tool_name"),
+        tool=tool,
         arguments=payload.get("tool_input") or {},
         tool_use_id=payload.get("tool_use_id"),
         result=result,
         prompt_text=payload.get("prompt") or payload.get("prompt_text"),
         last_assistant_message=payload.get("last_assistant_message"),
+        pending_tasks=pending_tasks(payload),
+        # MCP (H5): read-only only when known; an `mcp__` tool is unknown, never a read.
+        host_hints=mcp.host_hints(AGENT_NAME, tool),
         raw=payload,
     )
+
+
+_TASK_FIELDS = ("id", "type", "status", "command")
+
+
+def pending_tasks(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Stop's ``background_tasks`` -> the core's ``pending_tasks`` (G7).
+
+    Captured live (``Stop.background_tasks.json``): ``{"id", "type": "shell", "status":
+    "running", "description", "command"}``. Only the four canonical fields are kept, as
+    strings; anything malformed is dropped rather than guessed at.
+    """
+    tasks = payload.get("background_tasks")
+    if not isinstance(tasks, list):
+        return []
+    return [
+        {key: task[key] for key in _TASK_FIELDS if isinstance(task.get(key), str)}
+        for task in tasks[:64]
+        if isinstance(task, dict)
+    ]
 
 
 # -- outbound ------------------------------------------------------------------------------
@@ -278,103 +312,86 @@ def from_decision(event: AgentEvent, decision: Decision, hook_name: str) -> dict
     return out
 
 
-def _pre_tool_use_out(decision: Decision) -> dict[str, Any]:
-    action = decision.action
+def _render(decision: Decision, hook_name: str) -> dict[str, Any]:
+    """The core's ladder decides (``hosts.render``); this only spells it for Claude Code."""
+    return _emit(hosts.render(decision, CLAUDE, EVENT_MAP[hook_name]), hook_name)
 
-    if action in (DecisionAction.CHALLENGE, DecisionAction.BLOCK):
+
+def _emit(rendering: hosts.Rendering, hook_name: str) -> dict[str, Any]:
+    kind = rendering.kind
+    if kind == "deny":
         # "deny" hands the reason back to Claude, which then re-reasons with its own
         # intelligence and proposes something else (SPEC §21). This *is* the loop.
-        return _spec_out(
-            "PreToolUse",
-            permissionDecision=CLAUDE.deny,
-            permissionDecisionReason=decision.reason,
+        out = _spec_out(
+            hook_name, permissionDecision=CLAUDE.deny, permissionDecisionReason=rendering.reason
         )
-
-    if action is DecisionAction.REQUEST_REVIEW:
+    elif kind == "ask":
         # "ask": the reason is shown to the developer in the permission prompt. In a
         # `-p` run where nobody can answer, Claude Code denies the call and Claude reads
         # the same reason in the tool result.
-        return _spec_out(
-            "PreToolUse",
-            permissionDecision=CLAUDE.review,
-            permissionDecisionReason=decision.reason,
+        out = _spec_out(
+            hook_name, permissionDecision=CLAUDE.review, permissionDecisionReason=rendering.reason
         )
-
-    if action is DecisionAction.MODIFY and decision.updated_arguments is not None:
+    elif kind == "rewrite_ask":
         # The rewrite always announces itself — silently changing what the agent asked
         # for is a trust hazard even when the change is an improvement — and it is never
         # approved on the developer's behalf: "ask" shows them the narrowed input.
-        announcement = decision.additional_context or decision.reason or None
-        return _spec_out(
-            "PreToolUse",
-            permissionDecision=CLAUDE.rewrite,
-            permissionDecisionReason=announcement,
-            updatedInput=decision.updated_arguments,
-            additionalContext=announcement,
+        out = _spec_out(
+            hook_name,
+            permissionDecision=MODIFY_PERMISSION,
+            permissionDecisionReason=rendering.reason,
+            updatedInput=rendering.updated_arguments,
+            additionalContext=rendering.context,
         )
+    elif kind == "block":
+        out = {"decision": "block", "reason": rendering.reason}
+        if rendering.context:
+            out.update(_spec_out(hook_name, additionalContext=rendering.context))
+    elif kind == "context":
+        out = _spec_out(hook_name, additionalContext=rendering.context)
+    else:
+        out = {}  # silence
+    if rendering.system_message and CLAUDE.system_message:
+        out["systemMessage"] = rendering.system_message
+    return out
 
-    if decision.additional_context:
-        return _spec_out("PreToolUse", additionalContext=decision.additional_context)
 
-    return {}  # silence
+def _pre_tool_use_out(decision: Decision) -> dict[str, Any]:
+    return _render(decision, "PreToolUse")
 
 
 def _post_tool_use_out(decision: Decision, hook_name: str) -> dict[str, Any]:
-    objects = decision.action in (DecisionAction.BLOCK, DecisionAction.CHALLENGE)
-    if objects and hook_name in CLAUDE.post_tool_block_events:
-        out: dict[str, Any] = {"decision": "block", "reason": decision.reason}
-        if decision.additional_context:
-            out.update(_spec_out(hook_name, additionalContext=decision.additional_context))
-        return out
-    context = decision.additional_context
-    if objects and decision.reason:
-        # PostToolUseFailure cannot block; carry the objection as context instead.
-        context = f"{decision.reason}\n\n{context}" if context else decision.reason
-    if context:
-        return _spec_out(hook_name, additionalContext=context)
-    return {}
+    # PostToolUseFailure cannot block; the ladder carries an objection there as context.
+    return _render(decision, hook_name)
 
 
 def _context_only_out(decision: Decision, hook_name: str) -> dict[str, Any]:
     """UserPromptSubmit: inject the task spec + planning budget (SPEC §9, §13)."""
-    if decision.action is DecisionAction.BLOCK:
-        return {"decision": "block", "reason": decision.reason}
-    if decision.additional_context:
-        return _spec_out(hook_name, additionalContext=decision.additional_context)
-    return {}
-
-
-# Findings that mean "the completion gate would hold this turn open". On an ALLOW that
-# observe mode did not produce, they mean rationing silenced the gate: it gave up.
-_GATE_BLOCKING_MODES = frozenset({FailureMode.FALSE_COMPLETION, FailureMode.UNVERIFIED_CHANGE})
-_SEVERITY_ORDER = (Severity.INFO, Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
+    return _render(decision, hook_name)
 
 
 def gate_gave_up(decision: Decision) -> str | None:
     """The unresolved problem, when the completion gate stopped holding a turn open.
 
     The core passes a turn once its per-task cap is spent, or when a stop hook is already
-    holding the turn — correctly, since a gate that never lets go is a loop — but it does
-    so silently, so the developer is left believing an unverified turn was verified
-    (G10). The core does not flag this yet, so it is recognised here: an ALLOW that
-    observe mode did not produce (``would_have`` unset) still carrying a blocking-grade
-    completion finding.
+    holding the turn — correctly, since a gate that never lets go is a loop — and says
+    so on ``Decision.unverified_finish`` (G10), so the developer is not left believing an
+    unverified turn was verified. It is the core's explicit flag, not an inference from
+    findings: an honest hand-back carries findings too, and is no give-up. Never on a
+    decision observe mode produced (``would_have`` set), nor on anything but an ALLOW.
     """
     if decision.action is not DecisionAction.ALLOW or decision.would_have is not None:
         return None
-    for finding in decision.findings:
-        if finding.failure_mode in _GATE_BLOCKING_MODES and _SEVERITY_ORDER.index(
-            finding.severity
-        ) >= _SEVERITY_ORDER.index(Severity.MEDIUM):
-            return finding.summary or finding.subject or "unverified changes"
-    return None
+    return decision.unverified_finish or None
 
 
 def _stop_out(decision: Decision, hook_name: str) -> dict[str, Any]:
     """Completion Gate (SPEC §19). Blocking Stop forces the agent to keep working."""
     if decision.action in (DecisionAction.BLOCK, DecisionAction.CHALLENGE) and CLAUDE.stop_block:
         return {"decision": "block", "reason": decision.reason}
-    unresolved = gate_gave_up(decision)
+    # Only the main agent's Stop ends the developer's turn; a subagent finishing is not
+    # the task finishing, and the core never gates it (G9).
+    unresolved = gate_gave_up(decision) if hook_name == "Stop" else None
     if unresolved and CLAUDE.system_message:
         return {
             "systemMessage": (
@@ -390,6 +407,4 @@ def _stop_out(decision: Decision, hook_name: str) -> dict[str, Any]:
 def _session_start_out(decision: Decision) -> dict[str, Any]:
     # `watchPaths` is wired in Phase 1, once there is an index whose freshness depends
     # on specific files (manifests, lockfiles, config).
-    if decision.additional_context:
-        return _spec_out("SessionStart", additionalContext=decision.additional_context)
-    return {}
+    return _render(decision, "SessionStart")

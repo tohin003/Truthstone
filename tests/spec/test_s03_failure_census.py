@@ -41,7 +41,7 @@ import pytest
 
 from tests.conftest import REPO_ROOT, free_port, pre_tool_use, user_prompt_submit
 from truthstone.census import collect, render, render_detectors
-from truthstone.census.taxonomy import NOT_INSTRUMENTED_BECAUSE, TAXONOMY
+from truthstone.census.taxonomy import EXTENDED_TAXONOMY, NOT_INSTRUMENTED_BECAUSE, TAXONOMY
 from truthstone.core import observe
 from truthstone.core.config import Settings
 from truthstone.core.enums import DecisionAction, EventType, FailureMode
@@ -184,21 +184,74 @@ class TestTheTaxonomyIsTheSpec:
         assert [entry.spec_text for entry in TAXONOMY] == spec_section_3_bullets()
 
     def test_every_failure_mode_is_in_the_taxonomy(self):
-        """Otherwise a detector could record a mode the census does not know to report."""
-        covered = {entry.mode for entry in TAXONOMY}
+        """Otherwise a detector could record a mode the census does not know to report.
+
+        A mode may live in SPEC §3's TAXONOMY or in the separately-reported
+        EXTENDED_TAXONOMY (Truthstone's own extension) — but it must live somewhere.
+        """
+        covered = {entry.mode for entry in TAXONOMY + EXTENDED_TAXONOMY}
         missing = set(FailureMode) - covered - {FailureMode.NOT_A_FAILURE}
         assert not missing, f"failure modes with no taxonomy entry: {sorted(missing)}"
 
     def test_every_uninstrumented_mode_explains_itself(self):
         """"No detector" invites the reader to assume an oversight. Say which it is."""
-        for entry in TAXONOMY:
+        for entry in TAXONOMY + EXTENDED_TAXONOMY:
             if not entry.instrumented:
                 assert NOT_INSTRUMENTED_BECAUSE.get(entry.mode), entry.mode
 
     def test_every_instrumented_mode_states_what_it_proves(self):
-        for entry in TAXONOMY:
+        for entry in TAXONOMY + EXTENDED_TAXONOMY:
             if entry.instrumented:
                 assert entry.proves, entry.mode
+
+
+class TestTheExtensionIsNotTheSpec:
+    """EXTENDED_TAXONOMY is Truthstone's own extension (C1), never SPEC text.
+
+    The §3 list stays pinned verbatim above; these tests pin that the extension can never
+    be mistaken for it — not in the enum, not in the wording, not in the report.
+    """
+
+    def test_extension_and_spec_modes_are_disjoint(self):
+        assert not {e.mode for e in EXTENDED_TAXONOMY} & {e.mode for e in TAXONOMY}
+
+    def test_no_extension_text_is_a_spec_bullet(self):
+        bullets = set(spec_section_3_bullets())
+        for entry in EXTENDED_TAXONOMY:
+            assert entry.spec_text not in bullets
+            assert "beyond §3" in entry.spec_text, entry.mode
+
+    def test_irreversible_commands_are_counted_not_dropped(self):
+        """They were NOT_A_FAILURE, which the census excludes: the highest-harm
+        behaviour was uncountable. Now they are a DESTRUCTIVE_ACTION observation."""
+        from truthstone.core.events import AgentEvent
+        from truthstone.validate import checks
+
+        event = AgentEvent(
+            event=EventType.PRE_TOOL_USE, tool="Bash", arguments={"command": "git reset --hard"}
+        )
+        findings = checks.risky_command(event)
+        assert findings and findings[0].failure_mode is FailureMode.DESTRUCTIVE_ACTION
+
+    def test_the_report_keeps_the_extension_in_its_own_section(self, tmp_path):
+        from truthstone.core.config import Settings
+        from truthstone.core.store import ProjectStore
+
+        store = ProjectStore.for_workspace(tmp_path, Settings())
+        census = collect(store)
+        text = render(census)
+        assert "beyond SPEC §3" in text
+        spec_part, _, extension_part = text.partition("beyond SPEC §3")
+        for entry in EXTENDED_TAXONOMY:
+            assert entry.spec_text not in spec_part
+            assert entry.spec_text in extension_part
+        assert census.to_dict()["beyond_spec_3"]["note"].startswith("Truthstone's own")
+
+    def test_the_regression_rationale_no_longer_claims_names_are_unavailable(self):
+        """pytest's default `-rfE` prints `FAILED <nodeid>`; the old reason was wrong."""
+        because = NOT_INSTRUMENTED_BECAUSE[FailureMode.OVERLOOKED_REGRESSION]
+        assert "counts, not test names" not in because
+        assert "FAILED" in because
 
     def test_a_finding_cannot_omit_its_failure_mode(self):
         """No default. A detector that cannot say what it detects is not census input."""
@@ -897,6 +950,9 @@ class TestTheCensusReport:
             guard.handle(event(repo, EventType.SESSION_START))
             guard.handle(prompt_event(repo, "Add an active-users report."))
             guard.handle(write_event(repo, "src/shop/api/report.py", HALLUCINATING_FILE))
+            # The write itself, as the host performs it between the two hooks: a file the
+            # task created and that is absent again at Stop is no change (G2b).
+            (repo / "src/shop/api/report.py").write_text(HALLUCINATING_FILE)
             guard.handle(
                 event(repo, EventType.POST_TOOL_USE, "Write", file_path="src/shop/api/report.py")
             )
