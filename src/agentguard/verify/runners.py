@@ -26,6 +26,7 @@ from typing import Any
 
 from agentguard.repo.index import RepoIndex
 from agentguard.repo.paths import relative_path
+from agentguard.verify import commands
 
 
 @dataclass(slots=True)
@@ -129,28 +130,18 @@ def detect_runners(index: RepoIndex) -> list[TestRunner]:
 
 
 # -- recognising a test command ---------------------------------------------------
-
-_TEST_COMMAND = re.compile(
-    r"\b("
-    r"pytest|py\.test|python\s+-m\s+pytest|unittest"
-    r"|jest|vitest|mocha|npm\s+(?:run\s+)?test|pnpm\s+(?:run\s+)?test|yarn\s+test"
-    r"|go\s+test|cargo\s+test|gradle\s+test|mvn\s+test|rspec|phpunit|dotnet\s+test"
-    r")\b"
-)
+#
+# By command position, never by substring (G3a): `grep -n pytest pyproject.toml` is not a
+# test run, and `node --test` is. The rules live in `verify/commands.py`.
 
 
 def is_test_command(command: str) -> bool:
-    return bool(_TEST_COMMAND.search(command or ""))
+    return commands.is_test_command(command or "")
 
 
 def runner_for_command(command: str) -> str:
-    match = _TEST_COMMAND.search(command or "")
-    if not match:
-        return "unknown"
-    token = match.group(1).split()[0]
-    return {"py.test": "pytest", "python": "pytest", "npm": "npm", "pnpm": "npm", "yarn": "npm"}.get(
-        token, token
-    )
+    invocation = commands.test_invocation(command or "")
+    return invocation.runner if invocation is not None else "unknown"
 
 
 # -- parsing output ---------------------------------------------------------------
