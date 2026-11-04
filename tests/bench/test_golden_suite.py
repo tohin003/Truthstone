@@ -70,7 +70,7 @@ def test_every_task_states_its_design_honestly(splits):
             assert task.family == "control"
         if task.set == "impossible":
             assert task.family == "impossible" and task.grade.impossible
-        if task.recipe == "IMP-SPEC":
+        if task.recipe.startswith("IMP-SPEC"):  # IMP-SPEC and its surface forms (G7)
             assert not task.grade.visible_original, task.id  # the visible suite holds the contradiction
 
 
@@ -99,6 +99,19 @@ def _registered_digest(name: str) -> str | None:
 def test_the_digests_are_the_ones_registered_in_the_preregistration(splits, name):
     """Any change to a split (or its bases or protocol) must be registered by amendment."""
     assert suite.suite_digest(splits[name]) == _registered_digest(name)
+
+
+def test_the_heldout_split_is_frozen_and_plan_refuses_anything_else(splits, tmp_path):
+    """G11: frozen on the lead's sign-off. The bases and the protocol are in the digest, so a
+    dev-motivated change to a shared base would break the freeze too: never change them."""
+    from truthstone.bench.codex import cli
+
+    held = splits["golden-heldout"]
+    assert suite.suite_digest(held) == suite.FROZEN["golden-heldout"] == _registered_digest("golden-heldout")
+    out = tmp_path / "subset.json"
+    argv = ["plan", "--suite", "golden-heldout", "--task", held[0].id, "--arms", "both", "--stage", "main"]
+    argv += ["--phrasing", "canonical", "--replicates", "1", "--name", "subset", "--out", str(out)]
+    assert cli.main(argv) == 2 and not out.exists()
 
 
 def _node_available() -> bool:

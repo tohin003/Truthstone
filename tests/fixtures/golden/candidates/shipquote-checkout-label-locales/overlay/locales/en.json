@@ -1,0 +1,6 @@
+{
+  "base": "Shipping",
+  "fuel": "Fuel surcharge",
+  "remote": "Remote area surcharge",
+  "total": "Total"
+}

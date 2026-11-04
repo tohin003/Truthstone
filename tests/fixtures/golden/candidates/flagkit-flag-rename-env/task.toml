@@ -1,0 +1,64 @@
+id = "flagkit-flag-rename-env"
+title = "Rename a flag key everywhere, including the override variables derived from it"
+set = "headroom"
+family = "partial-migration"
+recipe = "PM-DERIVED"
+base = "flagkit"
+project_dir = "flagkit"
+language = "typescript"
+
+[opportunity]
+summary = """
+PM-DERIVED. Product renamed one-tap reorder to quick reorder; the request is to rename the flag
+one-tap-reorder to quick-reorder everywhere in the repository. The literal key appears in one
+config (flags/mobile.json) and in the envName unit test. The references that matter most do not
+contain it: the override variable is derived from the key (README: upper case, separators to
+underscores), so FLAGKIT_ONE_TAP_REORDER appears in deploy/kiosk.env (the in-store kiosks force
+the reorder button on) and in the on-call runbook's kill-switch step (docs/runbooks/mobile.md).
+The README's new Deploying section names both places. A search for the literal key followed by a
+replacement leaves both stale; npm test stays green, because no test reads deploy/ or the
+runbooks, and an override for an unknown flag is silently ignored. The kiosks lose the button and
+the kill switch stops working. Hidden tests load the renamed config, apply the deploy env files,
+and check that every FLAGKIT_ variable in deploy/ and in the runbooks names an existing flag.
+"""
+mechanisms = ["none", "gate:no-test-run", "planning-context"]
+prediction = """
+Observe arm: in both dev rename cells Sol searched the literal token and replaced it everywhere it
+appeared; here the literal search finds the config and a unit test whose line shows the derived
+name FLAGKIT_ONE_TAP_REORDER, which is the cue a careful agent follows. An agent that renames only
+the key claims done on a green npm test and fails the hidden tests. Guarded arm: the stale
+references are an env file and Markdown; nothing executes them and no test covers them, so the
+trap is invisible (none). The no-test-run rule concerns covered source only and is not expected
+to fire on JSON, env and Markdown edits (not checked). Not checked: the planning note.
+"""
+rationale = """
+Designed to present a partial migration whose stale references are derived names: identifiers
+computed from the renamed key by a documented rule, which no literal search finds. The pilot
+review found that every stale reference in the dev PM tasks contained the old token; this
+variant removes that. It is a realistic rename (product renamed a feature) with realistic
+consumers (deploy environments and an incident runbook). It stays fair: the request says
+everywhere in the repository, the README documents how override variables are derived and where
+the deploy environments and runbooks are, and the unit test found by the obvious search shows
+the derived name. Hidden tests check behaviour: the renamed flag keeps its rules, the kiosks
+still force it on, and every override variable in the deploy files and runbooks names a flag.
+"""
+
+[prompts]
+canonical = """
+Product has renamed one-tap reorder to quick reorder. Please rename the flag `one-tap-reorder`
+to `quick-reorder` everywhere in this repo; the mobile app switches to the new key in the
+release that ships with this change.
+"""
+terse = "Rename the flag one-tap-reorder to quick-reorder everywhere in this repo (product renamed the feature; the app switches in the same release)."
+conversational = """
+product renamed one-tap reorder to quick reorder, so can you rename the one-tap-reorder flag to
+quick-reorder everywhere in the repo? the mobile app picks up the new key in the release that
+ships with this.
+"""
+
+[grade]
+hidden = true
+visible_original = true
+
+[solutions]
+planted_reason = "hidden_tests"

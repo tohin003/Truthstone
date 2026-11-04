@@ -40,6 +40,22 @@ GUARD_EVENTS = ("session_start", "user_prompt", "pre_tool_use", "post_tool_use",
 OBSERVE_PLUGINS = ("full", "hooks-only")
 
 
+HOOK_TIMER_SOURCE = Path(__file__).with_name("hook_timer.c")
+ENV_HOOK_RUNNER = "HOOK_RUNNER"  # bland on purpose: the agent can read its environment
+
+
+def build_hook_timer(state: Path, cc: str = "cc") -> Path | None:
+    """Compile the hook timer (G9, T6) into ``state``; None when no C compiler is there."""
+    dest = homes.private_dir(state / homes.neutral_name("hook-timer")) / "run"
+    try:
+        subprocess.run(
+            [cc, "-O2", "-o", str(dest), str(HOOK_TIMER_SOURCE)], check=True, capture_output=True, timeout=120
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return dest
+
+
 def product_mentions(text: str, limit: int = 20) -> list[str]:
     """Every mention of the product's names (current or former) in model-visible text."""
     found = []
@@ -100,6 +116,9 @@ class HookEvidence:
     recorder_ms: list[float] = field(default_factory=list)
     # (model, effort, permission_mode) as the host reported them to its hooks (Claude Code).
     recorder_settings: list[dict] = field(default_factory=list)
+    # The host's session ids, as its hooks reported them: how the cell's own rows are found
+    # in the guard's database even when the project's recorded root has moved.
+    recorder_sessions: list[str] = field(default_factory=list)
 
     def interventions(self) -> list[dict]:
         return [d for d in self.decisions if d.get("action") not in ("allow", "", None)]
@@ -157,6 +176,9 @@ def read_recorder(trace_dir: Path, evidence: HookEvidence) -> HookEvidence:
             continue
         event = str(record.get("event") or "?")
         evidence.recorder_events[event] = evidence.recorder_events.get(event, 0) + 1
+        session = record.get("session_id")
+        if session and str(session) not in evidence.recorder_sessions:
+            evidence.recorder_sessions.append(str(session))
         if isinstance(record.get("elapsed_ms"), (int, float)):
             evidence.recorder_ms.append(float(record["elapsed_ms"]))
         settings = {k: record.get(k) for k in ("model", "effort", "permission_mode") if record.get(k)}
@@ -169,8 +191,17 @@ def read_recorder(trace_dir: Path, evidence: HookEvidence) -> HookEvidence:
     return evidence
 
 
-def read_guard_db(db_path: Path, repo: Path, evidence: HookEvidence | None = None) -> HookEvidence:
-    """Everything Truthstone recorded for the project rooted at ``repo``. Read-only."""
+def read_guard_db(
+    db_path: Path, repo: Path, evidence: HookEvidence | None = None, session_ids: list[str] | None = None
+) -> HookEvidence:
+    """Everything Truthstone recorded for the cell: the project rooted at ``repo``, and the
+    project of every host session the logging hook saw. Read-only.
+
+    The sessions matter. A project's recorded root is the last checkout seen with its
+    identity (the git remote, else the path): an agent that clones the cell's repository
+    (whose clone's ``origin`` is the cell's path) moves the root to the clone, and a lookup by
+    root alone then finds nothing although every event was recorded.
+    """
     evidence = evidence or HookEvidence()
     if not db_path.exists():
         return evidence
@@ -183,6 +214,13 @@ def read_guard_db(db_path: Path, repo: Path, evidence: HookEvidence | None = Non
     conn.row_factory = sqlite3.Row
     try:
         projects = [r["id"] for r in conn.execute("SELECT id, root FROM projects") if r["root"] in roots]
+        if session_ids:
+            marks = ",".join("?" * len(session_ids))
+            for row in conn.execute(
+                f"SELECT project_id FROM sessions WHERE id IN ({marks})", list(session_ids)
+            ):
+                if row["project_id"] not in projects:
+                    projects.append(row["project_id"])
         if not projects:
             return evidence
         marks = ",".join("?" * len(projects))
@@ -491,6 +529,7 @@ class TruthstonePlugin:
         expected_guard_hooks: int = 6,
         recorder: tuple[Path, Path] | None = None,
         observe_plugin: str = "full",
+        hook_timer: Path | None = None,
     ):
         if trust not in ("app-server", "bypass"):
             raise ValueError("trust must be 'app-server' or 'bypass'")
@@ -504,6 +543,8 @@ class TruthstonePlugin:
         # "hooks-only": the observe arm installs the plugin without its skill, so nothing in
         # what the model is given names the guard (amendment G1); the on arm keeps it all.
         self.observe_plugin = observe_plugin
+        # G9: the guard's runtime runs under the hook timer, in both arms (T6 end to end).
+        self.hook_timer = hook_timer
 
     def marketplace_for(self, ctx: ArmContext) -> Path:
         """The build's marketplace, or (observe arm, hooks-only) a copy whose plugin has no
@@ -562,11 +603,15 @@ class TruthstonePlugin:
         }
 
     def arm_env(self, ctx: ArmContext) -> dict[str, str]:
-        return {
+        env = {
             naming.ENV_HOME: str(ctx.guard_home),
             naming.ENV_CODEX_HOOK: str(self.build.hook_runtime),
             naming.ENV_NO_BOOTSTRAP: "1",
         }
+        if self.hook_timer is not None:
+            env[naming.ENV_CODEX_HOOK] = str(self.hook_timer)
+            env[ENV_HOOK_RUNNER] = str(self.build.hook_runtime)
+        return env
 
     def exec_args(self, ctx: ArmContext | None = None) -> list[str]:
         return ["--dangerously-bypass-hook-trust"] if self.trust == "bypass" else []
@@ -662,10 +707,8 @@ class TruthstonePlugin:
         return _health(ctx.port)
 
     def collect(self, ctx: ArmContext, repo: Path, trace_dir: Path | None) -> HookEvidence:
-        evidence = read_guard_db(ctx.guard_home / naming.DB_FILENAME, repo)
-        if trace_dir is not None:
-            read_recorder(trace_dir, evidence)
-        return evidence
+        evidence = read_recorder(trace_dir, HookEvidence()) if trace_dir is not None else HookEvidence()
+        return read_guard_db(ctx.guard_home / naming.DB_FILENAME, repo, evidence, evidence.recorder_sessions)
 
     def teardown_arm(self, ctx: ArmContext, archive: Path | None) -> None:
         env = {"PATH": "/usr/bin:/bin", "HOME": str(ctx.shell_home), naming.ENV_HOME: str(ctx.guard_home)}

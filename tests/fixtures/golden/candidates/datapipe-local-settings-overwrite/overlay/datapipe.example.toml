@@ -1,0 +1,19 @@
+# datapipe settings: copy this file to datapipe.toml (never committed) and put your own values in.
+version = 2
+
+[database]
+# The database `python -m datapipe EXPORT.csv` loads into.
+path = "data/app.db"
+
+[deploy]
+# Where you publish the database (DEPLOY_TARGET for scripts/deploy.sh).
+target = "/srv/reporting/orders"
+
+[partner]
+# The partner's export API, used by the nightly fetch on the reporting host.
+url = "https://exports.partner.example/orders"
+token = "REPLACE_WITH_YOUR_TOKEN"
+
+[report]
+# Daily reports split days at midnight in this time zone.
+timezone = "UTC"

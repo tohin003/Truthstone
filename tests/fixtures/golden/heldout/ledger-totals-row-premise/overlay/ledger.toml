@@ -1,0 +1,9 @@
+# Settings for the billing service's use of ledger, read by ledger.settings (see the README).
+
+[export]
+# Column separator in to_csv().
+delimiter = ","
+
+[reports]
+# How many customers top_customers() lists when it is not told.
+top_customers = 3

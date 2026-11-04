@@ -14,6 +14,7 @@ import dataclasses
 import json
 import shutil
 import subprocess
+import tarfile
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,23 @@ OUT = "regrade.json"
 
 
 def _rebuild(cell_dir: Path, dest: Path) -> str | None:
-    """The cell's final tree in ``dest``, or why it cannot be rebuilt."""
+    """The cell's final tree in ``dest``, or why it cannot be rebuilt: from the archived
+    changes (cells recorded since the archive existed), else from ``final.diff``."""
+    from truthstone.bench.codex.orchestrator import FINAL_TREE, FINAL_TREE_META
+
+    meta_path = cell_dir / FINAL_TREE_META
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if not meta.get("archived"):
+            return f"the final tree's changes were too large to archive ({meta.get('bytes')} bytes)"
+        shutil.copytree(cell_dir / "pristine", dest, symlinks=True)
+        for rel in meta.get("deleted", []):
+            target = dest / rel
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+        with tarfile.open(cell_dir / FINAL_TREE, "r:gz") as tar:
+            tar.extractall(dest, filter="tar")
+        return None
     diff = (cell_dir / "final.diff").read_text(encoding="utf-8")
     if "<binary>" in diff or "<diff truncated>" in diff:
         return "the diff cannot be replayed (binary or truncated)"

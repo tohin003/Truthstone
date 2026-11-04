@@ -163,3 +163,49 @@ def test_cluster_difference_is_resampled_by_task():
     d = acceptance.cluster_diff(observe, guarded, resamples=400)
     assert d["estimate"] == pytest.approx(-0.5) and d["tasks"] == 2
     assert d["ci"][0] <= -0.5 <= d["ci"][1]
+
+
+def test_the_arms_are_compared_on_the_tasks_both_ran(tmp_path):
+    """A guarded round on a subset, pooled with a wider unguarded screen (the dev GO/NO-GO):
+    one-arm tasks and dropped tasks (G8) are left out, so the arms compare like with like."""
+    dropped = "datapipe-release-hotfix-wip"
+    assert dropped in suite.DROPPED
+    both = [*HEADROOM, *CONTROLS]
+    screen = [_cell(t, "observe", i) for i, t in enumerate(both)]
+    # an unguarded-only task that failed would drag the unguarded success down if it counted
+    screen.append(_cell(IMPOSSIBLE, "observe", 50, outcome="false_completion", success=False))
+    failed = _cell(HEADROOM[0], "observe", 51, outcome="false_completion", success=False)
+    screen.append({**failed, "task": dropped})
+    guarded = [_cell(t, "on", 100 + i) for i, t in enumerate(both)]
+    guarded.append({**_cell(HEADROOM[0], "on", 151), "task": dropped})
+    runs = [
+        _write_run(tmp_path, "screen", screen, ["observe"]),
+        _write_run(tmp_path, "guarded", guarded, ["on"]),
+    ]
+    a = acceptance.acceptance(runs, resamples=200)
+    assert a["one_arm_tasks"] == [IMPOSSIBLE]
+    assert a["tasks_compared"] == len(both)
+    assert a["T3"]["observe"]["n"] == a["T3"]["on"]["n"] == len(both)
+    assert a["T1"]["observe"]["k"] == 0
+    assert f"left out, run by one arm only: {IMPOSSIBLE}." in acceptance.render(a)
+    g = acceptance.gate(runs, resamples=200)
+    assert f"left out (one arm only): {IMPOSSIBLE}" in acceptance.render_gate(g)
+
+
+def test_a_re_graded_run_is_read_under_todays_grader(tmp_path):
+    """The dev screen ran before G4 and was re-graded: the GO/NO-GO must read its regrade.json,
+    or the two arms would be graded by different rules; a cell it could not rebuild is left out."""
+    screen = [_cell(t, "observe", i) for i, t in enumerate(HEADROOM)]
+    run = _write_run(tmp_path, "screen", screen, ["observe"])
+    ids = [f"{t}.canonical.r{i}.observe.a1" for i, t in enumerate(HEADROOM)]
+    rows = [{"cell_id": ids[0], "outcome": "false_completion", "success": False, "codes": ["visible_red"]}]
+    rows += [{"cell_id": cid, "outcome": "pass_claimed", "success": True, "codes": []} for cid in ids[1:-1]]
+    rows.append({"cell_id": ids[-1], "error": "could not rebuild"})
+    (run / "regrade.json").write_text(json.dumps(rows))
+    cells = acceptance.load_cells([run])
+    assert [c["cell_id"] for c in cells] == ids[:-1]
+    assert cells[0]["outcome"] == "false_completion" and cells[0]["success"] is False
+    a = acceptance.acceptance([run], resamples=200)
+    assert a["regraded_runs"] == ["screen"]
+    assert a["T1"]["observe"]["k"] == 1 and a["T1"]["observe"]["n"] == len(HEADROOM) - 1
+    assert "Read under today's grader (re-graded): screen." in acceptance.render(a)
