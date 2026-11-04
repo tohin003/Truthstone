@@ -494,6 +494,39 @@ def _tool_owned(path: str) -> bool:
 # The kinds a "switch nobody reads" note is about: not a symbol or a path.
 _SWITCH_KINDS = frozenset({"env", "name", "flag"})
 
+# Configuration the repository index skips: its top-level dot-files and its CI and tool
+# directories. Without them a name defined only in `.eslintrc.json`, `.prettierrc`,
+# `.env.example` or a workflow read as "appears nowhere" (audit of 66e1617).
+_DOT_DIRS = frozenset({".github", ".circleci", ".gitlab", ".husky", ".devcontainer", ".vscode"})
+# A real `.env` holds secrets: never read. Its documented templates are configuration.
+_REAL_ENV = re.compile(r"^\.env(?:\.(?!(?:example|sample|template|dist|defaults)$)[\w.-]+)?$", re.IGNORECASE)
+MAX_DOT_FILES = 200
+
+
+def dot_config_files(root: Path) -> list[str]:
+    """The dot-files the index does not list: ``root``'s own (``.eslintrc.json``,
+    ``.env.example`` …, never ``.env``) and those under ``.github/`` and the like. Bounded;
+    never raises."""
+    out: list[str] = []
+    try:
+        for entry in sorted(root.iterdir()):
+            name = entry.name
+            if not name.startswith(".") or name in (".git", ".hg", ".svn"):
+                continue
+            if entry.is_file() and not _REAL_ENV.match(name):
+                out.append(name)
+            elif entry.is_dir() and name in _DOT_DIRS:
+                for path in sorted(entry.rglob("*")):
+                    if len(out) >= MAX_DOT_FILES:
+                        return out
+                    if path.is_file():
+                        out.append(path.relative_to(root).as_posix())
+            if len(out) >= MAX_DOT_FILES:
+                break
+    except OSError:
+        pass
+    return out
+
 
 def resolve(
     assertions_: Iterable[Assertion], root: Path, files: Iterable[str]
@@ -507,6 +540,8 @@ def resolve(
     if not pending:
         return []
     files = list(files)
+    present = set(files)
+    files += [rel for rel in dot_config_files(root) if rel not in present]
     present = set(files)
     names = {p.rpartition("/")[2] for p in files}
     unresolved: list[Assertion] = []
@@ -532,6 +567,9 @@ def resolve(
     tails = {a.keys[-1] for a in unresolved if a.kind == "symbol" and len(a.keys) > 1}
     found: set[str] = set()  # in code, or in a tool's configuration: resolved
     elsewhere: dict[str, list[str]] = {}  # only in other files (config, data, docs, CI)
+    env_keys = {a.keys[0] for a in unresolved if a.kind == "env"}
+    from truthstone.validate import config_reads  # here: validate's package imports the engine's world
+
     budget = MAX_SCAN_BYTES
     for rel in files:
         if len(found) == len(patterns):
@@ -549,6 +587,9 @@ def resolve(
             continue
         code = _code_file(rel)
         read_here = code or _tool_owned(rel)
+        if code and env_keys - found:
+            # A settings class, a computed key, the whole environment: read, though not spelled.
+            found |= config_reads.indirect_reads(text, env_keys - found)
         for key, pattern in patterns.items():
             if key in found or key not in text:
                 continue

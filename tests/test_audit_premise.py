@@ -356,10 +356,36 @@ WHERE_TS_PROMPTS = [
 ]
 
 
-@pytest.mark.xfail(strict=True, reason="names only in dot-files or read indirectly are 'nowhere' (66e1617)")
 def test_names_in_dotfiles_or_read_indirectly_get_no_premise_note(tmp_path):
     spoke = {
         **_notes(WHERE_PY, WHERE_PY_PROMPTS, tmp_path / "py"),
         **_notes(WHERE_TS, WHERE_TS_PROMPTS, tmp_path / "ts"),
     }
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
+
+
+def test_a_switch_only_a_template_mentions_is_still_noted_and_says_where(tmp_path):
+    files = {**PY_REPO, ".env.example": PY_REPO[".env.example"] + "LEDGERLY_TRACE=0\n"}
+    ask = "ledgerly already logs every request when LEDGERLY_TRACE=1 is set, so switch that on in CI."
+    spoke = _notes(files, [ask], tmp_path)
+    assert spoke[ask].startswith("`LEDGERLY_TRACE` appears only in .env.example, and no code")
+
+
+def test_a_real_env_file_is_never_read(tmp_path):
+    files = {**PY_REPO, ".env": "LEDGERLY_TRACE=1\n"}
+    ask = "ledgerly already logs every request when LEDGERLY_TRACE=1 is set, so switch that on in CI."
+    spoke = _notes(files, [ask], tmp_path)
+    assert spoke[ask].startswith("`LEDGERLY_TRACE` appears nowhere in this repository")
+
+
+def test_dot_config_files_are_listed_bounded_and_never_the_real_env(tmp_path):
+    made = (".env", ".env.local", ".env.example", ".eslintrc.json", ".git/config", ".github/workflows/ci.yml")
+    for rel in (*made, ".venv/lib/x.py", "src/app.py"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("x\n")
+    listed = premise.dot_config_files(tmp_path)
+    assert listed == [".env.example", ".eslintrc.json", ".github/workflows/ci.yml"]
+    for n in range(premise.MAX_DOT_FILES + 50):
+        (tmp_path / ".github" / f"w{n}.yml").write_text("x\n")
+    assert len(premise.dot_config_files(tmp_path)) == premise.MAX_DOT_FILES
+    assert premise.dot_config_files(tmp_path / "missing") == []

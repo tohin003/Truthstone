@@ -221,6 +221,31 @@ _ENV_PREFIX = re.compile(r"env_prefix[\"']?\s*[=:]\s*[\"']([A-Za-z0-9_]*)[\"']")
 _FRAGMENT = re.compile(r"[A-Za-z0-9_]{3,}")
 
 
+def indirect_reads(text: str, names: set[str]) -> set[str]:
+    """The environment ``names`` a code file's ``text`` reads without spelling them — the same
+    rules as :func:`_readers`: the whole environment iterated, a computed key sharing a
+    fragment with the name, or a settings class (pydantic ``BaseSettings``: its ``env_prefix``,
+    and fields named like the variable in lower case). Used by the prompt-time premise check
+    (``intent/premise.py``), which asks the same question about a switch."""
+    if not names:
+        return set()
+    if _ITERATES_ENV.search(text):
+        return set(names)
+    read: set[str] = set()
+    for match in _COMPUTED_KEY.finditer(text):
+        fragments = [f for f in _FRAGMENT.findall(match.group("expr")) if f.lower() not in ("get", "env")]
+        read |= {name for name in names if any(f.upper() in name.upper() for f in fragments)}
+    if "BaseSettings" in text:
+        prefixes = [p for p in _ENV_PREFIX.findall(text) if p]
+        read |= {name for name in names if any(name.upper().startswith(p.upper()) for p in prefixes)}
+        read |= {
+            name
+            for name in names
+            if re.search(rf"(?<![\w$]){re.escape(name.lower())}(?![\w$])", text)
+        }
+    return read
+
+
 def _readers(index: RepoIndex, names: set[str], skip: set[str]) -> tuple[set[str], str]:
     """(the names some non-config file mentions, why everything is read or ""). Bounded:
     past the budget the scan says "too large", which means silence."""
