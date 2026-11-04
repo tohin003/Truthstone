@@ -431,6 +431,7 @@ def doctor() -> None:
             "claude code", lambda: _doctor_claude_hooks(report, settings), default=False
         )
         plugin_active = report.section(None, lambda: _doctor_plugin(bool(installed_anywhere)), default=False)
+        report.section(None, _doctor_unverified_hosts)
         codex_attached, codex_problems = report.section(None, _doctor_codex, default=(False, 0))
         report.problems += codex_problems
         if not installed_anywhere and not plugin_active and not codex_attached:
@@ -706,6 +707,47 @@ def _doctor_claude_hooks(report: _DoctorReport, settings: Settings) -> bool:
         else:
             _ok(f"{label} hooks installed ({path})")
     return installed_anywhere
+
+
+# Other hosts that read Claude Code's `.claude/settings*.json` (H8): what betrays each one.
+_SETTINGS_READERS = (
+    ("Cursor", (".cursor",), (".cursor",), ("cursor", "cursor-agent")),
+    ("GitHub Copilot CLI", (".copilot",), (), ("copilot",)),
+)
+
+
+def _unverified_host_signs() -> list[tuple[str, list[str]]]:
+    """``[(host, [what was found])]`` for each settings-reading host with a sign here."""
+    import shutil
+
+    found = []
+    for name, home_dirs, project_dirs, binaries in _SETTINGS_READERS:
+        signs = [f"~/{entry}" for entry in home_dirs if (Path.home() / entry).is_dir()]
+        signs += [f"./{entry}" for entry in project_dirs if (Path.cwd() / entry).is_dir()]
+        signs += [f"`{binary}` on PATH" for binary in binaries if shutil.which(binary)]
+        if signs:
+            found.append((name, signs))
+    return found
+
+
+def _doctor_unverified_hosts() -> None:
+    """Say so where another host may run AgentGuard's Claude hooks unguarded (H8).
+
+    Cursor and GitHub Copilot CLI read `.claude/settings*.json`. Their command hooks may
+    run AgentGuard's shim while its HTTP tool hooks are not called, so the integration
+    looks installed and guards nothing. Not verified live either way: a warning, never a
+    problem.
+    """
+    signs = _unverified_host_signs()
+    if not signs:
+        return
+    _echo("\nother hosts")
+    for name, found in signs:
+        _warn(
+            f"{name} found ({', '.join(found)}). It reads .claude/settings*.json, so it may run "
+            "AgentGuard's command hooks without its HTTP tool hooks: AgentGuard's Claude hooks are "
+            f"only verified for Claude Code, and guarding under {name} is unverified."
+        )
 
 
 def _doctor_codex() -> tuple[bool, int]:
