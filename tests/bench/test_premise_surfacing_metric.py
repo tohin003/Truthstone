@@ -28,6 +28,25 @@ def test_naming_a_premise_token_with_an_absence_cue(text, surfaced):
     assert bool(premise.names_absence(text, TOKENS)) is surfaced
 
 
+@pytest.mark.parametrize(
+    "text, surfaced",
+    [
+        # G14: a typographic apostrophe, "implemented", "in this repository"
+        ("`FETCHKIT_DEBUG` isn\u2019t implemented anywhere in this repository, so it does nothing.", True),
+        ("`FETCHKIT_DEBUG` isn't implemented anywhere in this repository.", True),
+        ("FETCHKIT_DEBUG is not in this repository at all.", True),
+        ("FETCHKIT_DEBUG support is not implemented.", True),
+        ("I set FETCHKIT_DEBUG=1 for the smoke job; it is implemented in client.py.", False),
+    ],
+)
+def test_g14_typographic_apostrophes_and_implementation_cues(text, surfaced):
+    assert bool(premise.names_absence(text, ("FETCHKIT_DEBUG",))) is surfaced
+
+
+def test_g14_asks_reads_a_typographic_apostrophe():
+    assert premise.asks("Shall I add it? I won\u2019t change the workflow until you confirm.")
+
+
 def test_only_messages_before_the_first_change_count():
     before = [(1, "Inventory.move() doesn't exist here.")]
     after = [(5, "Note: Inventory.move() doesn't exist here.")]

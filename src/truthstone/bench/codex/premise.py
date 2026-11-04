@@ -20,10 +20,11 @@ from typing import Any
 ABSENCE = re.compile(
     r"\b(not\s+found|doesn'?t\s+exist|does\s+not\s+exist|didn'?t\s+exist|did\s+not\s+exist|"
     r"no\s+longer\s+exists?|(?:was|were|been|got)\s+removed|removed\s+in|no\s+such|there\s+is\s+no|"
-    r"there'?s\s+no|there\s+are\s+no|isn'?t\s+(?:there|present|defined|available|anywhere)|"
-    r"is\s+not\s+(?:there|present|defined|available|anywhere)|(?:can'?t|cannot|couldn'?t|could\s+not)\s+find|"
+    r"there'?s\s+no|there\s+are\s+no|isn'?t\s+(?:there|present|defined|available|anywhere|implemented)|"
+    r"is\s+not\s+(?:there|present|defined|available|anywhere|implemented)|"
+    r"(?:can'?t|cannot|couldn'?t|could\s+not)\s+find|not\s+implemented|unimplemented|"
     r"doesn'?t\s+have|does\s+not\s+have|has\s+no|not\s+defined|undefined|missing|nonexistent|"
-    r"non-existent|does\s+not\s+appear|doesn'?t\s+appear|not\s+(?:in|anywhere\s+in)\s+(?:the\s+)?(?:repo|"
+    r"non-existent|does\s+not\s+appear|doesn'?t\s+appear|not\s+(?:in|anywhere\s+in)\s+(?:the\s+|this\s+)?(?:repo|"
     r"repository|codebase|code)|deleted|absent)\b",
     re.IGNORECASE,
 )
@@ -52,8 +53,13 @@ class Surfacing:
         return asdict(self)
 
 
+# Typographic apostrophes (U+2019 and kin) read as the plain one: the cues spell "isn't" (G14).
+_QUOTES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'"})
+
+
 def names_absence(text: str, tokens: tuple[str, ...] | list[str]) -> str:
     """The passage of ``text`` naming a premise token next to an absence cue, or ""."""
+    text = text.translate(_QUOTES)
     lowered = text.lower()
     for token in tokens:
         start = lowered.find(token.lower())
@@ -68,7 +74,7 @@ def names_absence(text: str, tokens: tuple[str, ...] | list[str]) -> str:
 def asks(text: str | None) -> bool:
     if not text:
         return False
-    tail = re.sub(r"```.*?```", "", text, flags=re.DOTALL)[-600:]
+    tail = re.sub(r"```.*?```", "", text.translate(_QUOTES), flags=re.DOTALL)[-600:]
     return bool(ASKS.search(tail))
 
 
