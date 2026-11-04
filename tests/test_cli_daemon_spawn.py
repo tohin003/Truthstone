@@ -1,6 +1,6 @@
-"""`agentguard daemon start` must never import code from the directory it was typed in.
+"""`truthstone daemon start` must never import code from the directory it was typed in.
 
-The command is usually run inside a repository. Spawned as `python -m agentguard.daemon` from
+The command is usually run inside a repository. Spawned as `python -m truthstone.daemon` from
 there, the daemon would get that directory first on sys.path, and a repository file could
 shadow a module the daemon imports.
 """
@@ -11,14 +11,14 @@ import subprocess
 
 from typer.testing import CliRunner
 
-from agentguard.cli import main as cli
+from truthstone.cli import main as cli
 
 
 def test_daemon_start_uses_dash_p_and_a_safe_cwd(tmp_path, monkeypatch):
     home = tmp_path / "home"
     repo = tmp_path / "repo"
     repo.mkdir()
-    monkeypatch.setenv("AGENTGUARD_HOME", str(home))
+    monkeypatch.setenv("TRUTHSTONE_HOME", str(home))
     monkeypatch.chdir(repo)
 
     calls: list[tuple[list[str], dict]] = []
@@ -34,6 +34,6 @@ def test_daemon_start_uses_dash_p_and_a_safe_cwd(tmp_path, monkeypatch):
     assert calls, f"daemon start never spawned anything: {result.output}"
     argv, kwargs = calls[0]
     assert argv.index("-P") < argv.index("-m"), argv
-    assert argv[argv.index("-m") + 1] == "agentguard.daemon"
+    assert argv[argv.index("-m") + 1] == "truthstone.daemon"
     assert kwargs.get("cwd") is not None
     assert str(kwargs["cwd"]) != str(repo), "the daemon must not start in the caller's directory"

@@ -1,6 +1,6 @@
 """SPEC §3 — the failure-mode census (Phase 7).
 
-SPEC §3 lists the failures AgentGuard exists to prevent. The benchmark
+SPEC §3 lists the failures Truthstone exists to prevent. The benchmark
 (`docs/BENCH-mutation.md`) established that the project had built an excellent detector
 for one of them that current models no longer commit. Phase 7 stops guessing which of the
 others matter and counts them.
@@ -39,19 +39,19 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agentguard.census import collect, render, render_detectors
-from agentguard.census.taxonomy import NOT_INSTRUMENTED_BECAUSE, TAXONOMY
-from agentguard.core import observe
-from agentguard.core.config import Settings
-from agentguard.core.enums import DecisionAction, EventType, FailureMode
-from agentguard.core.events import AgentEvent
-from agentguard.core.models import Decision, Finding
-from agentguard.core.store import ProjectStore
-from agentguard.core.taskstate import TaskState
-from agentguard.repo import RepoIndex
-from agentguard.validate import checks
-from agentguard.verify import completion_gate
 from tests.conftest import REPO_ROOT, free_port, pre_tool_use, user_prompt_submit
+from truthstone.census import collect, render, render_detectors
+from truthstone.census.taxonomy import NOT_INSTRUMENTED_BECAUSE, TAXONOMY
+from truthstone.core import observe
+from truthstone.core.config import Settings
+from truthstone.core.enums import DecisionAction, EventType, FailureMode
+from truthstone.core.events import AgentEvent
+from truthstone.core.models import Decision, Finding
+from truthstone.core.store import ProjectStore
+from truthstone.core.taskstate import TaskState
+from truthstone.repo import RepoIndex
+from truthstone.validate import checks
+from truthstone.verify import completion_gate
 
 pytestmark = pytest.mark.spec
 
@@ -83,7 +83,7 @@ def index(repo) -> RepoIndex:
 
 
 def guard_for(repo: Path, observe_only: bool = False):
-    from agentguard.core.engine import Guard
+    from truthstone.core.engine import Guard
 
     guard = Guard(Settings(observe_only=observe_only))
     guard.workspace(repo).index.ready(timeout=30)
@@ -117,8 +117,8 @@ def write_event(repo: Path, path: str, content: str) -> AgentEvent:
 
 
 def spec_for(prompt: str, index: RepoIndex):
-    from agentguard.complexity import assess
-    from agentguard.intent import extract
+    from truthstone.complexity import assess
+    from truthstone.intent import extract
 
     spec = extract(prompt, index)
     spec.complexity = assess(spec, index)
@@ -144,7 +144,7 @@ def heard_by_agent(source: AgentEvent, decision: Decision) -> dict:
     conflating the two would let a recorded-never-raised detector look like a failure —
     or, far worse, let a leak look like a pass.
     """
-    from agentguard.adapters.claude_code import translate
+    from truthstone.adapters.claude_code import translate
 
     return translate.from_decision(source, decision, HOOK_NAME.get(source.event, ""))
 
@@ -302,7 +302,7 @@ class TestObserveOnlyThroughTheGuard:
             guarded.close()
             observing.close()
 
-        assert loud.additional_context and "[AgentGuard]" in loud.additional_context
+        assert loud.additional_context and "[Truthstone]" in loud.additional_context
         assert quiet.additional_context is None
 
     def test_a_blocked_completion_becomes_a_silent_allow(self, repo):
@@ -402,14 +402,14 @@ class TestObserveOnlyThroughTheInstalledHooks:
 
     A mode configured only by tests is a mode nobody has tested — the port-default bug
     from Phase 5 would have been caught here and nowhere else. The daemon is started with
-    `AGENTGUARD_OBSERVE=1`, which is how a developer would actually try this for one
+    `TRUTHSTONE_OBSERVE=1`, which is how a developer would actually try this for one
     session.
     """
 
     @pytest.fixture
     def observing_daemon(self, tmp_path, isolated_home):
-        from agentguard.adapters.claude_code import install as inst
-        from agentguard.core.config import DaemonSettings
+        from truthstone.adapters.claude_code import install as inst
+        from truthstone.core.config import DaemonSettings
 
         port = free_port()
         settings_file = tmp_path / ".claude" / "settings.json"
@@ -420,12 +420,12 @@ class TestObserveOnlyThroughTheInstalledHooks:
 
         env = dict(
             os.environ,
-            AGENTGUARD_HOME=str(isolated_home),
+            TRUTHSTONE_HOME=str(isolated_home),
             PYTHONPATH=str(REPO_ROOT / "src"),
-            AGENTGUARD_OBSERVE="1",
+            TRUTHSTONE_OBSERVE="1",
         )
         proc = subprocess.Popen(
-            [sys.executable, "-m", "agentguard.daemon", "run", "--port", str(port)],
+            [sys.executable, "-m", "truthstone.daemon", "run", "--port", str(port)],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -465,7 +465,7 @@ class TestObserveOnlyThroughTheInstalledHooks:
         return response.json()
 
     def test_the_env_flag_reaches_the_daemon(self, observing_daemon, repo):
-        """`AGENTGUARD_OBSERVE=1` for one session — how a developer would actually try it.
+        """`TRUTHSTONE_OBSERVE=1` for one session — how a developer would actually try it.
 
         This prompt scores 75/100 DEEP and normally comes back carrying a substantial
         planning budget, so an empty body here is the flag working rather than the
@@ -606,7 +606,7 @@ class TestIgnoredRepositoryPatterns:
 
     @pytest.fixture
     def own_index(self) -> RepoIndex:
-        """AgentGuard's own repository — real conventions, not ones written to be broken."""
+        """Truthstone's own repository — real conventions, not ones written to be broken."""
         return RepoIndex(REPO_ROOT).build()
 
     def creation(self, root: Path, path: str) -> AgentEvent:
@@ -617,8 +617,8 @@ class TestIgnoredRepositoryPatterns:
     @pytest.mark.parametrize(
         "path",
         [
-            "src/agentguard/core/NewThing.py",
-            "src/agentguard/core/newThing.py",
+            "src/truthstone/core/NewThing.py",
+            "src/truthstone/core/newThing.py",
         ],
     )
     def test_a_mixed_case_name_among_lowercase_siblings(self, own_index, path):
@@ -632,8 +632,8 @@ class TestIgnoredRepositoryPatterns:
     @pytest.mark.parametrize(
         "path",
         [
-            "src/agentguard/core/new_thing.py",
-            "src/agentguard/core/newthing.py",
+            "src/truthstone/core/new_thing.py",
+            "src/truthstone/core/newthing.py",
             "tests/spec/test_s99_something.py",
         ],
     )
@@ -641,7 +641,7 @@ class TestIgnoredRepositoryPatterns:
         assert not checks.pattern_consistency(self.creation(REPO_ROOT, path), own_index, path)
 
     def test_a_test_written_outside_the_test_root(self, own_index):
-        path = "src/agentguard/test_thing.py"
+        path = "src/truthstone/test_thing.py"
         findings = checks.pattern_consistency(self.creation(REPO_ROOT, path), own_index, path)
         assert findings and "outside `tests/`" in findings[0].summary
 
@@ -650,7 +650,7 @@ class TestIgnoredRepositoryPatterns:
         assert not checks.pattern_consistency(self.creation(REPO_ROOT, path), own_index, path)
 
     def test_a_brand_new_directory_is_noted(self, own_index):
-        path = "src/agentguard/somewhere_new/thing.py"
+        path = "src/truthstone/somewhere_new/thing.py"
         findings = checks.pattern_consistency(self.creation(REPO_ROOT, path), own_index, path)
         assert findings and "no existing siblings" in findings[0].summary
 
@@ -661,7 +661,7 @@ class TestIgnoredRepositoryPatterns:
         assert not checks._naming(index, path)
 
     def test_editing_an_existing_file_is_never_a_naming_violation(self, own_index):
-        path = "src/agentguard/core/store.py"
+        path = "src/truthstone/core/store.py"
         edit = event(
             REPO_ROOT, EventType.PRE_TOOL_USE, "Edit", file_path=str(REPO_ROOT / path),
             old_string="a", new_string="b",
@@ -770,7 +770,7 @@ class TestUnverifiedCompletion:
         assert FailureMode.UNVERIFIED_CHANGE in {f.failure_mode for f in verdict.findings}
 
     def test_finishing_on_failing_tests(self, index):
-        from agentguard.verify.runners import TestOutcome
+        from truthstone.verify.runners import TestOutcome
 
         state = self.state_after(index, ["src/shop/utils/pagination.py"])
         state.verification.outcomes.append(
@@ -787,7 +787,7 @@ class TestUnverifiedCompletion:
         assert FailureMode.FALSE_COMPLETION in {f.failure_mode for f in verdict.findings}
 
     def test_a_passing_run_produces_no_failure_finding(self, index):
-        from agentguard.verify.runners import TestOutcome
+        from truthstone.verify.runners import TestOutcome
 
         state = self.state_after(index, ["src/shop/utils/pagination.py"])
         state.verification.outcomes.append(
@@ -932,7 +932,7 @@ class TestTheCensusReport:
         text = render(populated)
         assert "not instrumented — no detector, so no number" in text
         assert "misunderstand developer intent" in text
-        assert "AgentGuard owns no LLM" in text
+        assert "Truthstone owns no LLM" in text
         # And it must never print a zero row for one of them.
         for line in text.splitlines():
             if "misunderstand developer intent" in line:
@@ -987,7 +987,7 @@ class TestTheCensusReport:
     def test_the_cli_runs(self, populated, repo):
         from typer.testing import CliRunner
 
-        from agentguard.cli.main import app
+        from truthstone.cli.main import app
 
         result = CliRunner().invoke(app, ["census", "--workspace", str(repo), "--json"])
         assert result.exit_code == 0, result.output

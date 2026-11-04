@@ -1,8 +1,8 @@
-# AgentGuard Practices: directory listing kit
+# Truthstone Practices: directory listing kit
 
 This kit prepares the **skills-only companion plugin** for OpenAI's Plugin Directory, which ChatGPT and Codex share, and for free discovery lists. Nothing here has been submitted anywhere.
 
-`AgentGuard Practices` and `agentguard-practices` are working names. The product will be renamed before release; see [§10](#10-renaming).
+`Truthstone Practices` and `truthstone-practices` are working names. The product will be renamed before release; see [§10](#10-renaming).
 
 Rules were verified on 2026-11-04 against the raw Markdown of the official pages listed in [§4](#4-compliance-checklist).
 
@@ -24,7 +24,7 @@ Rules were verified on 2026-11-04 against the raw Markdown of the official pages
 
 ## 1. What is submitted
 
-The plugin lives in `plugins/agentguard-practices/`. It is the same directory that our own Codex and Claude Code marketplaces serve.
+The plugin lives in `plugins/truthstone-practices/`. It is the same directory that our own Codex and Claude Code marketplaces serve.
 
 | Path | Purpose | In the submission ZIP |
 |---|---|---|
@@ -57,7 +57,7 @@ python3 scripts/companion_package.py rules            # every rule ID with its s
 python3 scripts/companion_package.py selftest         # 85 cases: each rule shown rejecting a bad package
 ```
 
-The current build is `dist/companion/agentguard-practices-1.0.0.zip`: 21 files, 47,231 bytes, sha256 `b55613cfe8c7bb250d29aeb724aab2a6d1472c365b88a89adaa4158e98ded8c4`. The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
+The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,231 bytes, sha256 `b55613cfe8c7bb250d29aeb724aab2a6d1472c365b88a89adaa4158e98ded8c4`. The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
 
 ---
 
@@ -67,22 +67,22 @@ The listing copy is final and within every limit. It comes from `.codex-plugin/p
 
 | Field | Value | Length / limit |
 |---|---|---|
-| `name` | `agentguard-practices` | 20 / 64 |
+| `name` | `truthstone-practices` | 20 / 64 |
 | `version` | `1.0.0` | semver |
-| `displayName` | AgentGuard Practices | 20 / 30 |
+| `displayName` | Truthstone Practices | 20 / 30 |
 | `shortDescription` | Verify work before saying done | 30 / 30 |
 | `longDescription` | below | 2,727 / 4,000 |
 | `description` (package) | Six instruction-only skills that guide a coding agent to show evidence before saying a task is done: a requirement ledger, file:line grounding, scope checks, proportional planning, a pre-flight for irreversible shell commands, and a review of the diff against the request. | 272 / 1,024 |
-| `developerName` | AgentGuard project. The portal replaces it with your verified identity's name (`developer_name_defaulted`) | 18 / 80 |
+| `developerName` | Truthstone project. The portal replaces it with your verified identity's name (`developer_name_defaulted`) | 18 / 80 |
 | `category` | Developer Tools | allowed value |
 | `brandColor` | `#0F766E` | 5.47:1 against white (needs 2:1) |
 | `brandColorDark` | `#2DD4BF` | 8.65:1 against `#212121` (needs 2:1) |
 | `logo` / `logoDark` | `./assets/logo.svg` / `./assets/logo-dark.svg` | square 512, SVG |
 | `composerIcon` / `composerIconDark` | `./assets/icon.svg` / `./assets/icon-dark.svg` | square 512, SVG |
-| `websiteURL` | https://github.com/tohin003/AgentGuard | 38 / 1,024 |
-| `supportURL` | https://github.com/tohin003/AgentGuard/blob/master/docs/legal/SUPPORT.md | 72 / 1,024 |
-| `privacyPolicyURL` | https://github.com/tohin003/AgentGuard/blob/master/docs/legal/PRIVACY.md | 72 / 1,024 |
-| `termsOfServiceURL` | https://github.com/tohin003/AgentGuard/blob/master/docs/legal/TERMS.md | 70 / 1,024 |
+| `websiteURL` | https://github.com/tohin003/Truthstone | 38 / 1,024 |
+| `supportURL` | https://github.com/tohin003/Truthstone/blob/master/docs/legal/SUPPORT.md | 72 / 1,024 |
+| `privacyPolicyURL` | https://github.com/tohin003/Truthstone/blob/master/docs/legal/PRIVACY.md | 72 / 1,024 |
+| `termsOfServiceURL` | https://github.com/tohin003/Truthstone/blob/master/docs/legal/TERMS.md | 70 / 1,024 |
 | `publication.release_notes` | First release: six instruction-only skills (evidence-before-done, ground-claims, scope-discipline, proportional-planning, safe-shell, diff-review). No code, hooks or MCP server. | — |
 
 **Capabilities** (6 of at most 20; each at most 120 characters):
@@ -102,7 +102,7 @@ The listing copy is final and within every limit. It comes from `.codex-plugin/p
 
 **Long description** (exact text):
 
-> AgentGuard Practices adds six step-by-step protocols that a coding agent follows at specific points in a task: before reporting work as done, before relying on code it has not seen, before editing outside the request, when sizing a plan, before running an irreversible shell command, and before handing over a diff.
+> Truthstone Practices adds six step-by-step protocols that a coding agent follows at specific points in a task: before reporting work as done, before relying on code it has not seen, before editing outside the request, when sizing a plan, before running an irreversible shell command, and before handing over a diff.
 >
 > Skills included:
 > - Evidence Before Done: turns your request into a requirement ledger, including prohibitions such as "don't edit the tests", ties each item to evidence gathered after the last edit, and reports every item as verified, failed or not verified instead of a bare "done".
@@ -116,14 +116,14 @@ The listing copy is final and within every limit. It comes from `.codex-plugin/p
 >
 > Who it is for: developers who use an agent to change code in a repository, for example in Codex. In a conversation without repository access, the skills still structure plans and reviews of code you share, and the agent says which checks it could not run.
 >
-> Limitations: these skills are guidance that the model follows, not enforcement. They cannot block a command or a reply. Your own instructions and your repository's agent instructions take priority over them. Deterministic, hook-based checks are a separate open-source project, AgentGuard, which runs locally and is installed from its GitHub repository (see the website link).
+> Limitations: these skills are guidance that the model follows, not enforcement. They cannot block a command or a reply. Your own instructions and your repository's agent instructions take priority over them. Deterministic, hook-based checks are a separate open-source project, Truthstone, which runs locally and is installed from its GitHub repository (see the website link).
 
 Copy rules applied:
 
 - **No comparisons with other products**, and no superlatives.
 - **No numbers of any kind about effectiveness.** That means no benchmark figures, no percentages and nothing described as "proven" or "guaranteed".
 - **No pricing language.** The word "free" is avoided on purpose.
-- **AgentGuard is mentioned once.** The one mention is a limitation statement, not a pitch.
+- **Truthstone (previously named AgentGuard) is mentioned once.** The one mention is a limitation statement, not a pitch.
 
 The `LISTING-COPY` rule checks these mechanically.
 
@@ -186,7 +186,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 
 | Clause | How we comply | Rule |
 |---|---|---|
-| `name`: "at most 64 characters. Use lowercase letters, numbers, and single hyphens for packages you plan to submit." [S] | `agentguard-practices` | NAME |
+| `name`: "at most 64 characters. Use lowercase letters, numbers, and single hyphens for packages you plan to submit." [S] | `truthstone-practices` | NAME |
 | `version`: semantic version, at most 64 characters [E] | `1.0.0` | VERSION |
 | `description`: "must be 1,024 characters or fewer" [E] (the field table in [S] says 4,000; we use the stricter value) | 272 | DESCRIPTION |
 | `author.name` required; `author.url` HTTPS, no credentials [E] | Present | AUTHOR |
@@ -223,7 +223,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 | Clause [G] | How we comply |
 |---|---|
 | "provide functionality or workflows that are not natively supported by the products' built-in capabilities and that meaningfully help satisfy common user intents expressed in conversation" | The six protocols are specific workflows the products do not run by default: a three-state requirement ledger that includes prohibitions and the evidence-after-last-edit rule, the complete-evidence rule for absence claims, scope and convention checks, plan sizing with override rules, the irreversible-command pre-flight and a full-diff audit. They trigger on ordinary requests to finish, fix, plan or review. This is a reviewer's judgement call; see §11 |
-| "Only use intellectual property that you own or have permission to use." | Original text and an original logo, under Apache-2.0. The name collides with other products called "AgentGuard"; see §11 |
+| "Only use intellectual property that you own or have permission to use." | Original text and an original logo, under Apache-2.0. The name collides with other products called "Truthstone"; see §11 |
 | "Do not engage in misleading or copycat designs, impersonation, spam, or static frames with no meaningful interaction." | Original protocols drawn from this repository's own design (Appendix); no imitation of other plugins |
 | "Plugins should not imply that they are made or endorsed by OpenAI." | No such wording; enforced by `LISTING-COPY` |
 | "Plugins must behave predictably and reliably… Errors… must be handled with clear messaging or fallback behaviors." | Each skill defines its fallback. When a check cannot run, the item is reported "not verified" with the exact command, never as passed |
@@ -299,7 +299,7 @@ The drafts are `docs/legal/PRIVACY.md`, `docs/legal/TERMS.md` and `docs/legal/SU
 - no outbound HTTP client
 - the SQLite schema: `core/store.py`
 - default retention tiers: `core/config.py`, `RetentionSettings`
-- the `AGENTGUARD_DISABLE` kill switch
+- the `TRUTHSTONE_DISABLE` kill switch
 
 **Placeholders.** `{{PUBLISHER_NAME}}` and `{{SUPPORT_EMAIL}}` are deliberate. No personal email is filled in. `check --final` fails until both are filled.
 
@@ -307,8 +307,8 @@ The drafts are `docs/legal/PRIVACY.md`, `docs/legal/TERMS.md` and `docs/legal/SU
 
 | Option | URL shape | Setup | Notes |
 |---|---|---|---|
-| **A. Plain GitHub file URLs** (current manifest) | `https://github.com/tohin003/AgentGuard/blob/master/docs/legal/PRIVACY.md` | None beyond pushing | Accepted in practice: published directory plugins `codex-engineering-guardrails` and `agent-shipproof` use exactly this pattern for their privacy and terms URLs, as seen in Codex's cached catalog on 2026-11-03. The rules require only HTTPS and accessibility |
-| **B. GitHub Pages** | `https://tohin003.github.io/AgentGuard/legal/PRIVACY.html` | Settings → Pages → deploy from `master` `/docs`. GitHub Pages renders Markdown without front matter | Cleaner and clearly yours. It publishes all of `docs/`, so move the legal pages to a dedicated folder if that matters. After switching, update the four URLs in the Codex manifest and run `sync` |
+| **A. Plain GitHub file URLs** (current manifest) | `https://github.com/tohin003/Truthstone/blob/master/docs/legal/PRIVACY.md` | None beyond pushing | Accepted in practice: published directory plugins `codex-engineering-guardrails` and `agent-shipproof` use exactly this pattern for their privacy and terms URLs, as seen in Codex's cached catalog on 2026-11-03. The rules require only HTTPS and accessibility |
+| **B. GitHub Pages** | `https://tohin003.github.io/Truthstone/legal/PRIVACY.html` | Settings → Pages → deploy from `master` `/docs`. GitHub Pages renders Markdown without front matter | Cleaner and clearly yours. It publishes all of `docs/`, so move the legal pages to a dedicated folder if that matters. After switching, update the four URLs in the Codex manifest and run `sync` |
 | C. `raw.githubusercontent.com` | plain text | — | Not recommended: it serves unformatted text |
 
 Whichever option you choose, the page text names `{{PUBLISHER_NAME}}`, which must match the identity the directory displays.
@@ -327,8 +327,8 @@ All results were recorded on 2026-11-04.
 | `companion_package.py selftest` | 85/85: every rule rejects a deliberately broken package, and rename round-trips |
 | `claude plugin validate --strict` (Claude Code 2.1.317) | "Validation passed", no findings |
 | `claude --plugin-dir … plugin details` | 6 skills; 0 agents, hooks, MCP servers and LSP servers; about 774 always-on tokens, 1–1.7k per skill invoked |
-| Claude Code load test: one `claude -p --restricted --plugin-dir … --model claude-opus-5-5 --effort low` run in a scratch directory | Listed all six skills as `agentguard-practices:<skill>` |
-| Codex 0.166.0, isolated `CODEX_HOME`: `plugin marketplace add` / `plugin list` / `plugin add` | Listed `agentguard-practices@companion-test` 1.0.0 as AVAILABLE, and installed and enabled it. No `codex exec`, no model calls |
+| Claude Code load test: one `claude -p --restricted --plugin-dir … --model claude-opus-5-5 --effort low` run in a scratch directory | Listed all six skills as `truthstone-practices:<skill>` |
+| Codex 0.166.0, isolated `CODEX_HOME`: `plugin marketplace add` / `plugin list` / `plugin add` | Listed `truthstone-practices@companion-test` 1.0.0 as AVAILABLE, and installed and enabled it. No `codex exec`, no model calls |
 | `codex debug prompt-input` (rendered locally, no model call) | All six skills, with descriptions, appear in the model-visible skills list |
 | HOL `plugin-scanner` 3.58.0 `scan`, with the Cisco skill scanner, on the companion | **98/100 (A)**; per plugin 97/100. Findings: 0 critical, high, medium or low; 1 info (`screenshots`, omitted on purpose for OpenAI) |
 | HOL `lint` / `verify` on the companion | policy pass, effective 98 / Verification PASS |
@@ -339,8 +339,8 @@ The scanner was installed from wheel `plugin_scanner-3.58.0`. Its sha256 `13bb0e
 
 | Plugin | Score | What lowers it |
 |---|---|---|
-| `plugins/agentguard` (Codex, hooks) | 80/100 (B) | No `README.md`, `LICENSE` or `SECURITY.md` in the plugin directory. Version `0.1.0-dev.0` is valid semver, but the scanner rejects pre-release tags. Info: no `.codexignore`; no `license` in SKILL.md front matter |
-| `plugins/agentguard-claude` (Claude Code, hooks) | 75/100 (C) | Exactly at the threshold. SKILL.md files lack a `name` field (×6), and there is no `LICENSE` or `SECURITY.md` in the plugin directory |
+| `plugins/truthstone` (Codex, hooks) | 80/100 (B) | No `README.md`, `LICENSE` or `SECURITY.md` in the plugin directory. Version `0.1.0-dev.0` is valid semver, but the scanner rejects pre-release tags. Info: no `.codexignore`; no `license` in SKILL.md front matter |
+| `plugins/truthstone-claude` (Claude Code, hooks) | 75/100 (C) | Exactly at the threshold. SKILL.md files lack a `name` field (×6), and there is no `LICENSE` or `SECURITY.md` in the plugin directory |
 
 Both hook plugins remain ineligible for OpenAI's directory, which bars hooks. These scores matter only for the HOL list.
 
@@ -362,18 +362,18 @@ As of 2026-11-04 the list had 1,499 stars and was last pushed 2026-11-03. Its re
 **Draft README line** (category **Development & Workflow**):
 
 ```markdown
-- [AgentGuard Practices](https://github.com/tohin003/AgentGuard) - Instruction-only skills that guide a coding agent to show evidence before calling work done, covering requirement ledgers, file:line grounding, scope checks, plan sizing, a pre-flight for irreversible commands and diff review.
+- [Truthstone Practices](https://github.com/tohin003/Truthstone) - Instruction-only skills that guide a coding agent to show evidence before calling work done, covering requirement ledgers, file:line grounding, scope checks, plan sizing, a pre-flight for irreversible commands and diff review.
 ```
 
 **Draft PR**
 
-Title: `Add AgentGuard Practices`
+Title: `Add Truthstone Practices`
 
 Body:
 
 ```text
-Plugin repository: https://github.com/tohin003/AgentGuard
-Plugin path: plugins/agentguard-practices (display name "AgentGuard Practices" in its .codex-plugin/plugin.json)
+Plugin repository: https://github.com/tohin003/Truthstone
+Plugin path: plugins/truthstone-practices (display name "Truthstone Practices" in its .codex-plugin/plugin.json)
 
 Skills-only plugin: six SKILL.md protocols, no hooks, no MCP server, no scripts.
 
@@ -393,28 +393,28 @@ Notes:
 | List | Reach | Gate | Verdict |
 |---|---|---|---|
 | **Anthropic's directory** (claude.ai/directory/manage); approved plugins are mirrored to `anthropics/claude-plugins-community` (4,819 stars; direct PRs are closed automatically) | claude.ai, Cowork and Claude Code, through account sync | Paid claude.ai plan; GitHub connected; validation plus a security scan; one plugin folder per submission | **Primary.** The companion fits: skills load on all three surfaces |
-| **hesreallyhim/awesome-claude-code** (57,179 stars, pushed 2026-11-03) | The largest Claude Code resource list | Web issue form only, no PRs and no `gh`, filed by a human. The repository must be at least 14 days old with ongoing commits (AgentGuard's first commit was 2026-08-11), or have 100 stars. One resource at a time; one plain descriptive line | **Secondary**, after the completion-gate fix lands |
+| **hesreallyhim/awesome-claude-code** (57,179 stars, pushed 2026-11-03) | The largest Claude Code resource list | Web issue form only, no PRs and no `gh`, filed by a human. The repository must be at least 14 days old with ongoing commits (Truthstone's first commit was 2026-08-11), or have 100 stars. One resource at a time; one plain descriptive line | **Secondary**, after the completion-gate fix lands |
 | ccplugins/awesome-claude-code-plugins (996 stars, last push 2026-08-12) | Small | PR | Skip: stale |
 
 **Anthropic directory submission** (the user, at claude.ai/directory/manage → **Submit new** → **Plugin bundle**):
 
-- **Source.** Repository `tohin003/AgentGuard`, plugin path `plugins/agentguard-practices`, branch `master`, or a release tag.
-- **Pre-checks.** `claude plugin validate --strict ./plugins/agentguard-practices` passes. The README has well over 40 words and serves as the listing description. `LICENSE` is present, there are no `.DS_Store` files, every file is under 256 KiB and there are 21 files in total.
+- **Source.** Repository `tohin003/Truthstone`, plugin path `plugins/truthstone-practices`, branch `master`, or a release tag.
+- **Pre-checks.** `claude plugin validate --strict ./plugins/truthstone-practices` passes. The README has well over 40 words and serves as the listing description. `LICENSE` is present, there are no `.DS_Store` files, every file is under 256 KiB and there are 21 files in total.
 - **Data handling answers.**
   - Reads or stores personal data: **no**.
   - Sends data to services other than declared connectors: **no**.
   - Retention: **none, nothing is stored**.
   - Intended for people under 18: **no; general developer audience**.
 - **Compliance.** Contact email (your support address) and the four acknowledgements are yours to give.
-- **Hook plugin.** `plugins/agentguard-claude` would be its own submission.
+- **Hook plugin.** `plugins/truthstone-claude` would be its own submission.
 
-**awesome-claude-code form draft** (for the AgentGuard repository, which is the Claude Code–specific piece the list prefers):
+**awesome-claude-code form draft** (for the Truthstone repository, which is the Claude Code–specific piece the list prefers):
 
 | Field | Draft |
 |---|---|
-| Display Name | AgentGuard |
+| Display Name | Truthstone |
 | Category | Testing |
-| Link | https://github.com/tohin003/AgentGuard |
+| Link | https://github.com/tohin003/Truthstone |
 | Author Name | `{{PUBLISHER_NAME}}` |
 | Author Link | https://github.com/tohin003 |
 | Description | Local, deterministic Claude Code hooks that check an agent's claims and edits against the repository, flag out-of-scope edits and risky shell commands, and check for test evidence before the agent stops. Ships with a skills-only companion plugin. |
@@ -426,7 +426,7 @@ Notes:
 
 > **PLACEHOLDER: lead to fill once the paired live benchmark has run.**
 >
-> Until then, no AgentGuard benchmark figure may appear in any listing, README, community blurb or reviewer note. That covers precision, recall, percentages and anything worded as "proven" or "guaranteed". The earlier published figures are withdrawn:
+> Until then, no Truthstone benchmark figure may appear in any listing, README, community blurb or reviewer note. That covers precision, recall, percentages and anything worded as "proven" or "guaranteed". The earlier published figures are withdrawn:
 > - the precision figure was measured on files with no extractable claims
 > - the recall figure came from a self-selected sample
 > - the completion gate currently misses failing test runs in real sessions
@@ -448,7 +448,7 @@ The names are centralised. The Codex manifest is the source of truth, and one co
 ```bash
 python3 scripts/companion_package.py rename --slug <new-slug> --display "<New Name>" --dry-run
 python3 scripts/companion_package.py rename --slug <new-slug> --display "<New Name>" \
-    [--developer "<Publisher>"] [--also AgentGuard=<NewProduct>] [--repo <owner>/<new-repo>]
+    [--developer "<Publisher>"] [--also Truthstone=<NewProduct>] [--repo <owner>/<new-repo>]
 ```
 
 It updates:
@@ -477,7 +477,7 @@ After renaming:
    - the published precedent of similar skills-only plugins: `codex-engineering-guardrails`, `agent-shipproof`, `rumbo-coding-agent-reliability` and `master-change-guard` are all listed in the live catalog
 2. **"Skills-only plugins may be subject to additional eligibility requirements."** These are undisclosed and can't be designed against.
 3. **"Core value requires local execution or file access" → partner contact.** The plugin runs nothing itself, but its best use is in a repository-aware agent. Mitigations: the copy says the skills use the host's own tools and still apply to pasted code. If a reviewer disagrees, the remedy is a conversation with an OpenAI representative, not a package change.
-4. **Name and IP.** Several unrelated products are called "AgentGuard". GoPlus ships a Claude plugin whose manifest name is `agentguard`. This risks the "IP you own" clause, Anthropic's "Name matches a known brand" hold, and user confusion. The pending rename is the fix; do it first.
+4. **Name and IP.** Several unrelated products are called "Truthstone". GoPlus ships a Claude plugin whose manifest name is `truthstone`. This risks the "IP you own" clause, Anthropic's "Name matches a known brand" hold, and user confusion. The pending rename is the fix; do it first.
 5. **Trial or demo perception.** The single mention of the separate runtime could be read as an upsell. It is phrased as a limitation, contains no link and no pricing word, and every skill is complete without it. Removing that sentence is a one-line edit if a reviewer objects.
 6. **Identity verification bug.** Reported between 2026-08-20 and 2026-10-07; no fix has been announced.
 7. **Unknown portal behaviour.** These rules were verified from documentation, not from an upload:
@@ -496,7 +496,7 @@ The companion carries the guidance text that changes often. The hook plugin can 
 
 Skill names are **stable identifiers**: renaming one is a breaking change. The namespace is the plugin slug, which changes only with the product rename. When a runtime message wants to point at the full protocol, it can name the skill:
 
-| Runtime component (`src/agentguard/`) | What it reports | Skill holding the full protocol |
+| Runtime component (`src/truthstone/`) | What it reports | Skill holding the full protocol |
 |---|---|---|
 | Completion gate (`verify/completion_gate.py`) | INCOMPLETE / VERIFICATION_FAILED: tests not run, tests failing, unparsable files | `evidence-before-done` |
 | Evidence engine and challenge (`evidence/`, `challenge/renderer.py`) | Member, module or file not found; "Confirm this against the repository…" | `ground-claims` |
@@ -511,8 +511,8 @@ Skill names are **stable identifiers**: renaming one is a breaking change. The n
 
 ```json
 {
-  "name": "agentguard-practices",
-  "source": { "source": "local", "path": "./plugins/agentguard-practices" },
+  "name": "truthstone-practices",
+  "source": { "source": "local", "path": "./plugins/truthstone-practices" },
   "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
   "category": "Developer Tools"
 }
@@ -522,8 +522,8 @@ Skill names are **stable identifiers**: renaming one is a breaking change. The n
 
 ```json
 {
-  "name": "agentguard-practices",
-  "source": "./plugins/agentguard-practices",
+  "name": "truthstone-practices",
+  "source": "./plugins/truthstone-practices",
   "description": "Six instruction-only skills that guide a coding agent to show evidence before saying a task is done.",
   "version": "1.0.0",
   "category": "development"
@@ -536,7 +536,7 @@ The second entry's `category` and other optional fields follow whatever the lead
 
 ## Appendix: skills and SPEC §3 failure modes
 
-Each skill turns parts of AgentGuard's own design into instructions. The design is the SPEC's §3 failure modes, the completion gate, the evidence resolvers, the challenge renderer, the planning governor, the validation checks and the census. Pebble's requirement ledger and open-doubt check (`pebble/requirements.py`, `open_doubt.py`, `source_audit.py`) contributed the ledger, its prohibitions and the evidence-after-last-edit and reread rules.
+Each skill turns parts of Truthstone's own design into instructions. The design is the SPEC's §3 failure modes, the completion gate, the evidence resolvers, the challenge renderer, the planning governor, the validation checks and the census. Pebble's requirement ledger and open-doubt check (`pebble/requirements.py`, `open_doubt.py`, `source_audit.py`) contributed the ledger, its prohibitions and the evidence-after-last-edit and reread rules.
 
 | SPEC §3 failure mode | Skill | Design source |
 |---|---|---|

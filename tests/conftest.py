@@ -1,6 +1,6 @@
 """Shared fixtures.
 
-Every test runs against an isolated ``AGENTGUARD_HOME`` so the suite can never touch the
+Every test runs against an isolated ``TRUTHSTONE_HOME`` so the suite can never touch the
 developer's real daemon, token or config.
 """
 
@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,22 +31,22 @@ def free_port() -> int:
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A fresh AGENTGUARD_HOME per test.
+    """A fresh TRUTHSTONE_HOME per test.
 
     Since Phase 3.5 there is one shared database per home directory, cached in a
     process-wide registry — so the cache has to be dropped when the home moves, or a test
     would keep writing into the previous test's database.
     """
-    from agentguard.core.store import Database
+    from truthstone.core.store import Database
 
-    home = tmp_path / "agentguard-home"
+    home = tmp_path / "truthstone-home"
     home.mkdir(parents=True, exist_ok=True)
     # Give every test its own port. Otherwise a daemon spawned without `--port` picks the
     # configured default (8787) and collides with the developer's real daemon, or with a
     # sibling test — making the suite depend on what else is running on the machine.
     home.joinpath("config.toml").write_text(f"[daemon]\nport = {free_port()}\n", encoding="utf-8")
-    monkeypatch.setenv("AGENTGUARD_HOME", str(home))
-    monkeypatch.delenv("AGENTGUARD_DISABLE", raising=False)
+    monkeypatch.setenv("TRUTHSTONE_HOME", str(home))
+    monkeypatch.delenv("TRUTHSTONE_DISABLE", raising=False)
     Database.reset_shared()
     yield home
     Database.reset_shared()
@@ -83,9 +83,9 @@ class DaemonProcess:
         return json.loads((self.home / "daemon.json").read_text())["token"]
 
     def start(self, timeout: float = 20.0) -> None:
-        env = dict(os.environ, AGENTGUARD_HOME=str(self.home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env = dict(os.environ, TRUTHSTONE_HOME=str(self.home), PYTHONPATH=str(REPO_ROOT / "src"))
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "agentguard.daemon", "run", "--port", str(self.port)],
+            [sys.executable, "-m", "truthstone.daemon", "run", "--port", str(self.port)],
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

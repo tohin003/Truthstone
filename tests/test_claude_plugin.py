@@ -21,9 +21,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agentguard.adapters.claude_code import forward, install, plugin, settings_scan, translate
 from tests import plugin_harness as harness
 from tests.conftest import free_port
+from truthstone.adapters.claude_code import forward, install, plugin, settings_scan, translate
 
 SKILLS = harness.PLUGIN_ROOT / "skills"
 
@@ -62,7 +62,7 @@ class TestManifest:
 class TestMarketplace:
     def test_lists_the_plugin_under_the_manifest_name(self):
         market = json.loads(harness.MARKETPLACE.read_text())
-        assert market["name"] == "agentguard"
+        assert market["name"] == "truthstone"
         assert market["owner"]["name"]
         entry = next(p for p in market["plugins"] if p["name"] == settings_scan.PLUGIN_NAME)
         assert (harness.REPO_ROOT / entry["source"]).resolve() == harness.PLUGIN_ROOT.resolve()
@@ -78,7 +78,7 @@ class TestMarketplace:
             assert (root / ".claude-plugin" / "plugin.json").exists(), entry["name"]
             manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
             assert manifest["name"] == entry["name"]
-        assert "./plugins/agentguard" not in [entry["source"] for entry in market["plugins"]]
+        assert "./plugins/truthstone" not in [entry["source"] for entry in market["plugins"]]
 
 
 class TestHooksConfig:
@@ -90,7 +90,7 @@ class TestHooksConfig:
         assert set(hooks) == expected
 
     def test_matchers_are_the_installers(self):
-        """One definition of which tools AgentGuard sees, for both install paths."""
+        """One definition of which tools Truthstone sees, for both install paths."""
         hooks = harness.load_hooks()
         assert hooks["PreToolUse"][0]["matcher"] == install.MUTATING_MATCHER
         assert hooks["PostToolUse"][0]["matcher"] == install.MUTATING_MATCHER
@@ -141,10 +141,10 @@ class TestSkills:
             assert isinstance(meta.get("name"), str) and meta["name"], path
             assert meta.get("description"), path
             names.add(meta["name"])
-        assert names == {"agentguard", "doctor", "log", "why", "report", "on", "off"}
+        assert names == {"truthstone", "doctor", "log", "why", "report", "on", "off"}
 
     def test_the_guidance_skill_is_for_claude(self):
-        meta, body = frontmatter(SKILLS / "agentguard" / "SKILL.md")
+        meta, body = frontmatter(SKILLS / "truthstone" / "SKILL.md")
         assert meta.get("user-invocable") is False
         assert not meta.get("disable-model-invocation")
         assert "completion gate" in body and "never" in body.lower()
@@ -220,7 +220,7 @@ def session_payload(project: Path, session: str = "s-1") -> dict:
 class TestLauncher:
     def test_without_uv_it_says_how_to_install_and_nothing_else(self, plugin_dirs):
         data, project, home = plugin_dirs
-        env = harness.plugin_env(data, project, home, AGENTGUARD_UV="/nonexistent/uv")
+        env = harness.plugin_env(data, project, home, TRUTHSTONE_UV="/nonexistent/uv")
         result = launcher("session-start", env, session_payload(project))
         assert result.returncode == 0
         message = json.loads(result.stdout)["systemMessage"]
@@ -240,7 +240,7 @@ class TestLauncher:
         fake_uv = tmp_path / "uv"
         fake_uv.write_text("#!/bin/sh\nexit 1\n")
         fake_uv.chmod(0o755)
-        env = harness.plugin_env(data, project, home, AGENTGUARD_UV=str(fake_uv), PATH=str(tools))
+        env = harness.plugin_env(data, project, home, TRUTHSTONE_UV=str(fake_uv), PATH=str(tools))
         result = launcher("session-start", env, session_payload(project))
         assert result.returncode == 0
         message = json.loads(result.stdout)["systemMessage"]
@@ -249,7 +249,7 @@ class TestLauncher:
     def test_disabled_says_nothing(self, plugin_dirs):
         data, project, home = plugin_dirs
         env = harness.plugin_env(
-            data, project, home, AGENTGUARD_UV="/nonexistent/uv", AGENTGUARD_DISABLE="1"
+            data, project, home, TRUTHSTONE_UV="/nonexistent/uv", TRUTHSTONE_DISABLE="1"
         )
         result = launcher("session-start", env, session_payload(project))
         assert (result.returncode, result.stdout, result.stderr) == (0, b"", b"")
@@ -261,12 +261,12 @@ class TestLauncher:
         fake_uv = tmp_path / "uv"
         fake_uv.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{record}"\nexit 1\n')
         fake_uv.chmod(0o755)
-        env = harness.plugin_env(data, project, home, AGENTGUARD_UV=str(fake_uv))
+        env = harness.plugin_env(data, project, home, TRUTHSTONE_UV=str(fake_uv))
         result = launcher("session-start", env, session_payload(project))
         assert result.returncode == 0
         message = json.loads(result.stdout)["systemMessage"]
         version = json.loads(harness.MANIFEST.read_text())["version"]
-        assert f"git+https://github.com/tohin003/AgentGuard@v{version}" in message
+        assert f"git+https://github.com/tohin003/Truthstone@v{version}" in message
         assert str(data / "install.log") in message
         assert "venv" in record.read_text()
         assert not (data / "install.lock").exists(), "the lock is released on failure"
@@ -277,13 +277,13 @@ class TestLauncher:
         lock.mkdir(parents=True)
         old = time.time() - 3600
         os.utime(lock, (old, old))
-        env = harness.plugin_env(data, project, home, AGENTGUARD_UV=str(tmp_path / "missing-uv"))
+        env = harness.plugin_env(data, project, home, TRUTHSTONE_UV=str(tmp_path / "missing-uv"))
         # No uv: it never gets as far as the lock, so give it a uv that fails fast.
         fake_uv = tmp_path / "uv"
         fake_uv.write_text("#!/bin/sh\nexit 1\n")
         fake_uv.chmod(0o755)
-        env["AGENTGUARD_UV"] = str(fake_uv)
-        env["AGENTGUARD_INSTALL_WAIT"] = "2"
+        env["TRUTHSTONE_UV"] = str(fake_uv)
+        env["TRUTHSTONE_INSTALL_WAIT"] = "2"
         result = launcher("session-start", env, session_payload(project))
         assert "could not install" in json.loads(result.stdout)["systemMessage"]
         assert not lock.exists()
@@ -298,7 +298,7 @@ class TestLauncher:
 
     def test_commands_explain_a_missing_runtime(self, plugin_dirs):
         data, project, home = plugin_dirs
-        env = harness.plugin_env(data, project, home, AGENTGUARD_UV="/nonexistent/uv")
+        env = harness.plugin_env(data, project, home, TRUTHSTONE_UV="/nonexistent/uv")
         result = launcher("cli", env, None, str(data), "doctor")
         assert result.returncode == 0
         assert b"not installed yet" in result.stdout
@@ -319,7 +319,7 @@ class TestStandDown:
 
         out = plugin.session_start(session_payload(project))
         assert "standing by" in out["systemMessage"]
-        assert "agentguard uninstall claude --global" in out["systemMessage"]
+        assert "truthstone uninstall claude --global" in out["systemMessage"]
         assert forward.standing_down()
         assert not (home / "daemon.json").exists(), "the settings hooks start their own daemon"
         assert plugin.prompt({"session_id": "s-1", "cwd": str(project)}) == {}
@@ -348,11 +348,11 @@ class TestUnguarded:
         monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data))
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project))
         monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(data / "no-config"))
-        monkeypatch.setenv("AGENTGUARD_START_TIMEOUT", "1")
+        monkeypatch.setenv("TRUTHSTONE_START_TIMEOUT", "1")
         first = plugin.prompt({"session_id": "s-u", "cwd": str(project)})
         second = plugin.prompt({"session_id": "s-u", "cwd": str(project)})
         assert "UNGUARDED" in first["systemMessage"]
-        assert "/agentguard:doctor" in first["systemMessage"]
+        assert "/truthstone:doctor" in first["systemMessage"]
         assert second == {}
 
 
@@ -374,7 +374,7 @@ def guarded_project(plugin_dirs):
         data,
         project,
         home,
-        AGENTGUARD_RUNTIME_SPEC=spec,
+        TRUTHSTONE_RUNTIME_SPEC=spec,
         CLAUDE_CONFIG_DIR=str(data.parent / "claude-config"),
     )
     return data, project, home, env
@@ -402,7 +402,7 @@ class TestWholeSession:
         assert json.loads((home / "daemon.json").read_text())["port"]
 
         prompt = hook("UserPromptSubmit", prompt="Make add() return an int")
-        assert "[AgentGuard]" in prompt["hookSpecificOutput"]["additionalContext"]
+        assert "[Truthstone]" in prompt["hookSpecificOutput"]["additionalContext"]
 
         push = {"command": "git push --force origin main"}
         review = hook("PreToolUse", tool_name="Bash", tool_input=push)["hookSpecificOutput"]
@@ -466,7 +466,7 @@ class TestRealBootstrap:
         (home / "config.toml").write_text(f"[daemon]\nport = {free_port()}\n")
         env = harness.plugin_env(
             data, project, home,
-            AGENTGUARD_RUNTIME_SPEC=str(harness.REPO_ROOT),
+            TRUTHSTONE_RUNTIME_SPEC=str(harness.REPO_ROOT),
             CLAUDE_CONFIG_DIR=str(data.parent / "claude-config"),
         )
         first = launcher("session-start", env, session_payload(project))
@@ -477,7 +477,7 @@ class TestRealBootstrap:
         pid = json.loads((home / "daemon.json").read_text())["pid"]
 
         # A different source (a plugin upgrade): reinstall, then restart the daemon.
-        env["AGENTGUARD_RUNTIME_SPEC"] = str(harness.REPO_ROOT) + "/"
+        env["TRUTHSTONE_RUNTIME_SPEC"] = str(harness.REPO_ROOT) + "/"
         upgraded = launcher("session-start", env, session_payload(project, "s-2"))
         assert upgraded.returncode == 0, upgraded.stderr
         assert json.loads((home / "daemon.json").read_text())["pid"] != pid

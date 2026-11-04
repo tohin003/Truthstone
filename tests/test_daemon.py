@@ -1,7 +1,7 @@
 """Daemon transport and fail-open behaviour (SPEC §30, §39).
 
 The most important property in this file is negative: **there is no way to make
-AgentGuard impede the agent.** Bad auth, bad JSON, a crashed handler, a dead daemon — all
+Truthstone impede the agent.** Bad auth, bad JSON, a crashed handler, a dead daemon — all
 of them must produce "no decision" rather than an error the host has to deal with.
 """
 
@@ -17,10 +17,10 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from agentguard.core.config import DaemonSettings, Settings, get_or_create_token
-from agentguard.core.engine import Guard
-from agentguard.daemon.app import create_app
 from tests.conftest import REPO_ROOT, pre_tool_use, session_start, stop_event, user_prompt_submit
+from truthstone.core.config import DaemonSettings, Settings, get_or_create_token
+from truthstone.core.engine import Guard
+from truthstone.daemon.app import create_app
 
 TOKEN = "test-token"
 
@@ -64,7 +64,7 @@ class TestEndpoints:
         assert isinstance(resp.json(), dict)
 
     def test_events_are_persisted(self, client, workspace):
-        from agentguard.core.store import Store
+        from truthstone.core.store import Store
 
         prompt = user_prompt_submit("Add pagination", cwd=str(workspace))
         client.post("/hook/claude-code", json=prompt, headers=auth())
@@ -75,7 +75,7 @@ class TestEndpoints:
 
 
 class TestFailOpen:
-    """Every one of these returns 200 + {} — "AgentGuard has no opinion"."""
+    """Every one of these returns 200 + {} — "Truthstone has no opinion"."""
 
     def test_bad_token(self, client, workspace):
         resp = client.post(
@@ -135,7 +135,7 @@ class TestFailOpen:
 
     def test_a_crashing_internal_handler_is_caught_by_the_guard(self, workspace, monkeypatch):
         """Guard.handle() itself is the last line of defence and never raises."""
-        from agentguard.adapters.claude_code import translate as claude
+        from truthstone.adapters.claude_code import translate as claude
 
         guard = Guard(Settings())
         monkeypatch.setattr(
@@ -146,9 +146,9 @@ class TestFailOpen:
         assert decision.action == "allow"
 
     def test_kill_switch_short_circuits(self, workspace, monkeypatch):
-        from agentguard.adapters.claude_code import translate as claude
+        from truthstone.adapters.claude_code import translate as claude
 
-        monkeypatch.setenv("AGENTGUARD_DISABLE", "1")
+        monkeypatch.setenv("TRUTHSTONE_DISABLE", "1")
         guard = Guard(Settings.load())
         decision = guard.handle(claude.to_event(pre_tool_use(cwd=str(workspace))))
         assert decision.is_silent
@@ -202,11 +202,11 @@ class TestShim:
     def run_shim(self, payload: dict, home, extra_args=()) -> subprocess.CompletedProcess:
         env = dict(
             os.environ,
-            AGENTGUARD_HOME=str(home),
+            TRUTHSTONE_HOME=str(home),
             PYTHONPATH=str(REPO_ROOT / "src"),
         )
         return subprocess.run(
-            [sys.executable, "-m", "agentguard.adapters.claude_code.shim", *extra_args],
+            [sys.executable, "-m", "truthstone.adapters.claude_code.shim", *extra_args],
             input=json.dumps(payload).encode(),
             capture_output=True,
             env=env,
@@ -232,9 +232,9 @@ class TestShim:
         assert result.stdout == b""
 
     def test_fails_open_on_garbage_stdin(self, isolated_home):
-        env = dict(os.environ, AGENTGUARD_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env = dict(os.environ, TRUTHSTONE_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
         result = subprocess.run(
-            [sys.executable, "-m", "agentguard.adapters.claude_code.shim"],
+            [sys.executable, "-m", "truthstone.adapters.claude_code.shim"],
             input=b"not json at all",
             capture_output=True,
             env=env,
@@ -246,12 +246,12 @@ class TestShim:
     def test_respects_the_kill_switch(self, daemon, workspace):
         env = dict(
             os.environ,
-            AGENTGUARD_HOME=str(daemon.home),
+            TRUTHSTONE_HOME=str(daemon.home),
             PYTHONPATH=str(REPO_ROOT / "src"),
-            AGENTGUARD_DISABLE="1",
+            TRUTHSTONE_DISABLE="1",
         )
         result = subprocess.run(
-            [sys.executable, "-m", "agentguard.adapters.claude_code.shim"],
+            [sys.executable, "-m", "truthstone.adapters.claude_code.shim"],
             input=json.dumps(pre_tool_use(cwd=str(workspace))).encode(),
             capture_output=True,
             env=env,

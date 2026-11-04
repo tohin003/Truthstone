@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.enums import DecisionAction, EventType
-from agentguard.core.models import Decision
 from tests.conftest import pre_tool_use, session_start, stop_event, user_prompt_submit
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.enums import DecisionAction, EventType
+from truthstone.core.models import Decision
 
 
 class TestToEvent:
@@ -51,7 +51,7 @@ class TestFromDecision:
         out = claude.from_decision(event, Decision.allow(), "PreToolUse")
         assert out == {}
 
-    def test_agentguard_never_grants_permission(self):
+    def test_truthstone_never_grants_permission(self):
         """A guard that auto-approves would override the developer's own permission rules.
 
         No decision path may ever emit permissionDecision == "allow".
@@ -203,7 +203,7 @@ class TestPostToolUseFailure:
 
     def test_the_failure_reaches_the_test_record_of_todays_core(self):
         """Compatibility with the current core: a dict with `exit_code` is read as a run."""
-        from agentguard.verify import runners
+        from truthstone.verify import runners
 
         event = claude.to_event(
             post_tool_use_failure("pytest -q", "Exit code 1\nF.\n1 failed, 1 passed in 0.02s")
@@ -250,8 +250,8 @@ def test_no_rendering_grants_or_defers(hook_name, action):
 
 
 def _gate_finding(mode=None, severity=None):
-    from agentguard.core.enums import ChallengeCategory, FailureMode, Severity, Verdict
-    from agentguard.core.models import Finding
+    from truthstone.core.enums import ChallengeCategory, FailureMode, Severity, Verdict
+    from truthstone.core.models import Finding
 
     return Finding(
         category=ChallengeCategory.TESTABILITY,
@@ -274,14 +274,14 @@ class TestGateGaveUp:
 
     def test_observe_mode_stays_silent(self):
         """`observe.silence()` keeps findings for the census and sets `would_have`."""
-        from agentguard.core.observe import silence
+        from truthstone.core.observe import silence
 
         event = claude.to_event(stop_event())
         blocked = Decision(action=DecisionAction.BLOCK, reason="r", findings=[_gate_finding()])
         assert claude.from_decision(event, silence(blocked), "Stop") == {}
 
     def test_informational_findings_are_not_a_give_up(self):
-        from agentguard.core.enums import FailureMode, Severity
+        from truthstone.core.enums import FailureMode, Severity
 
         event = claude.to_event(stop_event())
         quiet = Decision(
@@ -293,8 +293,8 @@ class TestGateGaveUp:
     def test_through_the_real_guard(self, workspace):
         """Block once, then the agent stops again without running tests: the gate is muted
         by its own loop safety, and the developer is told the turn ended unverified."""
-        from agentguard.core.config import Settings
-        from agentguard.core.engine import Guard
+        from truthstone.core.config import Settings
+        from truthstone.core.engine import Guard
 
         (workspace / "app.py").write_text("def add(a, b):\n    return a + b\n")
         (workspace / "tests").mkdir()

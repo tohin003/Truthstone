@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.codex import hook
+from truthstone.adapters.codex import hook
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PAYLOADS = Path(__file__).parent / "fixtures" / "codex_payloads"
@@ -63,7 +63,7 @@ class TestFailOpen:
         assert hook._endpoint({"host": "localhost", "port": 8787}) == ("127.0.0.1", 8787)
 
     def test_disabled(self, monkeypatch, capsys):
-        monkeypatch.setenv("AGENTGUARD_DISABLE", "1")
+        monkeypatch.setenv("TRUTHSTONE_DISABLE", "1")
         monkeypatch.setattr(hook, "_lifecycle", lambda: pytest.fail("lifecycle ran while disabled"))
         assert run(monkeypatch, capsys, fixture("SessionStart"), ("session-start",)) == (0, "")
 
@@ -98,10 +98,10 @@ class TestUnguardedNotice:
 
 class TestThroughARealDaemon:
     def _invoke(self, home: Path, payload: dict, event: str) -> subprocess.CompletedProcess:
-        env = dict(os.environ, AGENTGUARD_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
-        env.pop("AGENTGUARD_DISABLE", None)
+        env = dict(os.environ, TRUTHSTONE_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env.pop("TRUTHSTONE_DISABLE", None)
         return subprocess.run(
-            [sys.executable, "-m", "agentguard.adapters.codex.hook", event],
+            [sys.executable, "-m", "truthstone.adapters.codex.hook", event],
             input=json.dumps(payload).encode(),
             capture_output=True,
             env=env,

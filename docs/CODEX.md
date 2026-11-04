@@ -1,8 +1,8 @@
-# AgentGuard for Codex
+# Truthstone for Codex
 
-AgentGuard attaches to the OpenAI Codex CLI (and to local threads of the ChatGPT desktop
+Truthstone (previously named AgentGuard) attaches to the OpenAI Codex CLI (and to local threads of the ChatGPT desktop
 app) through Codex lifecycle hooks, as a **Codex plugin** or as plain hooks written by
-`agentguard install codex`. It does what it does for Claude Code: it grounds edits in
+`truthstone install codex`. It does what it does for Claude Code: it grounds edits in
 repository evidence, watches scope, holds irreversible commands for the developer, and
 keeps an unverified "done" open until tests back it. It stays silent otherwise. It never
 grants permissions, and it fails open.
@@ -32,58 +32,58 @@ plugin's launcher is POSIX `sh`).
 ### As a Codex plugin (recommended)
 
 ```bash
-codex plugin marketplace add tohin003/AgentGuard --ref <release-tag>
-codex plugin add agentguard@agentguard
+codex plugin marketplace add tohin003/Truthstone --ref <release-tag>
+codex plugin add truthstone@truthstone
 ```
 
-The second `agentguard` is the marketplace name, taken from
+The second `truthstone` is the marketplace name, taken from
 `.agents/plugins/marketplace.json`. It is not the repository name.
 
 Then **review and trust the hooks.** Codex skips a plugin's hooks until the user trusts
-them. In the CLI, open `/hooks` and trust the six AgentGuard hooks. In the desktop app, use
+them. In the CLI, open `/hooks` and trust the six Truthstone hooks. In the desktop app, use
 **Review hooks** or **Settings → Hooks**. Trust is tied to the plugin's exact contents, so
 every plugin update asks for review again (see
 [the trust model](#hook-trust-the-step-users-must-not-miss)).
 
-The hooks call the AgentGuard runtime (Python 3.12+). Install it once:
+The hooks call the Truthstone runtime (Python 3.12+). Install it once:
 
 ```bash
-uv tool install git+https://github.com/tohin003/AgentGuard     # or: pipx install git+https://…
+uv tool install git+https://github.com/tohin003/Truthstone     # or: pipx install git+https://…
 ```
 
 If `uv` is available and no runtime is installed, the plugin installs a **private copy** on
 the first session. It goes into Codex's per-plugin data directory, never onto `PATH`, and
 the measured cost is 2.5 s once and 0.04 s per session afterwards. To prevent that, set
-`AGENTGUARD_NO_BOOTSTRAP=1`. If neither a runtime nor `uv` is found, the session starts
+`TRUTHSTONE_NO_BOOTSTRAP=1`. If neither a runtime nor `uv` is found, the session starts
 **unguarded**, and the plugin says so once, at session start, with the install command.
 
 Check the setup with:
 
 ```bash
-agentguard doctor      # Codex section: CLI, plugin, runtime, and whether Codex trusts each hook
+truthstone doctor      # Codex section: CLI, plugin, runtime, and whether Codex trusts each hook
 ```
 
 ### Without the plugin
 
 ```bash
-agentguard install codex --global     # ~/.codex/hooks.json (honours CODEX_HOME)
-agentguard install codex --project    # ./.codex/hooks.json (Codex loads it only in a trusted project)
+truthstone install codex --global     # ~/.codex/hooks.json (honours CODEX_HOME)
+truthstone install codex --project    # ./.codex/hooks.json (Codex loads it only in a trusted project)
 ```
 
 The same six hooks are written into Codex's `hooks.json` and run this interpreter's
-`agentguard.adapters.codex.hook`. The trust step is identical: open `/hooks` and trust
+`truthstone.adapters.codex.hook`. The trust step is identical: open `/hooks` and trust
 them. A `--project` file names this machine's Python, so keep it out of version control.
-`agentguard uninstall codex [--project|--global]` removes only AgentGuard's entries, and
-deletes the file if AgentGuard was its only user.
+`truthstone uninstall codex [--project|--global]` removes only Truthstone's entries, and
+deletes the file if Truthstone was its only user.
 
 ### Turning it off
 
 | Goal | Command |
 |---|---|
-| One session | `AGENTGUARD_DISABLE=1 codex` |
-| Every session, keep the hooks installed | `agentguard off` (then restart the daemon) |
-| Remove the plugin | `codex plugin remove agentguard@agentguard` |
-| Remove plain hooks | `agentguard uninstall codex --global` (or `--project`) |
+| One session | `TRUTHSTONE_DISABLE=1 codex` |
+| Every session, keep the hooks installed | `truthstone off` (then restart the daemon) |
+| Remove the plugin | `codex plugin remove truthstone@truthstone` |
+| Remove plain hooks | `truthstone uninstall codex --global` (or `--project`) |
 | Disable one hook | `/hooks` in Codex |
 
 ### Hook trust: the step users must not miss
@@ -93,7 +93,7 @@ is **silent**: no warning, no error (verified in runs A and E1). Trust is record
 user's `config.toml`:
 
 ```toml
-[hooks.state."agentguard@agentguard:hooks/hooks.json:pre_tool_use:0:0"]
+[hooks.state."truthstone@truthstone:hooks/hooks.json:pre_tool_use:0:0"]
 trusted_hash = "sha256:13b0c7f1…"          # hash of this hook's declaration
 trusted_content_hash = "sha256:181158bf…"  # hash of every file in the plugin directory
 ```
@@ -102,13 +102,13 @@ A plugin hook's trust is re-checked on **every hook run**, against a hash of eve
 the plugin root (`codex-rs/hooks/src/engine/plugin_fingerprint.rs`). Appending one newline
 to the plugin's `SKILL.md` flipped all six hooks to `modified`, which means skipped.
 Restoring the byte restored `trusted`. That is why the plugin is as small and stable as it
-is (see [Design decisions](#the-plugin-is-thin-on-purpose)). AgentGuard never writes trust
+is (see [Design decisions](#the-plugin-is-thin-on-purpose)). Truthstone never writes trust
 on the user's behalf.
 
 ## The verified Codex hook contract
 
 **Source** is `codex-rs` at `rust-v0.166.0`. **Live** is a captured `codex exec` run. The
-captured stdin of every event AgentGuard uses is kept in
+captured stdin of every event Truthstone uses is kept in
 [`tests/fixtures/codex_payloads/`](../tests/fixtures/codex_payloads/). Paths are scrubbed
 to `/workspace` and `/codex-home`; ids and shapes are untouched. CI validates those
 payloads against Codex's own generated JSON Schemas, vendored in
@@ -124,13 +124,13 @@ payloads against Codex's own generated JSON Schemas, vendored in
 | `PostToolUse` | after a tool produced output | as PreToolUse, plus `tool_response` | live |
 | `Stop` | the turn is about to end | `turn_id`, `permission_mode`, `stop_hook_active`, `last_assistant_message` | live |
 | `SessionEnd` | session closes (`codex exec` exit included) | `reason` (always `"other"`); no `model`/`permission_mode` | live |
-| `PermissionRequest` | Codex is about to ask for approval | not used: AgentGuard never grants | source |
-| `SubagentStart/Stop`, `Pre/PostCompact`, `Pre/PostModelRequest`, `Interrupt` | — | not used by AgentGuard | source |
+| `PermissionRequest` | Codex is about to ask for approval | not used: Truthstone never grants | source |
+| `SubagentStart/Stop`, `Pre/PostCompact`, `Pre/PostModelRequest`, `Interrupt` | — | not used by Truthstone | source |
 
 - `permission_mode` is `bypassPermissions` under `codex exec` (approval policy `never`), and
   `default` for `untrusted`/`on-request`/granular policies.
 - Subagent hooks carry the **parent's** `session_id`, plus `agent_id`/`agent_type`.
-- Hook processes inherit the session's environment (`AGENTGUARD_HOME` reached them; live).
+- Hook processes inherit the session's environment (`TRUTHSTONE_HOME` reached them; live).
   Plugin hooks also get `PLUGIN_ROOT` and `PLUGIN_DATA`, with `CLAUDE_PLUGIN_ROOT` and
   `CLAUDE_PLUGIN_DATA` as aliases. `${PLUGIN_ROOT}` in a command string is substituted
   before the shell sees it.
@@ -171,7 +171,7 @@ a `deny`/`block` with an empty reason marks the hook *failed* and the action **p
 
 - **Fail open** (live, run B1). The tool still ran after: a hook killed at its timeout; a
   crash (exit 1); exit 7; invalid JSON; `ask`. Each is reported as a failed hook run.
-- **Exit 2 means "block".** A hook that crashes with exit 2 blocks the action. AgentGuard's
+- **Exit 2 means "block".** A hook that crashes with exit 2 blocks the action. Truthstone's
   launcher and forwarder therefore always exit 0.
 - **Timeouts.** `timeout` is in seconds. The default is **600**. SessionEnd and Interrupt
   default to 1 s and are capped at 3 s. On timeout the hook's process group is killed.
@@ -235,8 +235,8 @@ measured numbers (see [Measured latency](#measured-latency)):
 
 | Candidate | Per tool call | Verdict |
 |---|---|---|
-| **command → plugin launcher (`sh`) → `agentguard-codex-hook` → loopback daemon** | **31 ms p50 / 34 ms p95** | **chosen** for the plugin |
-| **command → `python -m agentguard.adapters.codex.hook` → daemon** | **27 ms p50 / 29 ms p95** | **chosen** for `agentguard install codex` |
+| **command → plugin launcher (`sh`) → `truthstone-codex-hook` → loopback daemon** | **31 ms p50 / 34 ms p95** | **chosen** for the plugin |
+| **command → `python -m truthstone.adapters.codex.hook` → daemon** | **27 ms p50 / 29 ms p95** | **chosen** for `truthstone install codex` |
 | command → the Claude shim's code path (imports `http.client`) | +15–20 ms of imports (36 ms vs 16 ms bare start) | rejected; the forwarder writes its one HTTP request by hand |
 | command → `uvx --from git+…@<sha>` per call | 135–146 ms (warm) | rejected for the hot path; used once for bootstrap instead |
 | command → `uvx --from git+…` (unpinned) per call | 790–870 ms, plus a network fetch per call; `--offline` fails | rejected |
@@ -246,13 +246,13 @@ At ~34 ms p95, the chosen path sits well inside the 100 ms budget of SPEC §8. T
 command shim measured 113.6 ms p95 (`docs/BENCH-latency.md`).
 
 The forwarder (`adapters/codex/hook.py`) is stdlib-only, and on the hot path it imports only
-`json`, `os`, `socket` and `sys`. It reads the daemon handshake from `AGENTGUARD_HOME`, so no
+`json`, `os`, `socket` and `sys`. It reads the daemon handshake from `TRUTHSTONE_HOME`, so no
 port or token is baked into any hook and the token never appears on a command line. It
 skips a dead PID for free and makes no `/health` probe on the hot path. Lifecycle work runs
 only where a process spawn is invisible. SessionStart starts the daemon if needed.
 UserPromptSubmit revives a dead daemon once. If neither succeeds, the developer is told
 **once per session** (via `systemMessage`) that the session is unguarded. The daemon's
-`/health` now lists the routes it serves, so a daemon started by an older AgentGuard that
+`/health` now lists the routes it serves, so a daemon started by an older Truthstone that
 cannot route Codex is reported, never silently trusted.
 
 ### The plugin is thin on purpose
@@ -261,21 +261,21 @@ Codex re-checks a plugin's whole directory on every hook run and makes users re-
 hooks after any change. The plugin therefore holds nothing that evolves:
 
 ```
-plugins/agentguard/
+plugins/truthstone/
   .codex-plugin/plugin.json      generated: identity + listing metadata
   hooks/hooks.json               generated: six command hooks
-  hooks/agentguard-hook.sh       generated: POSIX launcher, ~50 lines
-  skills/agentguard/SKILL.md     how to read and resolve AgentGuard challenges
+  hooks/truthstone-hook.sh       generated: POSIX launcher, ~50 lines
+  skills/truthstone/SKILL.md     how to read and resolve Truthstone challenges
   assets/*.svg                   logo, dark logo, composer icon (original, 48–64 px)
 ```
 
-Every hook runs `/bin/sh "${PLUGIN_ROOT}/hooks/agentguard-hook.sh" <event>`. The launcher
-only *finds* the runtime: `$AGENTGUARD_CODEX_HOOK`, then `agentguard-codex-hook` on `PATH`,
+Every hook runs `/bin/sh "${PLUGIN_ROOT}/hooks/truthstone-hook.sh" <event>`. The launcher
+only *finds* the runtime: `$TRUTHSTONE_CODEX_HOOK`, then `truthstone-codex-hook` on `PATH`,
 then the private copy in `$PLUGIN_DATA`. It hands the payload over and always exits 0. All
-logic lives in the runtime, so **upgrading AgentGuard never touches the plugin and never
-costs a re-review.** Changing AgentGuard's rendering policy during this work proved it: the
+logic lives in the runtime, so **upgrading Truthstone never touches the plugin and never
+costs a re-review.** Changing Truthstone's rendering policy during this work proved it: the
 fingerprint did not move. Frequently edited guidance belongs in a separate, hook-free plugin
-(planned: `plugins/agentguard-practices`), never in this one.
+(planned: `plugins/truthstone-practices`), never in this one.
 
 Two tests make any fingerprint change deliberate. `tests/codex_trust.py` reimplements both
 of Codex's hashes, the per-hook declaration hash and the plugin content hash.
@@ -318,7 +318,7 @@ elsewhere, `..` traversal, or a symlink leading out yields no read, and the evid
 `{"stdout": str, "exit_code": int | None, "interrupted": false}`. `exit_code` is `None` on
 Codex, which means "unknown", never "passed". Today's core reads that shape unchanged.
 
-### What AgentGuard says to Codex (`adapters/codex/render.py`)
+### What Truthstone says to Codex (`adapters/codex/render.py`)
 
 All rendering lives in one module. That module is the plug-in point for the core's planned
 `HostCapabilities` profile. The Codex profile is: no `ask`, no `defer`; `allow` +
@@ -330,7 +330,7 @@ All rendering lives in one module. That module is the plug-in point for the core
 | ALLOW | nothing (empty stdout) |
 | ALLOW + context (planning budget) | `hookSpecificOutput.additionalContext` on UserPromptSubmit / SessionStart / Pre-, PostToolUse |
 | CHALLENGE / BLOCK at PreToolUse | `deny` + the challenge text |
-| REQUEST_REVIEW for an **irreversible** action (a RISK finding that needs a human) | `deny` with "AgentGuard: needs developer sign-off. Ask the user to confirm, then re-run." plus a `systemMessage` |
+| REQUEST_REVIEW for an **irreversible** action (a RISK finding that needs a human) | `deny` with "Truthstone: needs developer sign-off. Ask the user to confirm, then re-run." plus a `systemMessage` |
 | REQUEST_REVIEW for anything else | non-blocking `additionalContext`; recorded only at Stop |
 | MODIFY | `deny` that shows the **guarded form** for the agent to re-issue, e.g. `[ -n "$BUILD_DIR" ] && rm -rf "$BUILD_DIR"` |
 | BLOCK at Stop (completion gate) | `{"decision":"block","reason":…}`, never with `hookSpecificOutput` |
@@ -349,7 +349,7 @@ All rendering lives in one module. That module is the plug-in point for the core
   `allow` + `updatedInput`. That form was verified live as a rewrite, not a grant, but it
   stays off in this release.
 
-AgentGuard emits no `allow` in this release and never answers `PermissionRequest`.
+Truthstone emits no `allow` in this release and never answers `PermissionRequest`.
 
 ## Measured latency
 
@@ -359,7 +359,7 @@ stdin) against a real daemon guarding a copy of `tests/fixtures/pyrepo`, N = 200
 
 | Path | Event | p50 | p95 | max |
 |---|---|---|---|---|
-| plugin (launcher → `agentguard-codex-hook`) | PreToolUse Bash, validated | 31.0 ms | 33.6 ms | 37.2 ms |
+| plugin (launcher → `truthstone-codex-hook`) | PreToolUse Bash, validated | 31.0 ms | 33.6 ms | 37.2 ms |
 | plugin | PreToolUse Bash, read (not validated) | 30.4 ms | 32.0 ms | 40.2 ms |
 | plugin | PostToolUse Bash | 30.8 ms | 34.4 ms | 52.2 ms |
 | plugin | PreToolUse apply_patch, 2 files | 32.5 ms | 33.8 ms | 35.7 ms |
@@ -374,7 +374,7 @@ Process start dominates. The daemon's decision itself is under a millisecond.
 
 **Cold start of the plugin's bootstrap.** With no runtime installed, an empty uv cache and
 an empty `$PLUGIN_DATA`, the first SessionStart took **2.45 s**: uv resolved and installed
-AgentGuard and its dependencies, and the daemon started. The next session took **0.04 s**.
+Truthstone and its dependencies, and the daemon started. The next session took **0.04 s**.
 These figures are from a local source. From the public Git repository, `uvx` measured
 **3.5 s** cold, clone included. If no Python 3.12+ is present, uv first downloads a managed
 Python; that case was not measured.
@@ -465,10 +465,10 @@ found, "all 6 AgentGuard hooks are trusted in Codex".
 - **Deletions count as touched files**, not in `TaskState.deleted_files`. Nothing in the
   core writes that field yet (`IMPROVEMENTS.md` G5).
 - **`systemMessage` is invisible in `codex exec`.** The "session is unguarded" and sign-off
-  notices reach TUI/app users only. `agentguard doctor` remains the reliable check.
+  notices reach TUI/app users only. `truthstone doctor` remains the reliable check.
 - **Windows** is untested, and the plugin's launcher is POSIX `sh`.
 - **The bootstrap source is pinned to this plugin's release tag**
-  (`git+https://github.com/tohin003/AgentGuard@v<plugin version>`, from `runtime_source()` in
+  (`git+https://github.com/tohin003/Truthstone@v<plugin version>`, from `runtime_source()` in
   `adapters/codex/plugin.py`). An unpinned source would install whatever the default branch
   held at first use and run it on every tool call, unreviewed. With the tag in the launcher,
   each runtime version change is a plugin-file change, which Codex sends back through hook
@@ -480,28 +480,28 @@ found, "all 6 AgentGuard hooks are trusted in Codex".
 
 ### Placeholder: privacy policy
 
-*Placeholder, not a policy.* AgentGuard runs entirely on the user's machine. It makes no
+*Placeholder, not a policy.* Truthstone runs entirely on the user's machine. It makes no
 network calls of its own, contains no model, and stores its decisions, findings and logs
-under `AGENTGUARD_HOME` (default `~/.agentguard`), with owner-only permissions. The only
+under `TRUTHSTONE_HOME` (default `~/.truthstone`), with owner-only permissions. The only
 network access is the optional first-run bootstrap, which installs the runtime with `uv`
 from the public Git repository (or PyPI). A real privacy policy must be written and hosted
 before any public listing.
 
 ### Placeholder: terms of service
 
-*Placeholder, not terms.* AgentGuard is distributed under the Apache License 2.0, without
+*Placeholder, not terms.* Truthstone is distributed under the Apache License 2.0, without
 warranty. Real terms of service must be written and hosted before any public listing.
 
 ## Maintainer notes
 
-- **Names live in one place.** `src/agentguard/adapters/codex/plugin.py` holds the plugin
+- **Names live in one place.** `src/truthstone/adapters/codex/plugin.py` holds the plugin
   name, marketplace name, display name, runtime command, install source and listing
-  metadata. After changing them, run `python -m agentguard.adapters.codex.plugin --write`,
+  metadata. After changing them, run `python -m truthstone.adapters.codex.plugin --write`,
   which regenerates `plugin.json`, `hooks/hooks.json`, the launcher and *our* entry in
   `.agents/plugins/marketplace.json`; other entries there are preserved.
   `tests/test_codex_plugin.py` fails while anything is stale. The prose in the skill and in
   this document must be renamed by search and replace.
-- **A plugin change forces every user to re-trust.** Any edit under `plugins/agentguard/`
+- **A plugin change forces every user to re-trust.** Any edit under `plugins/truthstone/`
   fails the trust tripwire in `tests/test_codex_plugin.py` until the pinned hashes are
   updated. Update them only when the re-review is worth it.
 - **When the supported Codex version changes**, re-capture the payloads. Install a logging

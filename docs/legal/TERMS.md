@@ -2,16 +2,16 @@
 
 Last updated: 4 November 2026
 
-These terms cover two pieces of software that {{PUBLISHER_NAME}} ("we") publishes at https://github.com/tohin003/AgentGuard:
+These terms cover two pieces of software that {{PUBLISHER_NAME}} ("we") publishes at https://github.com/tohin003/Truthstone:
 
-- **AgentGuard Practices**, a skills plugin
-- **AgentGuard**, an open-source local runtime
+- **Truthstone Practices**, a skills plugin
+- **Truthstone (previously named AgentGuard)**, an open-source local runtime
 
 By installing or using either one, you agree to these terms.
 
 ## 1. License
 
-Both are open-source software licensed under the Apache License, Version 2.0 (the "License"): https://github.com/tohin003/AgentGuard/blob/master/LICENSE.
+Both are open-source software licensed under the Apache License, Version 2.0 (the "License"): https://github.com/tohin003/Truthstone/blob/master/LICENSE.
 
 The License governs copying, modification and redistribution. If these terms conflict with the License, the License prevails.
 
@@ -21,8 +21,8 @@ We don't charge for either piece of software, and we sell nothing through it.
 
 ## 3. What the software does and does not do
 
-- **AgentGuard Practices** is a set of instructions that a coding agent may follow. It runs no code and enforces nothing.
-- **AgentGuard** runs deterministic checks on your computer. It can miss problems, and it can raise concerns that turn out to be unfounded.
+- **Truthstone Practices** is a set of instructions that a coding agent may follow. It runs no code and enforces nothing.
+- **Truthstone** runs deterministic checks on your computer. It can miss problems, and it can raise concerns that turn out to be unfounded.
 - **Your judgement still decides.** Both are aids to your own judgement, not a substitute for it. You remain responsible for:
   - reviewing changes before you merge, deploy or publish them
   - approving the commands your agent runs, especially irreversible ones

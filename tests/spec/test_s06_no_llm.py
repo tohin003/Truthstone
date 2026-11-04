@@ -1,9 +1,9 @@
-"""SPEC §6, §22, §46.1 — AgentGuard must not own an LLM.
+"""SPEC §6, §22, §46.1 — Truthstone must not own an LLM.
 
-    "AgentGuard must be able to operate without owning or hosting its own LLM."
+    "Truthstone must be able to operate without owning or hosting its own LLM."
     "The majority of operations should be deterministic."
 
-This is the project's defining constraint. If AgentGuard ever starts making its own model
+This is the project's defining constraint. If Truthstone ever starts making its own model
 calls it has become "another LLM wrapper" (SPEC §47) and the thesis is dead. These tests
 are cheap and permanent insurance against that drift.
 """
@@ -15,10 +15,10 @@ import tomllib
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
 from tests.conftest import REPO_ROOT, pre_tool_use, session_start, stop_event, user_prompt_submit
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
 
 pytestmark = pytest.mark.spec
 
@@ -42,7 +42,7 @@ LLM_API_HOSTS = {
 
 
 def source_files() -> list:
-    return sorted((REPO_ROOT / "src" / "agentguard").rglob("*.py"))
+    return sorted((REPO_ROOT / "src" / "truthstone").rglob("*.py"))
 
 
 def test_no_llm_sdk_is_declared_as_a_dependency():
@@ -77,7 +77,7 @@ def test_no_source_file_imports_an_llm_sdk():
                 if module in LLM_IMPORT_NAMES or root in LLM_IMPORT_NAMES:
                     offenders.append(f"{path.relative_to(REPO_ROOT)}: {module}")
 
-    assert not offenders, "AgentGuard imports an LLM SDK:\n" + "\n".join(offenders)
+    assert not offenders, "Truthstone imports an LLM SDK:\n" + "\n".join(offenders)
 
 
 def test_no_source_file_references_an_llm_api_endpoint():
@@ -87,7 +87,7 @@ def test_no_source_file_references_an_llm_api_endpoint():
         for host in LLM_API_HOSTS:
             if host in text:
                 offenders.append(f"{path.relative_to(REPO_ROOT)}: {host}")
-    assert not offenders, "AgentGuard references an LLM API endpoint:\n" + "\n".join(offenders)
+    assert not offenders, "Truthstone references an LLM API endpoint:\n" + "\n".join(offenders)
 
 
 def test_handling_a_full_session_opens_no_network_connection(workspace, monkeypatch):
@@ -124,4 +124,4 @@ def test_handling_a_full_session_opens_no_network_connection(workspace, monkeypa
     finally:
         guard.close()
 
-    assert not connections, f"AgentGuard opened network connections: {connections}"
+    assert not connections, f"Truthstone opened network connections: {connections}"

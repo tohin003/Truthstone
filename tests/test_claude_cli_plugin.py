@@ -1,4 +1,4 @@
-"""`agentguard install claude` and `doctor` know about the plugin (migration).
+"""`truthstone install claude` and `doctor` know about the plugin (migration).
 
 The settings-based install stays as the fallback, so both can end up present. Neither
 command may hide that: `install` points at the plugin (or says the plugin is already
@@ -13,8 +13,8 @@ import json
 import pytest
 from typer.testing import CliRunner
 
-from agentguard.adapters.claude_code import install as inst
-from agentguard.cli.main import app
+from truthstone.adapters.claude_code import install as inst
+from truthstone.cli.main import app
 
 runner = CliRunner()
 
@@ -27,25 +27,25 @@ def claude_config(tmp_path, monkeypatch):
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.chdir(project)
-    monkeypatch.delenv("AGENTGUARD_PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("TRUTHSTONE_PLUGIN_DATA", raising=False)
     return config, project
 
 
 def record_plugin(config, scope="user", project=None):
-    entry = {"scope": scope, "installPath": "/cache/agentguard/0.1.0", "version": "0.1.0"}
+    entry = {"scope": scope, "installPath": "/cache/truthstone/0.1.0", "version": "0.1.0"}
     if project is not None:
         entry["projectPath"] = str(project)
     path = config / "plugins" / "installed_plugins.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"version": 2, "plugins": {"agentguard@agentguard": [entry]}}))
+    path.write_text(json.dumps({"version": 2, "plugins": {"truthstone@truthstone": [entry]}}))
 
 
 class TestInstallExplainsThePlugin:
     def test_points_at_the_plugin(self, claude_config):
         result = runner.invoke(app, ["install", "claude", "--project", "--dry-run"])
         assert result.exit_code == 0, result.output
-        assert "/plugin marketplace add tohin003/AgentGuard" in result.output
-        assert "/plugin install agentguard@agentguard" in result.output
+        assert "/plugin marketplace add tohin003/Truthstone" in result.output
+        assert "/plugin install truthstone@truthstone" in result.output
 
     def test_warns_when_the_plugin_is_already_there(self, claude_config):
         config, _ = claude_config
@@ -61,7 +61,7 @@ class TestDoctor:
         config, _ = claude_config
         record_plugin(config)
         result = runner.invoke(app, ["doctor"])
-        assert "plugin agentguard@agentguard installed" in result.output
+        assert "plugin truthstone@truthstone installed" in result.output
         assert "currently unguarded" not in result.output
 
     def test_both_installs_are_reported(self, claude_config):
@@ -70,12 +70,12 @@ class TestDoctor:
         inst.install(project / ".claude" / "settings.local.json")
         result = runner.invoke(app, ["doctor"])
         assert "installed twice" in result.output
-        assert "agentguard uninstall claude" in result.output
+        assert "truthstone uninstall claude" in result.output
 
     def test_inside_a_plugin_session(self, claude_config, monkeypatch, tmp_path):
-        """/agentguard:doctor runs with AGENTGUARD_PLUGIN_DATA: proof the plugin is live,
+        """/truthstone:doctor runs with TRUTHSTONE_PLUGIN_DATA: proof the plugin is live,
         even when it was loaded for one session with --plugin-dir and has no record."""
-        monkeypatch.setenv("AGENTGUARD_PLUGIN_DATA", str(tmp_path / "plugin-data"))
+        monkeypatch.setenv("TRUTHSTONE_PLUGIN_DATA", str(tmp_path / "plugin-data"))
         result = runner.invoke(app, ["doctor"])
         assert "plugin runtime:" in result.output
         assert "currently unguarded" not in result.output

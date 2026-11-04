@@ -1,0 +1,74 @@
+{
+  "description": "Truthstone: reliability checks for Codex. Generated; see https://github.com/tohin003/Truthstone.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/truthstone-hook.sh\" session-start",
+            "timeout": 60,
+            "statusMessage": "Truthstone: starting the local guard"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/truthstone-hook.sh\" user-prompt-submit",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/truthstone-hook.sh\" pre-tool-use",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/truthstone-hook.sh\" post-tool-use",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/truthstone-hook.sh\" stop",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"${PLUGIN_ROOT}/hooks/truthstone-hook.sh\" session-end",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

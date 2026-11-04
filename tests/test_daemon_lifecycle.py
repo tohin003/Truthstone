@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.config import ensure_private_dir, write_private_text
-from agentguard.daemon.app import clear_handshake, read_handshake, write_handshake
-from agentguard.daemon.lifecycle import (
+from truthstone.core.config import ensure_private_dir, write_private_text
+from truthstone.daemon.app import clear_handshake, read_handshake, write_handshake
+from truthstone.daemon.lifecycle import (
     create_private_marker,
     interprocess_lock,
     open_private_append,
@@ -90,8 +90,8 @@ def test_macos_system_tmp_alias_remains_usable(tmp_path):
     """The standard /tmp -> /private/tmp alias is not user-controlled."""
     if os.path.realpath("/tmp") != "/private/tmp":
         pytest.skip("not macOS's /tmp alias")
-    root = Path(tempfile.mkdtemp(prefix="agentguard-compat-", dir="/tmp"))
+    root = Path(tempfile.mkdtemp(prefix="truthstone-compat-", dir="/tmp"))
     try:
-        assert ensure_private_dir(root / "agentguard-home").is_dir()
+        assert ensure_private_dir(root / "truthstone-home").is_dir()
     finally:
         shutil.rmtree(root, ignore_errors=True)

@@ -13,17 +13,17 @@ import os
 import subprocess
 import sys
 
-from agentguard.adapters.claude_code import shim
 from tests.conftest import REPO_ROOT, DaemonProcess, free_port, pre_tool_use, user_prompt_submit
+from truthstone.adapters.claude_code import shim
 
 
 def run_shim(home, flag, payload, **env_extra):
-    env = dict(os.environ, AGENTGUARD_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
-    env.pop("AGENTGUARD_DISABLE", None)
-    env.pop("AGENTGUARD_OBSERVE", None)
+    env = dict(os.environ, TRUTHSTONE_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
+    env.pop("TRUTHSTONE_DISABLE", None)
+    env.pop("TRUTHSTONE_OBSERVE", None)
     env.update(env_extra)
     return subprocess.run(
-        [sys.executable, "-m", "agentguard.adapters.claude_code.shim", flag],
+        [sys.executable, "-m", "truthstone.adapters.claude_code.shim", flag],
         input=json.dumps(payload).encode(),
         capture_output=True,
         env=env,
@@ -73,12 +73,12 @@ class TestDaemonSpawn:
 
 class TestPerSessionModes:
     def test_a_disabled_session_is_not_judged_by_a_running_daemon(self, daemon, workspace):
-        """R10: `AGENTGUARD_DISABLE=1 claude` used to leave its http hooks guarded."""
+        """R10: `TRUTHSTONE_DISABLE=1 claude` used to leave its http hooks guarded."""
         disabled = run_shim(
             daemon.home,
             "--health",
             {**user_prompt_submit("hi", cwd=str(workspace)), "session_id": "off-session"},
-            AGENTGUARD_DISABLE="1",
+            TRUTHSTONE_DISABLE="1",
         )
         assert disabled.returncode == 0
         assert disabled.stdout == b"" and disabled.stderr == b""
@@ -97,7 +97,7 @@ class TestPerSessionModes:
             isolated_home,
             "--ensure-daemon",
             {"hook_event_name": "SessionStart", "session_id": "s", "cwd": str(workspace)},
-            AGENTGUARD_DISABLE="1",
+            TRUTHSTONE_DISABLE="1",
         )
         assert result.returncode == 0
         assert not (isolated_home / "daemon.json").exists()
@@ -107,7 +107,7 @@ class TestPerSessionModes:
             daemon.home,
             "--health",
             {**user_prompt_submit("hi", cwd=str(workspace)), "session_id": "quiet"},
-            AGENTGUARD_OBSERVE="1",
+            TRUTHSTONE_OBSERVE="1",
         )
         assert observed.returncode == 0
         prompt = {**user_prompt_submit("push the branch", cwd=str(workspace)), "session_id": "quiet"}

@@ -3,7 +3,7 @@
 Every other test builds its own request. This one reads the URL, headers and timeouts out
 of the **installed settings.json** and uses them verbatim, so it fails if the installer and
 the daemon ever disagree about the wire — the one bug that would silently disable
-AgentGuard in production while every unit test stayed green.
+Truthstone in production while every unit test stayed green.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ import time
 import httpx
 import pytest
 
-from agentguard.adapters.claude_code import install as inst
-from agentguard.core.config import DaemonSettings, Settings
-from agentguard.core.store import Store
 from tests.conftest import REPO_ROOT, free_port, pre_tool_use, session_start, stop_event, user_prompt_submit
+from truthstone.adapters.claude_code import install as inst
+from truthstone.core.config import DaemonSettings, Settings
+from truthstone.core.store import Store
 
 
 @pytest.fixture
@@ -32,9 +32,9 @@ def installed(tmp_path, isolated_home):
     settings_file = tmp_path / ".claude" / "settings.json"
     inst.install(settings_file, settings=settings)
 
-    env = dict(os.environ, AGENTGUARD_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
+    env = dict(os.environ, TRUTHSTONE_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
     proc = subprocess.Popen(
-        [sys.executable, "-m", "agentguard.daemon", "run", "--port", str(port)],
+        [sys.executable, "-m", "truthstone.daemon", "run", "--port", str(port)],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -115,7 +115,7 @@ class TestInstalledWiring:
                 # The planning budget rides in here (SPEC §9, §13). It is context for
                 # the agent, not output for the developer.
                 context = body["hookSpecificOutput"]["additionalContext"]
-                assert "[AgentGuard]" in context
+                assert "[Truthstone]" in context
                 assert "complexity" in context
             else:
                 assert body == {}, f"{event_name} must stay silent on an ordinary action"
@@ -163,9 +163,9 @@ class TestInstalledWiring:
 class TestTheDaemonBindsWhereTheHooksPoint:
     """The installed hook URL and the daemon's actual port must agree.
 
-    They did not. `python -m agentguard.daemon run` — exactly how the shim spawns it —
+    They did not. `python -m truthstone.daemon run` — exactly how the shim spawns it —
     defaulted to port 0, meaning "any free port", while the installed URL pointed at the
-    configured one. Every hook would have failed and AgentGuard would have silently done
+    configured one. Every hook would have failed and Truthstone would have silently done
     nothing in every real installation. Every test passed, because every test passed
     `--port` explicitly and so never exercised the default.
     """
@@ -174,9 +174,9 @@ class TestTheDaemonBindsWhereTheHooksPoint:
         port = free_port()
         (isolated_home / "config.toml").write_text(f"[daemon]\nport = {port}\n")
 
-        env = dict(os.environ, AGENTGUARD_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env = dict(os.environ, TRUTHSTONE_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
         proc = subprocess.Popen(
-            [sys.executable, "-m", "agentguard.daemon", "run"],  # no --port, like the shim
+            [sys.executable, "-m", "truthstone.daemon", "run"],  # no --port, like the shim
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -214,9 +214,9 @@ class TestTheDaemonBindsWhereTheHooksPoint:
         """Publishing the handshake before binding meant a daemon that could not start
         still advertised itself, and briefly looked alive."""
         (isolated_home / "config.toml").write_text("[daemon]\nport = 1\n")  # privileged
-        env = dict(os.environ, AGENTGUARD_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env = dict(os.environ, TRUTHSTONE_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
         result = subprocess.run(
-            [sys.executable, "-m", "agentguard.daemon", "run"],
+            [sys.executable, "-m", "truthstone.daemon", "run"],
             env=env,
             capture_output=True,
             timeout=30,
@@ -228,7 +228,7 @@ class TestTheDaemonBindsWhereTheHooksPoint:
 
 class TestFailOpenInProduction:
     def test_a_dead_daemon_does_not_break_the_hook_contract(self, installed, workspace):
-        """The scenario that matters most: AgentGuard crashes mid-session.
+        """The scenario that matters most: Truthstone crashes mid-session.
 
         Claude Code gets a connection error, which is a non-blocking hook error — the
         tool call proceeds. What must never happen is a response that *denies* something.
@@ -251,7 +251,7 @@ class TestFailOpenInProduction:
         assert hook["type"] == "command"
         assert "args" not in hook
 
-        env = dict(os.environ, AGENTGUARD_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env = dict(os.environ, TRUTHSTONE_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
         result = subprocess.run(
             hook["command"],
             shell=True,
