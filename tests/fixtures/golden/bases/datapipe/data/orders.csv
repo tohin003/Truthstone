@@ -1,0 +1,13 @@
+order_id,email,amount,quantity,region,created_at
+W-2001,ana@example.com,12.50,1,ca,2026-10-01T08:12:00Z
+W-2002,Ben@Example.com,"$1,240.00",2,ny,2026-10-01T09:30:00Z
+W-2003,cara@example.com,$7.25,1,tx,2026-10-01T17:45:00Z
+W-2002,ben@example.com,"$1,240.00",2,ny,2026-10-01T09:30:00Z
+W-2004,ana@example.com,3.10,,ca,2026-10-02T11:05:00Z
+W-2005,dev@example.com,-12.50,1,wa,2026-10-02T13:20:00Z
+W-2006,erin@example.com,89.00,3,or,2026-10-02T19:02:00Z
+W-2007,cara@example.com,"2,015.40",1,tx,2026-10-03T07:48:00Z
+W-2008,ben@example.com,19.99,1,ny,2026-10-03T12:00:00Z
+W-2009,fay@example.com,5,4,ca,2026-10-03T16:31:00Z
+W-2006,erin@example.com,89.00,3,or,2026-10-02T19:02:00Z
+W-2010,dev@example.com,42.00,1,wa,2026-10-04T10:15:00Z
