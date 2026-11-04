@@ -158,6 +158,20 @@ was killed.
 - **Installs in one place.** Only `session-start.sh` installs anything, and it can be told
   not to (`TRUTHSTONE_NO_BOOTSTRAP`).
 
+### Safety policies, confirmed by the user on 2026-11-04
+
+Two rendering policies were flagged for a decision during this work. The user confirmed
+both as written:
+
+1. **MODIFY renders as `ask` + `updatedInput`, never `defer`.** When the core proposes a
+   narrower command, Claude Code shows the narrowed input in its own permission prompt and
+   the developer decides (verified live in `-p`, below). `defer` is never emitted: it ends
+   the turn in `-p` and is ignored, with `updatedInput` dropped, in interactive sessions.
+2. **On hosts without `ask`, irreversible actions are denied pending developer sign-off.**
+   This applies to Codex (`docs/CODEX.md`). Claude Code has `ask`, so there the developer
+   answers the permission prompt; in `-p`, where nobody can answer, Claude Code itself
+   denies the call.
+
 ### Migration from the settings-based install
 
 The settings install (`truthstone install claude`) stays as the fallback for setups that

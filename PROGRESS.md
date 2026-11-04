@@ -578,3 +578,50 @@ Gate; `session_end` closes out and runs storage maintenance.
   **The census itself is not done.** There is no data to count — see the Phase 7b section
   above for why fabricating it from the benchmark corpus would be worse than an empty
   table. `docs/CENSUS.md` carries the method, the caveats and the command to start.
+
+### 2026-11-04
+- **Two hosts, three plugins, one new name.** A day of parallel builders, merged on
+  `integration/overnight` and finished on `readiness`. The product is now **Truthstone
+  (previously named AgentGuard)**; this file keeps the old name for everything above.
+- **Codex adapter and plugin.** The Codex hook contract was verified against codex-cli
+  0.166.0 (source and live runs; `docs/CODEX.md`), including an exact port of
+  `apply_patch` into the core's Edit, Write and Delete events. `truthstone install codex`
+  writes plain hooks; the Codex plugin (`plugins/truthstone`) is generated from
+  `adapters/codex/plugin.py`, runs one POSIX launcher, and pins the content hashes Codex
+  uses for hook trust, so any change to it is deliberate.
+- **Claude Code plugin** (`plugins/truthstone-claude`): marketplace, hooks, user-invoked
+  commands and a guidance skill, with a runtime it installs itself with uv. A plugin cannot
+  authenticate an `http` hook, so per-tool events go through a lean `python -I -S`
+  forwarder. Live payloads showed failing test runs arriving as `PostToolUseFailure`, which
+  now reach the completion gate.
+- **Skills-only companion** (`plugins/truthstone-practices`): six instruction-only skills,
+  a listing kit (`docs/LISTING.md`), legal pages, and a reproducible, self-validating
+  submission ZIP (`scripts/companion_package.py`).
+- **Rename to Truthstone.** `src/truthstone/names.py` is the one registry of current and
+  former names: old `AGENTGUARD_*` settings, `~/.agentguard` and hooks written under the
+  old name keep working. `scripts/rename_product.py` performed the rename in one reviewable
+  pass (`docs/RENAME.md`).
+- **Security fixes.** The daemon and the Codex hooks run Python with `-P` and start outside
+  the guarded repository, so a repository file such as `json.py` can never shadow a module
+  they import. The plugins pin their runtime to their own release tag (`v<version>`)
+  instead of whatever the default branch holds.
+- **Release workflow.** A `v*` tag runs the suite and publishes to PyPI through Trusted
+  Publishing (no API token), and refuses a tag whose version differs from `pyproject.toml`
+  or any hook plugin's manifest.
+- **Core audit.** `docs/IMPROVEMENTS.md` (on the core branch, merging later) ranks the
+  core's defects and improvements; its fixes are in progress in a parallel session. Nothing
+  here claims them yet.
+- **Directory readiness.** Every Claude plugin hook now runs a script named in full from
+  `${CLAUDE_PLUGIN_ROOT}`, as Anthropic's directory requires of a plugin in a repository
+  subfolder. One script installs (`session-start.sh`); the per-event script installs
+  nothing. Both plugins' hooks now do nothing outside a git work tree, the Claude plugin
+  gained the `TRUTHSTONE_NO_BOOTSTRAP` opt-out the Codex launcher already had, and both
+  plugins ship a README that discloses what they run, send, fetch and store, with
+  retention described as the code does it. The publisher is Tohin Majumder
+  (tohin1400@gmail.com). A per-tool hook now costs about 21 ms p50 and 22 ms p95, about
+  3 ms more than before.
+- **MODIFY's `defer` question is answered: never `defer`.** On Claude Code a narrowed
+  command is shown as `ask` + `updatedInput`; on hosts without `ask`, an irreversible
+  action is denied pending developer sign-off. The user confirmed both policies.
+- **Evidence is still pending.** The earlier "100% precision" figure was found not to be
+  meaningful, and no claim of effect is made until a paired benchmark has run.
