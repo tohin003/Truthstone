@@ -1594,11 +1594,20 @@ The core items run in five parallel clusters: **gate** (verify, intent, engine),
 | G3a | Test runners recognised by command position | done | 2452ecc | Mention-only commands 12/15 → 0/15; missed real runners 14/14 → 0/14. |
 | R12 | Refuse to index `$HOME`, `/` or huge non-git trees | done | 95886b9 | SessionStart 5,037→32 ms; post-Bash 19.5 s→0.2 ms on a 205k-file home. |
 | R1-store | Store never raises at construction; degraded store | done | 739c9ac | Engine in-memory task ids + ledger counters (R1-engine) pending. |
-| G2a, G1-core, G3b, G6, G4a, G5, G15, G7, G9, G10-core, H3, H5-core, H2, R4 | Completion-gate cluster + engine-side host items | in progress (gate) | — | — |
-| A4, R13, A2, A10, A8, A9, A3, A11 | Asks cluster | in progress (asks) | — | — |
-| H4, R16, R9-core, M6, M8 | Adapter registry + host-neutral lint, auth bytes, degraded health, CI, latency tests | in progress (hosts) | — | — |
-| R18, E1, R15 | Path case, evidence precision, build yield | in progress (repo) | — | — |
-| R17, R11 | Redaction; config/doctor | in progress (store) | — | — |
+| A4 | Scope never denies a test run; proportionality recorded only; read-only Bash skips evidence/scope | done | 953f3bd | — |
+| H4 | Adapter protocol + registry (daemon routes through it), host-neutral AST lint, host contract tests | done | cb959ff | Allowlist reconciled at integration. |
+| R18 | Case-insensitive path containment | done | a22d7e1 | — |
+| R16 | Bearer token compared as bytes (no 500) | done | 1812ff9 | — |
+| G3b | Strict last-summary test parsers (Pebble port) | done | cf2f724 | 104 real/reconstructed outputs: 8 wrong → 0 wrong, 46 → 93 correct. |
+| R13 | Linear-time risky-command matching | done | 9112659 | 900 KB line: 203 s → 23–48 ms. |
+| R17 | Redact credentials before anything reaches the database | done | 6aa912d | Daemon-log redaction pending (hosts/daemon). |
+| G1-core | Exit-code-first test outcomes, last-stage rule, interrupted ≠ failed | done | efafc48 | `SHELL_TOOLS` centralised in `core/events.py`. |
+| R9-core | Degradation channel in `/health`; stale tokens no longer silent; shim prints reasons | done | 791a74f | Tests adapted to R1-store's API at integration. |
+| G2a, G6, G4a, G5, G15, G7, G9, G10-core, H3, H5-core, H2, R4 | Completion-gate cluster + engine-side host items | in progress (gate) | — | — |
+| A2, A10, A8, A9, A3, A11 | Asks cluster | in progress (asks) | — | — |
+| M6, M8 | CI workflow, latency tests that cannot time a no-op | in progress (hosts) | — | — |
+| E1, R15 | Evidence precision, build yield | in progress (repo) | — | — |
+| R11 | Config robustness + doctor coverage | in progress (store) | — | — |
 | R1-engine, R6, R14, R8, G2b, G8, G16, G4b, G11, G12, G13, G14, A6, A7, H6, H7, H8 | Later items | not started | — | — |
 | G1/A5/G10/H5/R9/R10 adapter halves | — | done by the adapter builders | e087bf5 (merge) | — |
 | R2 | Windows shim | out of scope | — | Windows is unsupported this release; it must fail open. |
