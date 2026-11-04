@@ -317,3 +317,49 @@ def test_without_a_premise_note_no_first_edit_is_ever_held(tmp_path):
 def test_the_hold_still_follows_a_real_premise_note(tmp_path):
     ask = "ledgerly already logs every request when LEDGERLY_TRACE=1 is set, so switch that on in CI."
     assert _first_edits_held(PY_REPO, [ask], tmp_path, PY_PATCH) == [f"{ask} [apply_patch]"]
+
+
+# -- names the repository has where the index does not look ----------------------------------------
+#
+# The index skips dot-files (`.eslintrc.json`, `.prettierrc`, `.env.example`, `.github/`), and code
+# often reads an environment variable without spelling it: a settings class, a computed key.
+
+SETTINGS_PY = (
+    "from pydantic_settings import BaseSettings, SettingsConfigDict\n\n\nclass Settings(BaseSettings):\n"
+    "    log_level: str = \"INFO\"\n\n\nclass Cache(BaseSettings):\n"
+    "    model_config = SettingsConfigDict(env_prefix=\"LEDGERLY_CACHE_\")\n    seconds: int = 300\n"
+)
+ENV_PY = (
+    "import os\n\n\ndef setting(name: str, default: str = \"\") -> str:\n"
+    "    return os.environ.get(f\"LEDGERLY_{name.upper()}\", default)\n"
+)
+WHERE_PY = {
+    **PY_REPO,
+    "ledgerly/settings.py": SETTINGS_PY,
+    "ledgerly/env.py": ENV_PY,
+    "README.md": PY_REPO["README.md"] + "\nSet `LOG_LEVEL=DEBUG` for verbose logs.\n",
+    ".env.example": PY_REPO[".env.example"] + "LEDGERLY_CACHE_SECONDS=300\nLEDGERLY_REGION=eu\n",
+}
+WHERE_TS = {
+    **TS_REPO,
+    ".eslintrc.json": '{"rules": {"no-console": "warn", "eqeqeq": "error"}}\n',
+    ".prettierrc": '{"semi": false, "singleQuote": true}\n',
+}
+WHERE_PY_PROMPTS = [
+    "The existing `LOG_LEVEL` env var should also accept `trace`.",
+    "LEDGERLY_CACHE_SECONDS already controls the rates cache; set it to 600 in the staging job.",
+    "LEDGERLY_REGION already picks the rates region; switch it to `us` in CI.",
+]
+WHERE_TS_PROMPTS = [
+    "The existing `no-console` rule already warns on this; make it an error.",
+    "Prettier already runs with `singleQuote`; reformat src/ with it.",
+]
+
+
+@pytest.mark.xfail(strict=True, reason="names only in dot-files or read indirectly are 'nowhere' (66e1617)")
+def test_names_in_dotfiles_or_read_indirectly_get_no_premise_note(tmp_path):
+    spoke = {
+        **_notes(WHERE_PY, WHERE_PY_PROMPTS, tmp_path / "py"),
+        **_notes(WHERE_TS, WHERE_TS_PROMPTS, tmp_path / "ts"),
+    }
+    assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
