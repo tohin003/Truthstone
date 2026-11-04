@@ -1306,8 +1306,17 @@ def check_agent_metadata(package: Package, report: Report, path: str) -> None:
 # -- source-tree-only checks -------------------------------------------------------------
 
 
+# The PNG export: Anthropic's directory reads `icon` from plugin.json, and its display of an
+# SVG is unverified.
+CLAUDE_ICON = "./assets/logo.png"
+
+
 def derived_claude_manifest(codex: dict) -> dict:
-    """The Claude Code manifest is derived, never edited by hand."""
+    """The Claude Code manifest is derived, never edited by hand.
+
+    Besides what Claude Code reads, it carries the fields Anthropic's directory reads for
+    the listing (`icon` and four links), taken from the Codex manifest's interface.
+    """
     interface = codex.get("interface") or {}
     claude = {
         "name": codex.get("name"),
@@ -1319,6 +1328,11 @@ def derived_claude_manifest(codex: dict) -> dict:
         "repository": codex.get("repository"),
         "license": codex.get("license"),
         "keywords": codex.get("keywords"),
+        "icon": CLAUDE_ICON,
+        "documentationUrl": codex.get("homepage"),
+        "supportUrl": interface.get("supportURL"),
+        "privacyPolicyUrl": interface.get("privacyPolicyURL"),
+        "termsOfServiceUrl": interface.get("termsOfServiceURL"),
     }
     return {key: value for key, value in claude.items() if value is not None}
 

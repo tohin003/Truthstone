@@ -2,13 +2,19 @@
   "name": "truthstone",
   "displayName": "Truthstone",
   "version": "0.1.0",
-  "description": "Reliability guard for Claude Code: grounds the agent's claims in repository evidence, sends risky and out-of-scope actions back for review, and holds unverified \"done\" claims at a completion gate. Deterministic and local; never grants permissions; fails open.",
+  "description": "Truthstone (previously named AgentGuard) is a local, deterministic reliability layer for Claude Code: its hooks check the agent's claims against your repository, send risky or out-of-scope actions back to you for review, and hold an unverified \"done\" until tests have run. Inside git repositories only, it reads prompts and edit, shell and MCP tool calls on your machine, keeps a local log, never grants permissions and sends no telemetry. The first session downloads its runtime with uv from GitHub (opt out with TRUTHSTONE_NO_BOOTSTRAP=1).",
   "author": {
-    "name": "tohin003",
+    "name": "Tohin Majumder",
+    "email": "tohin1400@gmail.com",
     "url": "https://github.com/tohin003"
   },
-  "homepage": "https://github.com/tohin003/Truthstone/blob/master/docs/CLAUDE-PLUGIN.md",
+  "homepage": "https://github.com/tohin003/Truthstone/blob/master/plugins/truthstone-claude/README.md",
   "repository": "https://github.com/tohin003/Truthstone",
   "license": "Apache-2.0",
-  "keywords": ["guardrails", "reliability", "hooks", "completion-gate", "verification"]
+  "keywords": ["guardrails", "reliability", "hooks", "completion-gate", "verification"],
+  "icon": "./assets/icon.png",
+  "documentationUrl": "https://github.com/tohin003/Truthstone/blob/master/plugins/truthstone-claude/README.md",
+  "supportUrl": "https://github.com/tohin003/Truthstone/blob/master/docs/legal/SUPPORT.md",
+  "privacyPolicyUrl": "https://github.com/tohin003/Truthstone/blob/master/docs/legal/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/tohin003/Truthstone/blob/master/docs/legal/TERMS.md"
 }
