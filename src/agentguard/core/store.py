@@ -1783,8 +1783,12 @@ class ProjectStore:
         return {
             "sessions": sessions,
             "observe_only_sessions": observed_sessions,
+            # Tasks a prompt opened, as everywhere in the census: an implicit task (H2)
+            # bounds no work anyone described (H7).
             "tasks": scalar(
-                "SELECT COUNT(*) FROM tasks WHERE project_id=? AND created_at>?", (pid, since)
+                "SELECT COUNT(*) FROM tasks WHERE project_id=? AND created_at>? "
+                "AND depth IS NOT 'implicit'",
+                (pid, since),
             ),
             "decisions": scalar(
                 "SELECT COUNT(*) FROM decisions WHERE project_id=? AND ts>?", (pid, since)
