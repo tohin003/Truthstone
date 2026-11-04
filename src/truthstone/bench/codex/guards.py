@@ -40,6 +40,22 @@ GUARD_EVENTS = ("session_start", "user_prompt", "pre_tool_use", "post_tool_use",
 OBSERVE_PLUGINS = ("full", "hooks-only")
 
 
+HOOK_TIMER_SOURCE = Path(__file__).with_name("hook_timer.c")
+ENV_HOOK_RUNNER = "HOOK_RUNNER"  # bland on purpose: the agent can read its environment
+
+
+def build_hook_timer(state: Path, cc: str = "cc") -> Path | None:
+    """Compile the hook timer (G9, T6) into ``state``; None when no C compiler is there."""
+    dest = homes.private_dir(state / homes.neutral_name("hook-timer")) / "run"
+    try:
+        subprocess.run(
+            [cc, "-O2", "-o", str(dest), str(HOOK_TIMER_SOURCE)], check=True, capture_output=True, timeout=120
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return dest
+
+
 def product_mentions(text: str, limit: int = 20) -> list[str]:
     """Every mention of the product's names (current or former) in model-visible text."""
     found = []
@@ -513,6 +529,7 @@ class TruthstonePlugin:
         expected_guard_hooks: int = 6,
         recorder: tuple[Path, Path] | None = None,
         observe_plugin: str = "full",
+        hook_timer: Path | None = None,
     ):
         if trust not in ("app-server", "bypass"):
             raise ValueError("trust must be 'app-server' or 'bypass'")
@@ -526,6 +543,8 @@ class TruthstonePlugin:
         # "hooks-only": the observe arm installs the plugin without its skill, so nothing in
         # what the model is given names the guard (amendment G1); the on arm keeps it all.
         self.observe_plugin = observe_plugin
+        # G9: the guard's runtime runs under the hook timer, in both arms (T6 end to end).
+        self.hook_timer = hook_timer
 
     def marketplace_for(self, ctx: ArmContext) -> Path:
         """The build's marketplace, or (observe arm, hooks-only) a copy whose plugin has no
@@ -584,11 +603,15 @@ class TruthstonePlugin:
         }
 
     def arm_env(self, ctx: ArmContext) -> dict[str, str]:
-        return {
+        env = {
             naming.ENV_HOME: str(ctx.guard_home),
             naming.ENV_CODEX_HOOK: str(self.build.hook_runtime),
             naming.ENV_NO_BOOTSTRAP: "1",
         }
+        if self.hook_timer is not None:
+            env[naming.ENV_CODEX_HOOK] = str(self.hook_timer)
+            env[ENV_HOOK_RUNNER] = str(self.build.hook_runtime)
+        return env
 
     def exec_args(self, ctx: ArmContext | None = None) -> list[str]:
         return ["--dangerously-bypass-hook-trust"] if self.trust == "bypass" else []

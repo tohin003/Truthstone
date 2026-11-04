@@ -181,6 +181,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         notes=args.notes or "",
         arms=ARM_CHOICES[args.arms],
         observe_plugin=args.observe_plugin,
+        pair_shard=[int(x) for x in args.shard.split("/")] if args.shard else [],
         **common,
         **host_fields,
     )
@@ -201,7 +202,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 
 
 # `--arms`: both arms (the paired study), or the observe arm alone (a screening pilot).
-ARM_CHOICES = {"both": ["on", "observe"], "observe": ["observe"]}
+ARM_CHOICES = {"both": ["on", "observe"], "observe": ["observe"], "on": ["on"]}
 
 
 # -- wiring a real run ------------------------------------------------------------
@@ -370,8 +371,16 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
         script = state / "hook_recorder.py"
         shutil.copyfile(Path(guards.__file__).with_name("hook_recorder.py"), script)
         recorder = (task_python, script)
+    timer = guards.build_hook_timer(state)  # G9: every hook's wall time, spawn to exit (T6)
+    if timer is None:
+        print("no C compiler: hooks run untimed, so T6 (end to end) will read as not measured")
     guard = guards.TruthstonePlugin(
-        build, args.codex, trust=plan.trust, recorder=recorder, observe_plugin=plan.observe_variant
+        build,
+        args.codex,
+        trust=plan.trust,
+        recorder=recorder,
+        observe_plugin=plan.observe_variant,
+        hook_timer=timer,
     )
     settings = agents.CodexSettings(
         model=plan.model,
@@ -1042,6 +1051,18 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
 
 
 def _cmd_analyze(args: argparse.Namespace) -> int:
+    if args.gate:
+        from truthstone.bench.codex import acceptance
+
+        overrides = {}
+        for item in args.threshold or []:
+            key, _, value = item.partition("=")
+            overrides[key.strip()] = float(value)
+        result = acceptance.gate([Path(d) for d in args.run_dir], acceptance.GateThresholds(**overrides))
+        if args.json:
+            Path(args.json).write_text(json.dumps(result, indent=2, default=str))
+        print(acceptance.render_gate(result))
+        return 0 if result["overall"] == "PASS" else 1
     if args.acceptance:
         from truthstone.bench.codex import acceptance
 
@@ -1053,11 +1074,14 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
             Path(args.markdown).write_text(text)
         print(text)
         return 0
-    if len(args.run_dir) != 1:
-        print("analyze takes one --run-dir (several only with --acceptance)")
+    run_dirs = [Path(d) for d in args.run_dir]
+    run_dir = run_dirs[0]
+    try:
+        # several run dirs: the shards of one design (G9), analysed as one
+        analysis = report.analyze(run_dirs if len(run_dirs) > 1 else run_dir)
+    except ValueError as exc:
+        print(f"refusing to analyse: {exc}")
         return 2
-    run_dir = Path(args.run_dir[0])
-    analysis = report.analyze(run_dir)
     out_json = Path(args.json) if args.json else run_dir / "analysis.json"
     out_md = Path(args.markdown) if args.markdown else run_dir / "report.md"
     out_json.write_text(json.dumps(analysis, indent=2, default=str))
@@ -1175,6 +1199,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--notes")
     _arms_option(p)
     p.add_argument(
+        "--shard",
+        help="K/N: run only the K-th of N disjoint pair shards (parallel runners, amendment G9).",
+    )
+    p.add_argument(
         "--observe-plugin",
         default="hooks-only",
         choices=["hooks-only", "full"],
@@ -1284,6 +1312,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--acceptance",
         action="store_true",
         help="The v0.2 acceptance targets T1-T6 over one or more dev runs (never held-out).",
+    )
+    p.add_argument(
+        "--gate",
+        action="store_true",
+        help="The release gate (G9): one PASS/FAIL line per target, dev GO/NO-GO or the held-out study.",
+    )
+    p.add_argument(
+        "--threshold",
+        action="append",
+        help="Override a gate threshold, KEY=VALUE (e.g. t3_lower=-0.05); see acceptance.GateThresholds.",
     )
     p.add_argument("--json")
     p.add_argument("--markdown")

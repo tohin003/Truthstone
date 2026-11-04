@@ -85,6 +85,7 @@ HIDDEN_ENV = (
     naming.ENV_UV,
     naming.ENV_RECORD_DIR,
     naming.ENV_CODEX_HOOK,
+    "HOOK_RUNNER",
     naming.ENV_NO_BOOTSTRAP,
 )
 

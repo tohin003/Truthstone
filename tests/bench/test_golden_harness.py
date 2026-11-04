@@ -590,10 +590,12 @@ def test_an_observe_only_plan_is_a_screening_pilot_never_a_main_study():
     assert [p for p, _ in screening.schedule()] == [p for p, _ in paired.schedule()]
     assert {order for _, order in screening.schedule()} == {("observe",)}
     assert {order for _, order in paired.schedule()} == {("on", "observe"), ("observe", "on")}
-    with pytest.raises(ValueError, match="screening"):
+    with pytest.raises(ValueError, match="one-arm"):
         Plan(**_plan_kwargs(arms=["observe"], stage="main"))
+    with pytest.raises(ValueError, match="one-arm"):  # a guarded dev round (G9) is never the main study
+        Plan(**_plan_kwargs(arms=["on"], stage="main"))
     with pytest.raises(ValueError):
-        Plan(**_plan_kwargs(arms=["on"]))
+        Plan(**_plan_kwargs(arms=["on", "on"]))
 
 
 def test_a_screening_run_needs_one_cell_per_pair_and_reports_observe_rates_only(tmp_path, capsys):

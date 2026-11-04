@@ -363,11 +363,43 @@ def _render_calibration(cal: dict[str, Any] | None) -> list[str]:
     return lines
 
 
-def analyze(run_dir: Path) -> dict[str, Any]:
-    plan = Plan.load(run_dir / "plan.json")
-    if plan.stage in ("pilot", "smoke") or plan.screening:
+# What may differ between the shard plans of one design (G9): who runs which pairs, and how.
+_SHARD_FIELDS = ("name", "pair_shard", "accounts", "budget", "notes")
+
+
+def pooled_design(run_dirs: list[Path]) -> tuple[Plan, list[dict]]:
+    """The shards of one design (amendment G9: parallel runners, one per account), as one plan and
+    one record list. Refused unless every plan is the same design and the shards partition it."""
+    import dataclasses as _dc
+
+    plans = [Plan.load(d / "plan.json") for d in run_dirs]
+
+    def design(p: Plan) -> dict[str, Any]:
+        return {k: v for k, v in p.to_dict().items() if k not in _SHARD_FIELDS}
+
+    if any(design(p) != design(plans[0]) for p in plans):
+        raise ValueError("the runs are not shards of one design")
+    shards = sorted(tuple(p.pair_shard) for p in plans)
+    n = shards[0][1] if shards and shards[0] else 0
+    if len(plans) > 1 and (not n or shards != [(k, n) for k in range(n)]):
+        raise ValueError(f"the shards {shards} do not partition the design")
+    merged = _dc.replace(
+        plans[0],
+        name="+".join(p.name for p in plans),
+        pair_shard=[],
+        accounts=sorted({a for p in plans for a in p.accounts}),
+    )
+    records = [r for d in run_dirs for r in load_records(d / "cells.jsonl")]
+    return merged, records
+
+
+def analyze(run_dir: Path | list[Path]) -> dict[str, Any]:
+    """The pre-registered analysis of a run, or of the shard runs of one design pooled (G9)."""
+    run_dirs = run_dir if isinstance(run_dir, list) else [run_dir]
+    plan, records = pooled_design(run_dirs)
+    run_dir = run_dirs[0]
+    if plan.stage in ("pilot", "smoke") or len(plan.arms) == 1:
         return analyze_blind(run_dir)
-    records = load_records(run_dir / "cells.jsonl")
     cells = _cells(records)
     pairs = complete_pairs(records)
     opp = _subset(pairs, "opportunity")
