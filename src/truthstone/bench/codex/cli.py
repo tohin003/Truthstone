@@ -308,6 +308,12 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
     return runner
 
 
+def limits_context(contexts: dict) -> object | None:
+    """The arm whose Codex home reads the plan's usage windows. Any prepared arm will do (the
+    account is the same); an observe-only screening plan has no "on" arm at all."""
+    return contexts.get("on") or next(iter(contexts.values()), None)
+
+
 def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
     if plan.host == "claude":
         return _claude_runner(plan, run_dir, args)
@@ -353,7 +359,7 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
     )
 
     def read_limits() -> dict | None:
-        ctx = runner.contexts.get("on")
+        ctx = limits_context(runner.contexts)
         if ctx is None:
             return None
         env = guard.base_env(ctx, ctx.codex_template)

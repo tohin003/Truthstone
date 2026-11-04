@@ -66,10 +66,27 @@ def test_unknown_suites_and_ambiguous_selections_are_refused(tmp_path):
         suite.load_suite(root=tmp_path, suite="codex_bench")
 
 
+PRE_GOLDEN_PLANS = ("claude-smoke.json", "codex-smoke.json")
+
+
 def test_registered_plans_keep_their_digests_and_default_suite():
-    for path in sorted((suite.BENCH_ROOT / "plans").glob("*.json")):
-        plan = Plan.load(path)  # verifies the recorded digest
+    plans = {path.name: Plan.load(path) for path in (suite.BENCH_ROOT / "plans").glob("*.json")}  # digests
+    for name in PRE_GOLDEN_PLANS:
+        plan = plans[name]
         assert plan.suite == "codex_bench" and plan.node_version == "" and plan.sandbox_profile == ""
+
+
+def test_the_registered_dev_pilot_is_an_observe_only_screen_of_the_dev_split():
+    plan = Plan.load(suite.BENCH_ROOT / "plans" / "golden-dev-sol.json")
+    assert plan.suite == "golden-dev" and plan.arms == ["observe"] and plan.stage == "pilot"
+    assert (plan.model, plan.effort, plan.phrasings, plan.replicates) == (
+        "gpt-6.1-sol",
+        "medium",
+        ["canonical"],
+        [0],
+    )
+    assert plan.suite_digest == suite.suite_digest(suite.load_suite(suite="golden-dev"))
+    assert len(plan.tasks) == 20 and plan.budget["weekly_percent_per_cell"] == 1.0
 
 
 def test_a_plan_pins_its_suite_and_node_in_the_digest():
@@ -556,6 +573,14 @@ def test_a_screening_run_needs_one_cell_per_pair_and_reports_observe_rates_only(
     cli.main(["status", "--run-dir", str(tmp_path / "run")])
     out = capsys.readouterr().out
     assert "pairs complete 6/6" in out and "arms observe" in out and "runner: not running" in out
+
+
+def test_an_observe_only_run_still_reads_the_usage_windows():
+    """Regression: the Codex windows were read through the "on" arm's home only, so a
+    screening plan could never pass its allowance pre-check (found by the preflight)."""
+    assert cli.limits_context({"observe": "obs-ctx"}) == "obs-ctx"
+    assert cli.limits_context({"on": "on-ctx", "observe": "obs-ctx"}) == "on-ctx"
+    assert cli.limits_context({}) is None
 
 
 def test_detach_reruns_the_same_command_in_a_new_session(tmp_path, monkeypatch, capsys):
