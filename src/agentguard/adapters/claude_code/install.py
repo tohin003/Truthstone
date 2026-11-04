@@ -1,5 +1,10 @@
 """Install/uninstall AgentGuard's hooks in Claude Code settings (SPEC §26).
 
+This is the *settings-based* install, kept as the fallback for setups that cannot use the
+Claude Code plugin (``plugins/agentguard-claude``; see ``docs/CLAUDE-PLUGIN.md``). The two
+must never both handle a session: the plugin stands down wherever these hooks are present
+(``settings_scan``), and ``agentguard install`` / ``doctor`` say so.
+
 Transport split, and why
 ------------------------
 * ``SessionStart`` is a **command** hook running the shim with ``--ensure-daemon``. It
@@ -9,8 +14,11 @@ Transport split, and why
   request itself, so per-tool-call cost is a localhost round trip instead of a Python
   interpreter start — the difference between meeting and missing SPEC §8.
 
-``PreToolUse``/``PostToolUse`` are matched to mutating tools only. Read/Grep/Glob would
-short-circuit to ALLOW anyway, so intercepting them would be pure latency for no signal.
+``PreToolUse``/``PostToolUse`` are matched to tools that can change something: the edit
+tools, both shells, and MCP tools. Read/Grep/Glob would short-circuit to ALLOW anyway, so
+intercepting them would be pure latency for no signal. ``PostToolUseFailure`` is matched
+to the shells: a test run that exits non-zero arrives *only* there, so without it the
+completion gate never sees a failing run (G1).
 
 Idempotent: installing twice leaves one copy; uninstalling removes exactly what was added
 and nothing a human put there.
@@ -24,10 +32,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from agentguard.adapters.claude_code import settings_scan
 from agentguard.core.config import Settings, get_or_create_token, write_private_text
 
-# Tools that can change the workspace. SPEC §18 only cares about these.
-MUTATING_MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash"
+# Tools that can change something. An anchored regex: unanchored, "Write" would also match
+# TodoWrite, and Claude Code treats any matcher with regex characters as a regex.
+MUTATING_MATCHER = "^(Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell|mcp__.*)$"
+# Where a failing command's output arrives (exact-name list, no regex needed).
+FAILURE_MATCHER = "Bash|PowerShell"
 
 # Hook timeouts (seconds). Deliberately tight: a wedged daemon must never hold the
 # developer hostage, and the fail-open path is cheap.
@@ -37,13 +49,20 @@ TIMEOUTS = {
     "UserPromptSubmit": 10,
     "PreToolUse": 5,
     "PostToolUse": 5,
+    "PostToolUseFailure": 5,
     "Stop": 10,
     "SessionEnd": 3,
 }
 
+# Kept for callers and tests that predate the shared module.
+_command_argv = settings_scan.command_argv
+_is_ours_hook = settings_scan.is_ours_hook
+_is_ours = settings_scan.is_ours_group
+
 
 def global_settings_path() -> Path:
-    return Path.home() / ".claude" / "settings.json"
+    """User settings — under ``CLAUDE_CONFIG_DIR`` when Claude Code is configured to use one."""
+    return settings_scan.user_settings_path()
 
 
 def project_settings_path(workspace: Path | None = None) -> Path:
@@ -69,7 +88,7 @@ def _http_hook(url: str, token: str, timeout: int) -> dict[str, Any]:
             "Authorization": f"Bearer {token}",
             # Doubles as the ownership marker for _is_ours() and as a label for any
             # human who opens settings.json and wonders what this entry is.
-            "X-AgentGuard": "1",
+            settings_scan.OWNERSHIP_HEADER: "1",
         },
         "timeout": timeout,
     }
@@ -94,6 +113,13 @@ def _command_hook(
     return hook
 
 
+def _shim_argv(py: str, flag: str) -> list[str]:
+    # `-P`: never put the working directory on sys.path. Hooks run inside the developer's
+    # repository, and `python -m` would otherwise import a repository file named, say,
+    # `json.py` in place of the standard library — code execution by opening a folder.
+    return [py, "-P", "-m", settings_scan.SHIM_MODULE, flag]
+
+
 def build_hook_config(settings: Settings | None = None, python_exe: str | None = None) -> dict[str, Any]:
     settings = settings or Settings.load()
     token = get_or_create_token()
@@ -106,7 +132,7 @@ def build_hook_config(settings: Settings | None = None, python_exe: str | None =
                 "matcher": "startup|resume|clear",
                 "hooks": [
                     _command_hook(
-                        [py, "-m", "agentguard.adapters.claude_code.shim", "--ensure-daemon"],
+                        _shim_argv(py, "--ensure-daemon"),
                         TIMEOUTS["SessionStart"],
                         "AgentGuard: warming repository index",
                     )
@@ -120,10 +146,7 @@ def build_hook_config(settings: Settings | None = None, python_exe: str | None =
                     # and tell the developer if it cannot be. Silent fail-open would
                     # leave them believing they are guarded when they are not.
                     # Once per prompt, not per tool call, so the cost is invisible.
-                    _command_hook(
-                        [py, "-m", "agentguard.adapters.claude_code.shim", "--health"],
-                        TIMEOUTS["Health"],
-                    ),
+                    _command_hook(_shim_argv(py, "--health"), TIMEOUTS["Health"]),
                     _http_hook(url, token, TIMEOUTS["UserPromptSubmit"]),
                 ]
             }
@@ -134,50 +157,15 @@ def build_hook_config(settings: Settings | None = None, python_exe: str | None =
         "PostToolUse": [
             {"matcher": MUTATING_MATCHER, "hooks": [_http_hook(url, token, TIMEOUTS["PostToolUse"])]}
         ],
+        "PostToolUseFailure": [
+            {
+                "matcher": FAILURE_MATCHER,
+                "hooks": [_http_hook(url, token, TIMEOUTS["PostToolUseFailure"])],
+            }
+        ],
         "Stop": [{"hooks": [_http_hook(url, token, TIMEOUTS["Stop"])]}],
         "SessionEnd": [{"hooks": [_http_hook(url, token, TIMEOUTS["SessionEnd"])]}],
     }
-
-
-def _command_argv(hook: dict[str, Any]) -> list[str]:
-    """Normalize current and legacy command-hook representations for ownership checks."""
-    command = hook.get("command")
-    if not isinstance(command, str) or not command:
-        return []
-    legacy_args = hook.get("args")
-    if isinstance(legacy_args, list) and all(isinstance(arg, str) for arg in legacy_args):
-        return [command, *legacy_args]
-    try:
-        return shlex.split(command)
-    except ValueError:
-        return []
-
-
-def _is_ours_hook(hook: Any) -> bool:
-    """Identify one AgentGuard hook without matching a user's arbitrary text.
-
-    Older releases emitted ``command`` + ``args``; recognize that exact legacy shape so
-    reinstall/uninstall remains reversible after upgrade. HTTP hooks use the explicit
-    header marker. A user hook mentioning the word "agentguard" is not ours.
-    """
-    if not isinstance(hook, dict):
-        return False
-    headers = hook.get("headers")
-    if isinstance(headers, dict) and headers.get("X-AgentGuard") == "1":
-        return True
-    argv = _command_argv(hook)
-    return (
-        "agentguard.adapters.claude_code.shim" in argv
-        and ("--ensure-daemon" in argv or "--health" in argv)
-    )
-
-
-def _is_ours(group: Any) -> bool:
-    """Whether a hook group contains an AgentGuard-owned hook."""
-    if not isinstance(group, dict):
-        return False
-    hooks = group.get("hooks")
-    return isinstance(hooks, list) and any(_is_ours_hook(hook) for hook in hooks)
 
 
 def _remove_ours_from_group(group: Any) -> Any:
@@ -277,8 +265,4 @@ def uninstall(path: Path, dry_run: bool = False) -> tuple[dict[str, Any], bool]:
 
 
 def is_installed(path: Path) -> bool:
-    try:
-        hooks = (_load(path).get("hooks") or {}).values()
-    except RuntimeError:
-        return False
-    return any(_is_ours(group) for groups in hooks for group in groups)
+    return settings_scan.hooks_installed(path)

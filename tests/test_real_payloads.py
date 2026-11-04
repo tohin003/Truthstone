@@ -35,7 +35,16 @@ def load(name: str) -> dict:
 
 class TestCapturedPayloads:
     @pytest.mark.parametrize(
-        "name", ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"]
+        "name",
+        [
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "Stop",
+            "Stop.background_tasks",
+        ],
     )
     def test_every_captured_event_translates(self, name):
         event = claude.to_event(load(name))
@@ -72,6 +81,37 @@ class TestCapturedPayloads:
         assert event.last_assistant_message
         assert "stop_hook_active" in event.raw, "the gate's loop-safety flag must be present"
 
+    def test_a_failing_run_arrives_as_post_tool_use_failure(self):
+        """G1, captured live (2.1.317): an unpiped `pytest` that exits 1 is not a
+        PostToolUse at all. Its output is in `error`, after an `Exit code 1` line."""
+        payload = load("PostToolUseFailure")
+        assert "tool_response" not in payload
+        event = claude.to_event(payload)
+        assert event.event is EventType.POST_TOOL_FAILURE
+        assert event.result["exit_code"] == 1
+        assert event.result["interrupted"] is False
+        assert "1 failed, 1 passed" in event.result["stdout"]
+        assert not event.result["stdout"].startswith("Exit code")
+
+    def test_stop_reports_work_still_in_flight(self):
+        """G7, captured live: a backgrounded shell is listed at Stop. Kept on `raw` for
+        the core, which decides what an unfinished test run means."""
+        event = claude.to_event(load("Stop.background_tasks"))
+        task = event.raw["background_tasks"][0]
+        assert task["type"] == "shell"
+        assert task["status"] == "running"
+        assert task["command"] == "sleep 25"
+        assert event.raw["session_crons"] == []
+
+    def test_a_background_task_notification_is_not_a_new_request(self):
+        """Captured live: Claude Code reports a finished background task as a
+        UserPromptSubmit. It must not open a new task (losing the running task's
+        unverified edits) or earn a planning budget."""
+        payload = load("UserPromptSubmit.task_notification")
+        assert payload["prompt"].startswith("<task-notification>")
+        assert claude.to_event(payload) is None
+        assert claude.to_event(load("UserPromptSubmit")) is not None
+
 
 class TestEndToEndWithRealShapes:
     def test_a_real_prompt_produces_a_real_planning_budget(self, workspace):
@@ -93,13 +133,48 @@ class TestEndToEndWithRealShapes:
         assert "complexity" in decision.additional_context
         assert task
 
-    def test_a_real_bash_result_reaches_the_completion_gate(self, workspace):
-        """A live `tool_response` dict must be parseable as test output."""
+    def test_a_real_failing_run_reaches_the_completion_gate(self, workspace):
+        """The live PostToolUseFailure, end to end: the failure is recorded as a failed
+        run, and a claimed completion afterwards is held."""
+        from agentguard.core.config import Settings
+        from agentguard.core.engine import Guard
+
+        (workspace / "app.py").write_text("def helper(x):\n    return x * 2\n")
+        (workspace / "tests").mkdir()
+        (workspace / "tests" / "test_app.py").write_text(
+            "from app import helper\n\n\ndef test_helper():\n    assert helper(2) == 5\n"
+        )
+        guard = Guard(Settings())
+        try:
+            guard.workspace(workspace).index.ready(timeout=30)
+
+            def handle(payload, hook):
+                event = claude.to_event({**payload, "cwd": str(workspace)})
+                return claude.from_decision(event, guard.handle(event), hook)
+
+            handle(load("UserPromptSubmit"), "UserPromptSubmit")
+            edit = {
+                **load("PostToolUse"),
+                "tool_name": "Edit",
+                "tool_input": {"file_path": str(workspace / "app.py"), "old_string": "x", "new_string": "x"},
+            }
+            handle(edit, "PostToolUse")
+            handle(load("PostToolUseFailure"), "PostToolUseFailure")
+            held = handle(load("Stop"), "Stop")
+        finally:
+            guard.close()
+
+        assert held["decision"] == "block"
+        assert "verification_failed" in held["reason"]
+
+    def test_a_piped_failing_run_arrives_as_post_tool_use(self, workspace):
+        """`pytest -q | tail` exits with tail's status, so the failure comes as a normal
+        PostToolUse with `tool_response` — the shape this test used to pin for every run."""
         payload = {
             **load("PostToolUse"),
             "cwd": str(workspace),
             "tool_name": "Bash",
-            "tool_input": {"command": "pytest -q"},
+            "tool_input": {"command": "pytest -q 2>&1 | tail -5"},
             "tool_response": {
                 "stdout": "F.\n====== 1 failed, 1 passed in 0.2s ======\n",
                 "stderr": "",

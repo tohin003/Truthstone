@@ -67,10 +67,31 @@ class TestHookConfig:
         assert "args" not in hook
         assert shlex.split(hook["command"]) == [
             "/tmp/python with spaces/bin/python",
+            "-P",
             "-m",
             "agentguard.adapters.claude_code.shim",
             "--ensure-daemon",
         ]
+
+    def test_command_hooks_never_import_from_the_repository(self):
+        """Hooks run with the developer's repository as the working directory.
+
+        `python -m` puts that directory first on sys.path, so a repository file named
+        `json.py` would be imported in place of the standard library: code execution by
+        opening a folder. `-P` keeps the working directory off sys.path.
+        """
+        config = inst.build_hook_config()
+        commands = [
+            hook["command"]
+            for groups in config.values()
+            for group in groups
+            for hook in group["hooks"]
+            if hook["type"] == "command"
+        ]
+        assert commands
+        for command in commands:
+            argv = shlex.split(command)
+            assert argv[1] == "-P", command
 
     def test_only_mutating_tools_are_intercepted(self):
         """Read/Grep/Glob would short-circuit to ALLOW anyway; intercepting is pure cost."""
@@ -79,6 +100,48 @@ class TestHookConfig:
             matcher = config[event][0]["matcher"]
             assert "Edit" in matcher and "Write" in matcher and "Bash" in matcher
             assert "Read" not in matcher and "Grep" not in matcher
+
+    @pytest.mark.parametrize(
+        ("tool", "intercepted"),
+        [
+            ("Edit", True),
+            ("Write", True),
+            ("MultiEdit", True),
+            ("NotebookEdit", True),
+            ("Bash", True),
+            ("PowerShell", True),  # Claude Code's primary shell on Windows (H5)
+            ("mcp__github__create_pull_request", True),  # MCP tools can write (H5)
+            ("TodoWrite", False),  # an unanchored "Write" would match this on every plan update
+            ("Read", False),
+            ("Grep", False),
+            ("Glob", False),
+            ("WebFetch", False),
+            ("BashOutput", False),
+        ],
+    )
+    def test_matcher_semantics(self, tool, intercepted):
+        """Claude Code treats a matcher with regex characters as an unanchored regex."""
+        from tests.plugin_harness import matcher_accepts
+
+        assert matcher_accepts(inst.MUTATING_MATCHER, tool) is intercepted
+
+    def test_failing_commands_reach_agentguard(self):
+        """G1: a test run that exits non-zero arrives only as PostToolUseFailure."""
+        from tests.plugin_harness import matcher_accepts
+
+        config = inst.build_hook_config()
+        groups = config["PostToolUseFailure"]
+        assert groups and groups[0]["hooks"][0]["type"] == "http"
+        assert matcher_accepts(groups[0]["matcher"], "Bash")
+        assert matcher_accepts(groups[0]["matcher"], "PowerShell")
+        assert not matcher_accepts(groups[0]["matcher"], "Edit")
+
+    def test_user_settings_follow_claude_config_dir(self, tmp_path, monkeypatch):
+        """With CLAUDE_CONFIG_DIR set, Claude Code reads settings there, not ~/.claude."""
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "profile"))
+        assert inst.global_settings_path() == tmp_path / "profile" / "settings.json"
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+        assert inst.global_settings_path().parent.name == ".claude"
 
     def test_carries_auth_token(self):
         hook = inst.build_hook_config()["PreToolUse"][0]["hooks"][0]

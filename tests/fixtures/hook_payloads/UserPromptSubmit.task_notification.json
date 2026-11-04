@@ -1,0 +1,9 @@
+{
+  "session_id": "sess-captured",
+  "transcript_path": "/workspace/.transcript.jsonl",
+  "cwd": "/workspace",
+  "prompt_id": "e8e868f5-9306-4d8c-8229-1cfc6e4b4b0c",
+  "permission_mode": "acceptEdits",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "<task-notification>\n<task-id>beod31azz</task-id>\n<tool-use-id>toolu_01FoctTp7EtGZikwRekKvbwK</tool-use-id>\n<output-file>/scratch/tasks/beod31azz.output</output-file>\n<status>completed</status>\n<summary>Background command \"Sleep three seconds\" completed (exit code 0)</summary>\n</task-notification>"
+}

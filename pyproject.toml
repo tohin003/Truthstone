@@ -30,6 +30,9 @@ treesitter = [
 agentguard = "agentguard.cli.main:app"
 # Stdlib-only fallback shim (command-hook transport). Kept dependency-free on purpose.
 agentguard-hook = "agentguard.adapters.claude_code.shim:main"
+# Codex command-hook forwarder (Codex has no http hooks). Stdlib-only, like the shim: it
+# runs on every Codex tool call. The Codex plugin's launcher looks for this name.
+agentguard-codex-hook = "agentguard.adapters.codex.hook:main"
 
 [dependency-groups]
 dev = [
