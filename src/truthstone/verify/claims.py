@@ -29,6 +29,12 @@ nothing. Code blocks and quoted lines (``>``) are data, not the message's own wo
 The gaming guard is the point of the split: a message that hands back *and* claims
 completion or verification ("Done, all tests pass. Want me to update the docs?") gets no
 exemption.
+
+An explicit **status line** is the message's own verdict on itself, and it wins: projects
+and harnesses commonly ask agents to end with one ("FINAL: done", "Status: not done -
+<reason>", "Result: complete"). Its last occurrence decides: ``done`` is a completion
+claim, ``not done`` / ``blocked`` / ``incomplete`` an honest hand-back, whatever else the
+message says.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-__all__ = ["Claims", "classify", "red_phase_requested"]
+__all__ = ["Claims", "classify", "red_phase_requested", "status_line"]
 
 MAX_MESSAGE = 20_000
 
@@ -154,6 +160,29 @@ _RED_PHASE = re.compile(
 )
 
 
+# "FINAL: done", "**Status:** not done - tests need network", "Result: complete".
+_STATUS_LINE = re.compile(
+    r"^[\s>*_`#-]*(?:final|status|result|outcome|state|verdict)[\s*_`]*:[\s*_`]*"
+    r"(?P<status>not[\s_-]+(?:yet\s+)?(?:done|complete[d]?|finished)|incomplete|blocked|partial(?:ly\s+done)?|"
+    r"done|complete[d]?|finished)\b",
+    re.IGNORECASE,
+)
+
+
+def status_line(message: str | None) -> str:
+    """The message's own status line: ``"done"``, ``"not_done"`` or ``""`` (none). The
+    last one wins; fenced lines are data, not the message's own words."""
+    if not isinstance(message, str) or not message.strip():
+        return ""
+    found = ""
+    for line in _own_lines(message[:MAX_MESSAGE].translate(_QUOTES)):
+        match = _STATUS_LINE.match(line)
+        if match:
+            word = match.group("status").lower()
+            found = "done" if word in ("done", "complete", "completed", "finished") else "not_done"
+    return found
+
+
 @dataclass(frozen=True, slots=True)
 class Claims:
     question: bool = False
@@ -162,10 +191,14 @@ class Claims:
     claims_verified: bool = False
     claims_done: bool = False
     reports_work: bool = False
+    # The message's own status line (``status_line``): "done", "not_done" or "".
+    status: str = ""
 
     @property
     def claims(self) -> bool:
-        return self.claims_done or self.claims_verified
+        if self.status == "not_done":
+            return False  # the message's own verdict: not done, whatever else it says
+        return self.claims_done or self.claims_verified or self.status == "done"
 
     @property
     def hand_back(self) -> str:
@@ -174,7 +207,7 @@ class Claims:
         nor verification; ``""`` otherwise."""
         if self.claims:
             return ""
-        if self.discloses_failure or self.discloses_unverified:
+        if self.status == "not_done" or self.discloses_failure or self.discloses_unverified:
             return "disclosure"
         if self.question and not self.reports_work:
             return "question"
@@ -222,6 +255,7 @@ def classify(message: str | None) -> Claims:
         claims_verified=any(_claimed(_VERIFIED, s) for s in sentences),
         claims_done=bool(intended) or any(_claimed(_DONE, s) for s in sentences),
         reports_work=any(_claimed(_WORK, s) for s in sentences),
+        status=status_line(message),
     )
 
 

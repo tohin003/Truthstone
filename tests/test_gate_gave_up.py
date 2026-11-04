@@ -63,7 +63,7 @@ def test_a_stop_hook_already_holding_the_turn_sets_the_flag(repo):
 
 
 def test_observe_mode_never_sets_the_flag(repo):
-    settings = Settings()
+    settings = Settings(profile="full")
     settings.observe_only = True
     guard = Guard(settings)
     try:

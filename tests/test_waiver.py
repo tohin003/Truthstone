@@ -193,7 +193,7 @@ def test_an_imperative_still_waives_it(repo, goal):
 class Session:
     def __init__(self, repo: Path, session_id: str = "s1") -> None:
         self.repo, self.session_id = repo, session_id
-        self.guard = Guard(Settings())
+        self.guard = Guard(Settings(profile="full"))
         self.guard.workspace(repo).index.ready(timeout=30)
 
     def _event(self, kind: EventType, **fields) -> AgentEvent:

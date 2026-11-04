@@ -17,15 +17,23 @@ version of itself, and both are cheap enough only if they stay narrow:
   pass whose fingerprint is unchanged is not stale. A file first changed after the pass is
   compared with its baseline instead, which is what the pass ran on.
 
+* **What the change removed** (M2, M4, the unread-config check). The Stop-time integrity
+  checks compare a file as the task found it with the file now: a documented rule removed,
+  a test weakened, a config key added. So the baseline also keeps the file's text,
+  compressed, for text files up to ``MAX_TEXT_BYTES``. Never git HEAD, for the same reason
+  as above: the developer's uncommitted edits are not the agent's.
+
 Bounded: only touched files, digests up to ``MAX_DIGEST_BYTES``, fingerprints only for
-Python files up to ``MAX_AST_BYTES``. Nothing here raises; an unreadable file has no
-digest and no fingerprint, which only means "changed", as before.
+Python files up to ``MAX_AST_BYTES``, text up to ``MAX_TEXT_BYTES`` per file and
+``MAX_TASK_TEXT_BYTES`` (compressed) per task. Nothing here raises; an unreadable file has
+no digest and no fingerprint, which only means "changed", as before.
 """
 
 from __future__ import annotations
 
 import ast
 import hashlib
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -37,6 +45,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "FileBaseline",
+    "before_text",
     "capture",
     "code_unchanged",
     "content_digest",
@@ -48,6 +57,8 @@ __all__ = [
 MAX_DIGEST_BYTES = 4_000_000  # larger files keep no digest: they can never count as reverted
 MAX_AST_BYTES = 1_000_000  # larger Python files are never fingerprinted
 PASS_HISTORY = 4  # fingerprints kept per file, one per passing run
+MAX_TEXT_BYTES = 512_000  # larger files keep no text: the integrity checks stay silent on them
+MAX_TASK_TEXT_BYTES = 8_000_000  # compressed text kept per task, at most
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +73,8 @@ class FileBaseline:
     changed_before: bool = False
     fingerprint: str | None = None  # Python only: the code, without comments or positions
     parses: bool | None = None  # Python only: whether it parsed (G15), when it was read
+    # The file's text, zlib-compressed UTF-8, when it is text and small enough (M2, M4).
+    text: bytes | None = None
 
 
 def _resolve(root: Path, path: str) -> Path | None:
@@ -128,17 +141,61 @@ def fingerprint(root: Path, path: str) -> str | None:
     return _fingerprint_source(data)[1] if data is not None else None
 
 
-def capture(root: Path, path: str, seq: int, changed_before: bool = False) -> FileBaseline:
-    """The file before the task's first change to it. Never raises."""
+def capture(
+    root: Path, path: str, seq: int, changed_before: bool = False, text_budget: int = MAX_TASK_TEXT_BYTES
+) -> FileBaseline:
+    """The file before the task's first change to it. Never raises. ``text_budget`` is the
+    compressed text the task may still keep (``MAX_TASK_TEXT_BYTES`` minus what it holds)."""
     try:
         exists, data = _read(root, path, MAX_DIGEST_BYTES)
         digest = hashlib.sha256(data).hexdigest() if data is not None else None
         parses = code = None
         if data is not None and _is_python(path):
             parses, code = _fingerprint_source(data)
-        return FileBaseline(exists, digest, seq, changed_before, code, parses)
+        text = _compress(data) if data is not None and len(data) <= MAX_TEXT_BYTES else None
+        if text is not None and len(text) > text_budget:
+            text = None
+        return FileBaseline(exists, digest, seq, changed_before, code, parses, text)
     except Exception:  # noqa: BLE001 - a baseline only sharpens the gate; never a failure
         return FileBaseline(True, None, seq, True)
+
+
+def _compress(data: bytes) -> bytes | None:
+    if b"\x00" in data[:8192]:
+        return None  # binary: no text to compare
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return zlib.compress(data, 6)
+
+
+def text_bytes(state: TaskState) -> int:
+    """Compressed baseline text the task holds."""
+    return sum(len(base.text) for base in state.file_baselines.values() if base.text is not None)
+
+
+def before_text(state: TaskState, path: str) -> str | None:
+    """The file's text as the task found it, or None: never captured, created by the task,
+    first changed by a shell command (so not as the task found it), binary or too large."""
+    base = state.file_baselines.get(path)
+    if base is None or base.changed_before or not base.exists or base.text is None:
+        return None
+    try:
+        return zlib.decompress(base.text).decode("utf-8")
+    except (zlib.error, UnicodeDecodeError):
+        return None
+
+
+def current_text(root: Path, path: str) -> tuple[bool, str | None]:
+    """(exists, text) of a file as it is now; text None when unreadable, binary or large."""
+    exists, data = _read(root, path, MAX_TEXT_BYTES)
+    if data is None or b"\x00" in data[:8192]:
+        return exists, None
+    try:
+        return exists, data.decode("utf-8")
+    except UnicodeDecodeError:
+        return exists, None
 
 
 def reverted(state: TaskState, root: Path) -> set[str]:

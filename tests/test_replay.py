@@ -140,8 +140,9 @@ def test_a_recorded_cell_replays_to_every_output_decided_live(recorded, tmp_path
     scratch = (tmp_path / "replay" / "repo").resolve()
     assert [_normalised(e.output, scratch) for e in result.events] == [_normalised(o, repo) for o in live]
     kinds = {e.index: e.kind for e in result.interventions}
-    # The suite runs the full profile (conftest): the old gate's own reason speaks there.
-    assert kinds[6] == "signoff" and kinds[7] == "other:failing-tests-on-completion"
+    # The suite runs the full profile (conftest): the gate's reason speaks there, under the
+    # completion arbiter's category.
+    assert kinds[6] == "signoff" and kinds[7] == "failing_tests"
 
 
 def test_under_the_minimal_profile_the_replay_shows_what_was_withheld(recorded, tmp_path):
@@ -149,7 +150,8 @@ def test_under_the_minimal_profile_the_replay_shows_what_was_withheld(recorded, 
     result = replay.replay_cell(cell, profile_name="minimal")
     assert {e.index: e.kind for e in result.interventions} == {6: "signoff"}  # A1 holds
     withheld = {e.index: e.withheld for e in result.events if e.withheld}
-    assert withheld == {7: "other:failing-tests-on-completion"}  # not an arbiter category
+    # The failing run came before the fix: not (b), a result the task edited past.
+    assert withheld == {7: "unverified"}
     stop = result.events[7]
     assert stop.action == "allow" and stop.would_have == "block" and stop.output == {}
     assert "The test run reported failures" in result.to_json()["withheld"][0]["text"]
@@ -230,7 +232,7 @@ def test_corpus_mode_joins_outcomes_and_counts_interventions_by_kind(recorded, t
     for group in groups.values():
         assert group["cells"] == 1 and group["cells_with_intervention"] == 1
         assert group["by_kind"]["PreToolUse:deny:signoff"] == 1
-        assert group["by_kind"]["Stop:block:other:failing-tests-on-completion"] == 1
+        assert group["by_kind"]["Stop:block:failing_tests"] == 1
     assert "control: 1 cell(s)" in replay.render(summary)
     assert replay.outcomes(run, exclude=["c.f*"])[0].cell_id == "c.control"
 
@@ -246,5 +248,5 @@ def test_the_cli_prints_one_cell_as_json(recorded, tmp_path):
     assert result.exit_code == 0, result.output
     data = json.loads(out.read_text())
     assert data["cell"] == "cell" and [i["kind"] for i in data["interventions"]] == ["signoff"]
-    assert [w["kind"] for w in data["withheld"]] == ["other:failing-tests-on-completion"]
+    assert [w["kind"] for w in data["withheld"]] == ["unverified"]
     assert CliRunner().invoke(app, ["replay", str(cell), "--profile", "loud"]).exit_code == 2

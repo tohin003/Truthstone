@@ -45,7 +45,7 @@ from truthstone.repo import symbols_ts
 from truthstone.repo.gitinfo import repository_root
 from truthstone.repo.index import IndexDelta, RepoIndex
 from truthstone.validate import checks
-from truthstone.verify import completion_gate, runners, static
+from truthstone.verify import arbiter, completion_gate, runners, static
 
 log = logging.getLogger(__name__)
 
@@ -760,7 +760,11 @@ class Guard:
             return
         if path not in state.file_baselines:
             state.file_baselines[path] = baseline.capture(
-                ws.index.root, path, state.seq, changed_before=path in state.last_change_seq
+                ws.index.root,
+                path,
+                state.seq,
+                changed_before=path in state.last_change_seq,
+                text_budget=baseline.MAX_TASK_TEXT_BYTES - baseline.text_bytes(state),
             )
         if path in state.parse_baseline:
             return
@@ -904,21 +908,36 @@ class Guard:
         drain = ws.shell.pending(state.task_id)
         self._sweep(ws, 0.0 if drain else STOP_SWEEP_INTERVAL)
 
-        verdict = completion_gate.evaluate(
+        # One arbiter decides (v0.2 M1): the gate's evidence, the integrity checks and the
+        # final message's claims, under the settings' profile; at most one challenge.
+        verdict = arbiter.arbitrate(
             state=state,
             index=ws.index,
+            message=event.last_assistant_message,
             stop_hook_active=bool(event.raw.get("stop_hook_active")),
             max_blocks=self.settings.challenge.max_stop_blocks_per_task,
-            message=event.last_assistant_message,
             pending_tasks=event.pending_tasks,
+            profile=getattr(self.settings, "profile", "minimal"),
         )
         if not verdict.should_block:
             # Still carries findings: the gate can pass and have seen something worth
             # counting — untested code, most often (SPEC §3, "write insufficient tests").
-            # When rationing muted a real objection the turn ends unverified, and the
-            # decision says so explicitly, for the developer (G10) — never in observe
-            # mode, where nothing is said at all.
+            # When a real objection was not raised with the agent (rationed, or outside
+            # the profile) the turn ends with that gap, and the decision says so
+            # explicitly, for the developer (G10) — never in observe mode, where nothing
+            # is said at all.
             gave_up = verdict.unresolved if not self.settings.observe_only else ""
+            held = verdict.withheld
+            if held is not None and not gave_up:
+                # Recorded, never said: the decision keeps what it would have said, the
+                # way the profile's choke point withholds any other kind.
+                would = Decision(
+                    action=DecisionAction.BLOCK,
+                    level=EscalationLevel.DEEP_VERIFICATION,
+                    reason=f"Truthstone — completion gate: {held.category.value}\n\n{held.text}",
+                    findings=[arbiter._primary(held), *verdict.findings],
+                )
+                return profile.withhold(would, str(held.category))
             return Decision(
                 action=DecisionAction.ALLOW,
                 level=EscalationLevel.DEEP_VERIFICATION,
@@ -926,20 +945,24 @@ class Guard:
                 unverified_finish=gave_up or None,
             )
 
-        # Bookkeeping for a block that will actually happen. `observe.silence()` will turn
-        # this decision into an ALLOW, and counting a block that the agent never saw would
-        # both inflate the metric and spend the gate's per-task budget on nothing. The
-        # silence guarantee stays at the choke point; this is about side effects, which
-        # genuinely belong to the handler that causes them.
-        if not self.settings.observe_only:
-            state.stop_blocks += 1
-            METRICS.increment(M_FALSE_COMPLETION_BLOCKED, labels={"result": str(verdict.result)})
-        return Decision(
+        decision = Decision(
             action=DecisionAction.BLOCK,
             level=EscalationLevel.DEEP_VERIFICATION,
             reason=f"Truthstone — completion gate: {verdict.result.value}\n\n{verdict.reason}",
             findings=verdict.findings,
         )
+        # Bookkeeping for a block that will actually happen. `observe.silence()` will turn
+        # this decision into an ALLOW, and so does the profile's choke point for a kind it
+        # withholds; counting a block that the agent never saw would both inflate the metric
+        # and spend the per-task budget (and the once-per-reason one) on nothing. The silence
+        # guarantee stays at the choke point; this is about side effects, which genuinely
+        # belong to the handler that causes them.
+        speaks = profile.apply(EventType.STOP, decision, profile.active(self.settings)).action
+        if not self.settings.observe_only and speaks is DecisionAction.BLOCK:
+            state.stop_blocks += 1
+            state.raised_categories.update(str(category) for category in verdict.raised)
+            METRICS.increment(M_FALSE_COMPLETION_BLOCKED, labels={"result": str(verdict.result)})
+        return decision
 
     def _on_subagent_stop(self, event: AgentEvent, ws: Workspace) -> Decision:
         """A subagent finishing is not the task finishing (G9).

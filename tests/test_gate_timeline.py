@@ -36,7 +36,7 @@ class Session:
 
     def __init__(self, repo: Path) -> None:
         self.repo = repo
-        self.guard = Guard(Settings())
+        self.guard = Guard(Settings(profile="full"))
         self.guard.workspace(repo).index.ready(timeout=30)
 
     def send(self, payload: dict) -> dict:

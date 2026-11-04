@@ -123,6 +123,17 @@ def _muted_reason(state: TaskState, stop_hook_active: bool, max_blocks: int) -> 
     return ""
 
 
+def assess(state: TaskState, index: RepoIndex, pending_tasks: list[dict] | None = None) -> GateVerdict:
+    """What the evidence says, before any question of whether to say it: no hand-back
+    exemption and no rationing. The completion arbiter (``verify/arbiter.py``) decides
+    those. Never raises."""
+    try:
+        return _assess(state, index, pending_tasks or [])
+    except Exception:
+        log.exception("truthstone: completion gate assessment failed; passing")
+        return GateVerdict(GateResult.PASS)
+
+
 def _assess(state: TaskState, index: RepoIndex, pending_tasks: list[dict] | None = None) -> GateVerdict:
     """What the evidence says, before any question of whether to say it."""
     # A file whose bytes are back to how the task found it is no change (G2b): an edit

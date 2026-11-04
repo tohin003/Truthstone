@@ -55,7 +55,7 @@ def send(guard: Guard, repo: Path, name: str, session: str = "A", **fields):
 
 
 def started(repo: Path) -> Guard:
-    guard = Guard(Settings())
+    guard = Guard(Settings(profile="full"))
     assert guard.workspace(repo).index.ready(timeout=30)
     return guard
 

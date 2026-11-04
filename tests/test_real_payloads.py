@@ -120,7 +120,7 @@ class TestEndToEndWithRealShapes:
         from truthstone.core.engine import Guard
 
         payload = {**load("UserPromptSubmit"), "cwd": str(workspace)}
-        guard = Guard(Settings())
+        guard = Guard(Settings(profile="full"))
         try:
             guard.workspace(workspace).index.ready(timeout=30)
             decision = guard.handle(claude.to_event(payload))
@@ -144,7 +144,7 @@ class TestEndToEndWithRealShapes:
         (workspace / "tests" / "test_app.py").write_text(
             "from app import helper\n\n\ndef test_helper():\n    assert helper(2) == 5\n"
         )
-        guard = Guard(Settings())
+        guard = Guard(Settings(profile="full"))
         try:
             guard.workspace(workspace).index.ready(timeout=30)
 

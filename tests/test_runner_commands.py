@@ -319,7 +319,7 @@ def _event(repo: Path, kind: EventType, tool: str | None = None, **args) -> Agen
 def test_a_command_that_only_mentions_pytest_does_not_silence_the_gate(repo):
     """Probe D: an edit, then `grep -n pytest pyproject.toml`, then "Done." used to pass,
     because the grep was counted as an uninterpretable test run."""
-    guard = Guard(Settings())
+    guard = Guard(Settings(profile="full"))
     try:
         guard.workspace(repo).index.ready(timeout=30)
         guard.handle(
@@ -352,7 +352,7 @@ def test_a_command_that_only_mentions_pytest_does_not_silence_the_gate(repo):
 
 def test_a_real_runner_that_was_unknown_now_counts(repo):
     """`make test` was not recognised, so the gate demanded tests the agent had run."""
-    guard = Guard(Settings())
+    guard = Guard(Settings(profile="full"))
     try:
         guard.workspace(repo).index.ready(timeout=30)
         guard.handle(
