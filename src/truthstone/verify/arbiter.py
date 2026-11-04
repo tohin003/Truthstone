@@ -143,6 +143,9 @@ IntegrityCheck = Callable[[TaskState, RepoIndex], list[Concern]]
 
 # One Stop reads each changed file once, however many checks ask (``changed_texts``).
 _TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("truthstone_stop_texts", default=None)
+# At most this many changed files are compared at Stop (each read up to 512 KB): beyond it the
+# integrity checks see nothing more, which can only make them quieter.
+MAX_COMPARED_FILES = 400
 
 
 def _integrity_checks() -> list[IntegrityCheck]:
@@ -609,12 +612,22 @@ def changed_texts(state: TaskState, index: RepoIndex) -> dict[str, tuple[str | N
     out: dict[str, tuple[str | None, str | None]] = {}
     if cache is not None:
         cache["texts"] = out
+    compared = 0
     for path in sorted(state.changed_files):
         old = baseline.before_text(state, path)
+        if old is None:
+            # Only a file the task created can still be compared; a file changed by a shell
+            # command (no baseline) is not read at all — a formatter run over the whole tree
+            # made Stop read every file (audit of 66e1617).
+            base = state.file_baselines.get(path)
+            if base is None or base.exists or base.changed_before:
+                continue
+        compared += 1
+        if compared > MAX_COMPARED_FILES:
+            break  # bounded: the rest stay uncompared, which means silence
         exists, new = baseline.current_text(index.root, path)
         if old is None:
-            base = state.file_baselines.get(path)
-            if base is not None and not base.exists and not base.changed_before and new is not None:
+            if new is not None:
                 out[path] = (None, new)  # created by the task
             continue
         if not exists:
