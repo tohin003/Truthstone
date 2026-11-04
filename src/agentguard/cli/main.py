@@ -381,6 +381,9 @@ def doctor() -> None:
         _bad(settings.config_warning)
         problems += 1
     _echo(f"  {stats['path']}  ({stats['size_mb']} MB)")
+    if stats.get("degraded_reason"):
+        _bad(f"persistence is OFF (guarding continues): {stats['degraded_reason']}")
+        problems += 1
     if stats["disk_state"] == "healthy":
         _ok(f"{stats['free_disk_mb']:.0f} MB free")
     elif stats["disk_state"] == "low":
@@ -959,7 +962,11 @@ def db_stats() -> None:
     _echo(f"database: {stats['path']}")
     _echo(f"  size       {stats['size_mb']} MB")
     _echo(f"  free disk  {stats['free_disk_mb']} MB  ({stats['disk_state']})")
-    _echo(f"  writes     {'enabled' if stats['writes_enabled'] else 'DISABLED (low disk)'}")
+    if stats.get("degraded_reason"):
+        _echo("  writes     DISABLED (database unavailable)")
+        _bad(stats["degraded_reason"])
+    else:
+        _echo(f"  writes     {'enabled' if stats['writes_enabled'] else 'DISABLED (low disk)'}")
     _echo("\nrows")
     for table, count in stats["rows"].items():
         _echo(f"  {table:<16}{count}")

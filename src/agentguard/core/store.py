@@ -80,6 +80,9 @@ MAINTENANCE_BUSY_TIMEOUT_MS = 3_000
 # seconds. Every failure is still counted (`Database.failure_count`, `stats()`).
 _FAILURE_LOG_INTERVAL_S = 60.0
 
+# A degraded database is retried at most this often, from `Database.shared()` (R1).
+_REOPEN_INTERVAL_S = 30.0
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
     key   TEXT PRIMARY KEY,
@@ -393,6 +396,30 @@ def _describe_error(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+def _is_corruption(exc: BaseException) -> bool:
+    """The file is not (or no longer) a usable SQLite database."""
+    if not isinstance(exc, sqlite3.DatabaseError):
+        return False
+    name = getattr(exc, "sqlite_errorname", "") or ""
+    text = str(exc)
+    return name.startswith(("SQLITE_CORRUPT", "SQLITE_NOTADB")) or (
+        "not a database" in text or "malformed" in text
+    )
+
+
+def _open_failure_reason(path: Path, exc: BaseException) -> str:
+    if _is_corruption(exc):
+        return (
+            f"{path} is corrupted ({_describe_error(exc)}); move it aside "
+            f"(mv '{path}' '{path}.corrupt') and restart the daemon to start a fresh one"
+        )
+    if isinstance(exc, sqlite3.Error):
+        return f"cannot open {path} ({_describe_error(exc)})"
+    # Our own refusals (symlinked or non-regular paths) and OS errors: the message is a
+    # path and a reason, never data.
+    return f"cannot open {path} ({type(exc).__name__}: {exc})"
+
+
 class Transaction:
     """The handle `Database.transaction()` yields. Its `execute` never raises.
 
@@ -429,19 +456,38 @@ class Transaction:
 
 
 class Database:
-    """The single shared connection, schema, maintenance and disk protection."""
+    """The single shared connection, schema, maintenance and disk protection.
+
+    Constructing one never raises (R1). A database that cannot be opened — a corrupted
+    file, an unwritable or refused path, a lock held through the whole migration —
+    yields a *degraded* instance instead: `degraded_reason` says why, writes are no-ops,
+    queries return nothing, and the reason is logged once. Without this, one bad file
+    meant no `Workspace` at all: AgentGuard inert and `doctor` crashing.
+    """
 
     _instances: ClassVar[dict[str, Database]] = {}
     _registry_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(self, path: Path, settings: Settings | None = None) -> None:
+        self._init_state(path, settings)
+        try:
+            self._open()
+        except Exception as exc:  # noqa: BLE001 - R1: persistence is never a dependency
+            self._degrade(_open_failure_reason(path, exc))
+
+    def _init_state(self, path: Path, settings: Settings | None) -> None:
         settings = settings or Settings()
         self.path = path
         self.retention: RetentionSettings = settings.retention
         self.disk: DiskSettings = settings.disk
         self._lock = threading.RLock()
+        self._conn: sqlite3.Connection | None = None
         self._last_maintenance = 0.0
         self._writes_disabled = False
+        # Why the database is unusable, or "" when it is fine.
+        self.degraded_reason = ""
+        self._degraded_at = 0.0
+        self._reopenable = True
         # Depth of `transaction()` contexts open on this connection. Only ever changed
         # while `_lock` is held, and a transaction holds `_lock` for its whole body.
         self._tx_depth = 0
@@ -452,34 +498,101 @@ class Database:
         self._failure_logged: dict[tuple[str, str], float] = {}
         self._failures_unlogged = 0
 
+    def _open(self) -> None:
+        """Connect, configure and migrate. Raises on any failure, leaving no connection."""
+        path = self.path
         if path.is_symlink():
             raise RuntimeError(f"refusing to use symlink as database: {path}")
         if path.exists() and not path.is_file():
             raise RuntimeError(f"refusing to use non-regular database path: {path}")
-        ensure_private_dir(self.path.parent)
+        ensure_private_dir(path.parent)
         # `isolation_level=None`: no implicit BEGIN. A single write is its own atomic
         # statement, multi-statement writes go through `transaction()` (BEGIN IMMEDIATE),
         # and a read can never be left holding a snapshot inside a forgotten transaction.
-        self._conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
-        self._conn.row_factory = sqlite3.Row
-        # Patient while opening and migrating; hot-path statements get the short wait.
-        self._conn.execute(f"PRAGMA busy_timeout={MAINTENANCE_BUSY_TIMEOUT_MS}")
-        # Before journal_mode: switching to WAL writes the header, after which SQLite
-        # silently ignores an auto_vacuum change, and `incremental_vacuum` is a no-op.
-        self._conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._harden_file_modes()
-        self._conn.execute("PRAGMA synchronous=NORMAL")
+        conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         with self._lock:
-            self._conn.executescript(_SCHEMA)
-            self._migrate()
-            self._sanitize_project_remotes()
-            self._conn.execute(
-                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)",
-                (str(SCHEMA_VERSION),),
+            try:
+                conn.row_factory = sqlite3.Row
+                # Patient while opening and migrating; hot-path statements get the short wait.
+                conn.execute(f"PRAGMA busy_timeout={MAINTENANCE_BUSY_TIMEOUT_MS}")
+                # Before journal_mode: switching to WAL writes the header, after which SQLite
+                # silently ignores an auto_vacuum change, and `incremental_vacuum` is a no-op.
+                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                conn.execute("PRAGMA journal_mode=WAL")
+                self._conn = conn
+                self._harden_file_modes()
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.executescript(_SCHEMA)
+                self._migrate()
+                self._sanitize_project_remotes()
+                conn.execute(
+                    "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)",
+                    (str(SCHEMA_VERSION),),
+                )
+                self._harden_file_modes()
+                conn.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
+            except BaseException:
+                self._conn = None
+                with contextlib.suppress(Exception):
+                    conn.close()
+                raise
+
+    # -- degraded mode (R1) -------------------------------------------------------
+
+    @classmethod
+    def unavailable(cls, reason: str, path: Path | None = None, settings: Settings | None = None) -> Database:
+        """A degraded instance that never touches the filesystem (e.g. no usable home)."""
+        db = cls.__new__(cls)
+        db._init_state(path or Path(os.devnull), settings)
+        db._reopenable = False
+        db._degrade(reason)
+        return db
+
+    @property
+    def degraded(self) -> bool:
+        return bool(self.degraded_reason)
+
+    def _degrade(self, reason: str) -> None:
+        """Stop using the database, and say why — once per distinct reason."""
+        with self._lock:
+            conn, self._conn = self._conn, None
+            self._degraded_at = time.monotonic()
+            changed = reason != self.degraded_reason
+            self.degraded_reason = reason
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+        if changed:
+            log.warning(
+                "agentguard store: persistence is off: %s. Guarding continues without it.", reason
             )
-            self._harden_file_modes()
-            self._conn.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
+
+    def reopen_due(self) -> bool:
+        return (
+            self.degraded
+            and self._reopenable
+            and time.monotonic() - self._degraded_at >= _REOPEN_INTERVAL_S
+        )
+
+    def reopen(self) -> bool:
+        """Try to leave degraded mode in place (every handle shares this object).
+
+        Returns whether the database is usable. Cheap for the common permanent case — a
+        corrupted file fails on its first PRAGMA — and silent unless the reason changes.
+        """
+        with self._lock:
+            if self._conn is not None:
+                return True
+            if not self._reopenable:
+                return False
+            try:
+                self._open()
+            except Exception as exc:  # noqa: BLE001 - still degraded; `_degrade` reports changes
+                self._degrade(_open_failure_reason(self.path, exc))
+                return False
+            self.degraded_reason = ""
+        log.warning("agentguard store: persistence restored (%s)", self.path)
+        return True
 
     def _harden_file_modes(self) -> None:
         """Keep SQLite and its WAL sidecars owner-readable only.
@@ -566,13 +679,28 @@ class Database:
 
     @classmethod
     def shared(cls, settings: Settings | None = None) -> Database:
-        path = database_path()
+        """The process-wide handle for this home's database. Never raises (R1).
+
+        A degraded handle stays shared, so every project sees the same state, and is
+        retried in place at most every `_REOPEN_INTERVAL_S` when asked for again.
+        """
+        try:
+            path = database_path()
+        except Exception as exc:  # noqa: BLE001 - e.g. no resolvable home directory
+            reason = f"no usable AgentGuard home ({type(exc).__name__}: {exc})"
+            with cls._registry_lock:
+                existing = cls._instances.get("")
+                if existing is None:
+                    existing = cls._instances[""] = cls.unavailable(reason, settings=settings)
+                return existing
         key = str(path)
         with cls._registry_lock:
             existing = cls._instances.get(key)
             if existing is None:
                 existing = cls(path, settings)
                 cls._instances[key] = existing
+            elif existing.reopen_due():
+                existing.reopen()
             return existing
 
     @classmethod
@@ -586,7 +714,8 @@ class Database:
 
     def close(self) -> None:
         with self._lock:
-            self._conn.close()
+            if self._conn is not None:
+                self._conn.close()
 
     # -- failure handling (R7) ----------------------------------------------------
 
@@ -598,7 +727,7 @@ class Database:
         here, because a transaction holds `_lock` for its whole body.
         """
         with self._lock:
-            if self._tx_depth:
+            if self._tx_depth or self._conn is None:
                 return
             with contextlib.suppress(sqlite3.Error):
                 if self._conn.in_transaction:
@@ -607,6 +736,9 @@ class Database:
     def _after_error(self, where: str, exc: BaseException) -> None:
         self._rollback_quietly()
         self._note_failure(where, exc)
+        if _is_corruption(exc) and not self._tx_depth:
+            # Corrupted under us: stop writing into it, and say so (R1).
+            self._degrade(_open_failure_reason(self.path, exc))
 
     def _note_failure(self, where: str, exc: BaseException) -> None:
         """Count every failure; log the first of each kind per interval."""
@@ -653,7 +785,7 @@ class Database:
 
     @property
     def writes_enabled(self) -> bool:
-        if self._writes_disabled:
+        if self._writes_disabled or self._conn is None:
             return False
         return self.disk_state() != "critical"
 
@@ -682,17 +814,24 @@ class Database:
         if not self.writes_enabled:
             return False  # §8: reliability continues without persistence
         with self._lock:
+            conn = self._conn
+            if conn is None:
+                return False  # degraded between the check and the lock
             try:
-                self._conn.execute(sql, params)
+                conn.execute(sql, params)
             except sqlite3.Error:
                 self._rollback_quietly()
                 raise
         return True
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
+        """Rows, or ``[]`` from a degraded database (R1)."""
         with self._lock:
+            conn = self._conn
+            if conn is None:
+                return []
             try:
-                return self._conn.execute(sql, params).fetchall()
+                return conn.execute(sql, params).fetchall()
             except sqlite3.Error:
                 self._rollback_quietly()
                 raise
@@ -709,7 +848,8 @@ class Database:
           a deferred transaction would fail half-way instead.
         * Nest-safe: inside another transaction it becomes a SAVEPOINT, so an inner
           failure undoes only the inner work.
-        * With writes disabled (critical disk) the body still runs and nothing is written.
+        * With writes disabled (critical disk) or a degraded database, the body still runs
+          and nothing is written.
 
         ``with db.transaction() as tx: tx.execute(...)`` then check ``tx.committed``.
         """
@@ -719,7 +859,7 @@ class Database:
             depth = self._tx_depth
             savepoint = f"agentguard_{depth}"
             began = False
-            if self.writes_enabled:
+            if conn is not None and self.writes_enabled:
                 try:
                     conn.execute(f"SAVEPOINT {savepoint}" if depth else "BEGIN IMMEDIATE")
                 except sqlite3.Error as exc:
@@ -741,7 +881,7 @@ class Database:
                     self._tx_depth -= 1
                     self._end_transaction(tx, conn, savepoint if depth else None)
         if tx.error is not None:
-            self._note_failure(name, tx.error)
+            self._after_error(name, tx.error)
 
     @staticmethod
     def _end_transaction(tx: Transaction, conn: sqlite3.Connection, savepoint: str | None) -> None:
@@ -770,12 +910,15 @@ class Database:
         hot-path statement out.
         """
         with self._lock:
-            self._conn.execute(f"PRAGMA busy_timeout={MAINTENANCE_BUSY_TIMEOUT_MS}")
+            conn = self._conn
+            if conn is None:
+                raise sqlite3.OperationalError(f"database unavailable: {self.degraded_reason}")
+            conn.execute(f"PRAGMA busy_timeout={MAINTENANCE_BUSY_TIMEOUT_MS}")
             try:
-                yield self._conn
+                yield conn
             finally:
                 with contextlib.suppress(sqlite3.Error):
-                    self._conn.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
+                    conn.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
 
     # -- maintenance (Memory plan §7) ---------------------------------------------
 
@@ -791,7 +934,7 @@ class Database:
         finished and a hundred milliseconds costs nobody anything (§7: "Avoid running
         expensive maintenance during active agent execution").
         """
-        if not force and not self.maintenance_due():
+        if self.degraded or (not force and not self.maintenance_due()):
             return {}
         self._last_maintenance = time.time()
 
@@ -818,6 +961,8 @@ class Database:
     @_safe(default=dict)
     def prune(self, aggressive: bool = False) -> dict[str, int]:
         """Apply the retention tiers. `0` days means keep indefinitely."""
+        if self.degraded:
+            return {}
         scale = 0.25 if aggressive else 1.0
         rules = [
             ("events", self.retention.raw_events_days, "ts"),
@@ -921,9 +1066,11 @@ class Database:
             "projects", "sessions", "tasks", "events", "decisions",
             "findings", "challenges", "verifications", "metrics", "memories",
         )
-        counts = {
-            table: int(self.query(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]) for table in tables
-        }
+        counts: dict[str, int] = {}
+        for table in tables:
+            rows = self.query(f"SELECT COUNT(*) AS n FROM {table}")
+            if rows:
+                counts[table] = int(rows[0]["n"])
         return {
             "path": str(self.path),
             "size_mb": round(self.size_megabytes(), 2),
@@ -933,6 +1080,10 @@ class Database:
             "database_over_limit": self.database_over_limit,
             "max_database_mb": self.disk.max_database_mb,
             "rows": counts,
+            # R1: why persistence is off, if it is. Empty when the database is usable.
+            "degraded_reason": self.degraded_reason,
+            "failures": self.failure_count,
+            "last_failure": self.last_failure,
         }
 
 
@@ -954,7 +1105,31 @@ class ProjectStore:
 
     @classmethod
     def for_workspace(cls, workspace: str | Path, settings: Settings | None = None) -> ProjectStore:
-        return cls(Database.shared(settings), project_identity(workspace))
+        """A handle for one project. Never raises (R1): see `Database` on degraded mode."""
+        try:
+            db = Database.shared(settings)
+        except Exception as exc:  # noqa: BLE001 - shared() is total; this is belt and braces
+            reason = f"storage failed to initialise ({type(exc).__name__})"
+            db = Database.unavailable(reason, settings=settings)
+        try:
+            identity = project_identity(workspace)
+        except Exception as exc:  # noqa: BLE001 - identity is attribution, not a precondition
+            log.warning(
+                "agentguard store: project identity unavailable (%s); using the path", type(exc).__name__
+            )
+            root = os.path.abspath(os.path.expanduser(str(workspace)))
+            identity = ProjectIdentity(
+                id=hashlib.sha256(root.encode()).hexdigest()[:16],
+                root=root,
+                name=os.path.basename(root),
+                git_remote="",
+            )
+        return cls(db, identity)
+
+    @property
+    def degraded_reason(self) -> str:
+        """Why persistence is off for this project ("" when it is on). R1."""
+        return self.db.degraded_reason
 
     @_safe()
     def _register(self) -> None:
@@ -1248,12 +1423,16 @@ class ProjectStore:
                 "AND would_have NOT IN ('', 'allow')",
                 (pid, since),
             ),
-            "first_seen": (
-                self.db.query(
-                    "SELECT COALESCE(MIN(started_at), 0) FROM sessions "
-                    "WHERE project_id=? AND started_at>?",
-                    (pid, since),
-                )[0][0]
+            "first_seen": next(
+                (
+                    row[0]
+                    for row in self.db.query(
+                        "SELECT COALESCE(MIN(started_at), 0) FROM sessions "
+                        "WHERE project_id=? AND started_at>?",
+                        (pid, since),
+                    )
+                ),
+                0,  # a degraded database returns no rows (R1)
             ),
         }
 
