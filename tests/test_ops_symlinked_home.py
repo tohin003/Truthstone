@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import REPO_ROOT, free_port
+from truthstone import names
 from truthstone.adapters.claude_code import shim
 from truthstone.adapters.codex import hook as codex_hook
 from truthstone.core.config import ensure_private_dir, truthstone_home
@@ -120,6 +121,9 @@ def test_every_entry_point_agrees_on_the_home(tmp_path, monkeypatch):
         monkeypatch.setenv("TRUTHSTONE_HOME", value)
         assert shim._home() == codex_hook._home() == str(truthstone_home()), label
     monkeypatch.setenv("TRUTHSTONE_HOME", "")
+    # Unset means the former name's setting applies (`names.env`): none here.
+    for former in names.variants("TRUTHSTONE_HOME")[1:]:
+        monkeypatch.delenv(former, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     assert shim._home() == str(truthstone_home()) == str(tmp_path / ".truthstone")
 

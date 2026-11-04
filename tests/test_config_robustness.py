@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from truthstone import names
 from truthstone.cli.main import app
 from truthstone.core.config import (
     Settings,
@@ -145,6 +146,9 @@ class TestHome:
         os.chmod(project, 0o755)
         monkeypatch.setenv("HOME", str(fake_home))
         monkeypatch.setenv("TRUTHSTONE_HOME", "")
+        # Unset means the former name's setting applies (`names.env`): none here.
+        for former in names.variants("TRUTHSTONE_HOME")[1:]:
+            monkeypatch.delenv(former, raising=False)
         monkeypatch.chdir(project)
 
         assert truthstone_home() == fake_home / ".truthstone"
