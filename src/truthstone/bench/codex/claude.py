@@ -518,11 +518,14 @@ def write_recorder_plugin(directory: Path, python: Path, script: Path) -> Path:
             "timeout": 15,
         }
         entry: dict[str, Any] = {"hooks": [hook]}
-        if event in ("PreToolUse", "PostToolUse"):
+        if event in ("PreToolUse", "PostToolUse", "PostToolUseFailure"):
             entry["matcher"] = "*"
         return entry
 
-    hooks = {"hooks": {event: [group(event)] for event in guards.RECORDER_EVENTS}}
+    # Claude Code reports a failed tool call as PostToolUseFailure, not PostToolUse: the
+    # replay corpus needs both (Codex has no such event).
+    events = (*guards.RECORDER_EVENTS, "PostToolUseFailure")
+    hooks = {"hooks": {event: [group(event)] for event in events}}
     (directory / "hooks" / "hooks.json").write_text(json.dumps(hooks, indent=2), encoding="utf-8")
     return directory
 
