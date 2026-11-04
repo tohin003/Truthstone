@@ -53,6 +53,7 @@ class TestOutcome:
     family: str = ""  # the suite it verifies: python, js, go, rust, ... (commands.py)
     key: str = ""  # the normalised command: what makes two runs "the same run"
     scope: tuple[str, ...] = ()  # what narrowed it (paths, -k, --lf, ...); () = everything
+    failing_files: tuple[str, ...] = ()  # test files the output names as failing (G4a)
 
     @property
     def is_failure(self) -> bool:
@@ -199,6 +200,8 @@ def parse_output(command: str, output: str) -> TestOutcome:
         return outcome
     outcome.passed = summary.status == "passed"
     outcome.summary = summary.line
+    if outcome.passed is False:
+        outcome.failing_files = parsers.failing_files(output or "")
     return outcome
 
 
@@ -283,6 +286,7 @@ def outcome_from_result(command: str, result: Any) -> TestOutcome | None:
         outcome.passed = False
         outcome.failed = max(outcome.failed, 1)
         outcome.summary = f"exit status {exit_code}" + (f"; {outcome.summary}" if outcome.summary else "")
+        outcome.failing_files = outcome.failing_files or parsers.failing_files(text)
     elif outcome.passed is True:
         outcome.passed = None
         outcome.summary = f"exit status {exit_code} after: {outcome.summary}"

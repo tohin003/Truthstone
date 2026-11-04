@@ -36,6 +36,7 @@ severity, so nothing surfaces it — it exists to be counted.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -50,7 +51,11 @@ from agentguard.core.enums import (
 from agentguard.core.models import EvidenceRef, Finding
 from agentguard.core.taskstate import TaskState
 from agentguard.repo.index import RepoIndex
-from agentguard.verify import runners, static
+from agentguard.verify import claims, runners, static
+
+log = logging.getLogger(__name__)
+
+_BLOCKING = (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
 
 
 @dataclass(slots=True)
@@ -60,6 +65,8 @@ class GateVerdict:
     evidence: list[EvidenceRef] = field(default_factory=list)
     # What was observed, regardless of whether it will be said. Census input.
     findings: list[Finding] = field(default_factory=list)
+    # The failing run behind a VERIFICATION_FAILED from the agent's tests, if any.
+    failure: runners.TestOutcome | None = None
 
     @property
     def should_block(self) -> bool:
@@ -71,12 +78,20 @@ def evaluate(
     index: RepoIndex,
     stop_hook_active: bool = False,
     max_blocks: int = 2,
+    message: str | None = None,
 ) -> GateVerdict:
-    """Decide whether this turn may end. Never raises."""
+    """Decide whether this turn may end. Never raises.
+
+    ``message`` is the agent's final message. A turn that hands back honestly — asks a
+    question, or says what is not done or not verified, without claiming completion —
+    is not a false completion and is not held (G4a).
+    """
     if state is None:
         return GateVerdict(GateResult.PASS)
 
     verdict = _assess(state, index)
+    if verdict.should_block:
+        verdict = _hand_back(state, verdict, message) or verdict
 
     # Rationing is applied last, to the *speaking* only. Everything above has already
     # been observed and recorded.
@@ -229,6 +244,7 @@ def _failing(timeline: runners.Timeline, observations: list[Finding]) -> GateVer
     return GateVerdict(
         GateResult.VERIFICATION_FAILED,
         reason=reason,
+        failure=failure,
         evidence=evidence,
         findings=[
             _finding(
@@ -295,6 +311,66 @@ def _stale(timeline: runners.Timeline, observations: list[Finding]) -> GateVerdi
             ),
             *observations,
         ],
+    )
+
+
+# -- honest hand-backs (G4a) ------------------------------------------------------------
+
+
+def _hand_back(state: TaskState, verdict: GateVerdict, message: str | None) -> GateVerdict | None:
+    """A PASS that records what was seen, when the turn is not a false completion.
+
+    * The message asks a question, or discloses that the work is unverified or failing,
+      and claims neither completion nor verification ("I could not make test_x pass.
+      Should I mock it?"). Gaming guard: "Done, all tests pass. Anything else?" claims,
+      so it gets no exemption.
+    * A TDD red phase the developer asked for: the only failures are in test files this
+      task created, and the request asked for a failing test or a reproduction.
+
+    Every exemption is recorded as a finding and logged; nothing is silently waived.
+    """
+    said = claims.classify(message)
+    kind = said.hand_back
+    if not kind and not said.claims_verified and _red_phase(state, verdict.failure):
+        kind = "red phase"
+    if not kind:
+        return None
+    blocking = [f for f in verdict.findings if f.severity in _BLOCKING]
+    kept = [f for f in verdict.findings if f.severity not in _BLOCKING]
+    what = blocking[0].summary if blocking else verdict.result.value
+    log.info("agentguard: completion gate exempted a %s hand-back: %s", kind, what)
+    if kind == "red phase":
+        exemption = _finding(
+            FailureMode.NOT_A_FAILURE,
+            Severity.INFO,
+            subject="tdd-red-phase",
+            summary=f"ended on the requested red phase: {what}",
+            detail=", ".join(verdict.failure.failing_files),
+        )
+    else:
+        exemption = _finding(
+            FailureMode.UNVERIFIED_CHANGE,
+            Severity.LOW,
+            subject="honest-hand-back",
+            summary=f"handed back with a {kind} instead of claiming completion: {what}",
+            detail=verdict.reason[:300],
+        )
+    return GateVerdict(
+        GateResult.PASS,
+        reason=f"the agent handed the turn back ({kind}) without claiming completion",
+        findings=[exemption, *kept],
+    )
+
+
+def _red_phase(state: TaskState, failure: runners.TestOutcome | None) -> bool:
+    if failure is None or not failure.failing_files or not claims.red_phase_requested(state.spec.prompt):
+        return False
+    from agentguard.repo import scanner
+
+    created_tests = {path for path in state.created_files if scanner.is_test_path(path)}
+    return all(
+        any(path == mine or mine.endswith("/" + path) or path.endswith("/" + mine) for mine in created_tests)
+        for path in failure.failing_files
     )
 
 

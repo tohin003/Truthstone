@@ -708,6 +708,30 @@ def parse(runner: str, text: str) -> Summary | None:
     return max((s for s in found_all if s.status == preferred), key=lambda s: s.end)
 
 
+# -- which test files failed (G4a: a TDD red phase fails only in the tests it wrote) -----
+
+_FAILING_FILE = re.compile(
+    r"^(?:FAILED|ERROR) (?P<py>[^\s:]+\.py)(?:::\S*)?(?:\s+-\s.*)?$"  # pytest short summary
+    r"|^(?P<pyv>[^\s:]+\.py)::\S+ (?:FAILED|ERROR)\b"  # pytest -v
+    r"|^\s*FAIL\s+(?P<js>\S+\.[cm]?[jt]sx?)\b"  # jest "FAIL path", vitest " FAIL  path > test"
+    r"|^rspec \.?/?(?P<rb>\S+?\.rb)(?::\d+)?\b"  # rspec "rspec ./spec/x_spec.rb:4 # ..."
+    r"|^test at (?P<node>\S+?\.[cm]?[jt]sx?):\d+:\d+$",  # node:test
+    re.M,
+)
+
+
+def failing_files(text: str) -> tuple[str, ...]:
+    """Test files the output names as failing, in order. Empty when it names none (go and
+    cargo name tests, not files)."""
+    found: dict[str, None] = {}
+    for match in _FAILING_FILE.finditer(clean(text)):
+        path = next(group for group in match.groups() if group)
+        while path.startswith("./"):
+            path = path[2:]
+        found[path] = None
+    return tuple(found)
+
+
 # `turbo run test` and similar monorepo runners prefix every line with `<package>:<task>: `.
 _TASK_PREFIX = re.compile(r"^[\w@./-]+:[\w:.-]+: ?", re.M)
 

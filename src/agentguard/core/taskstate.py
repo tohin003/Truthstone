@@ -33,6 +33,9 @@ class TaskState:
 
     touched_files: set[str] = field(default_factory=set)
     deleted_files: set[str] = field(default_factory=set)
+    # Files this task brought into existence: a TDD red phase may fail only in tests it
+    # wrote itself (G4a).
+    created_files: set[str] = field(default_factory=set)
     verification: VerificationState = field(default_factory=VerificationState)
 
     # How many times the Completion Gate has held this task open. Capped, so a

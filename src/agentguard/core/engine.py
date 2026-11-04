@@ -432,6 +432,8 @@ class Guard:
             if not path:
                 return Decision.allow()
             if state is not None:
+                if event.is_mutating and ws.index.is_built and path not in ws.index.files:
+                    state.created_files.add(path)  # new to the repository: this task wrote it
                 state.touch(path)
             # Re-parse exactly the file that changed (~1ms) rather than re-statting the
             # whole tree (~100ms on a large repo).
@@ -500,6 +502,7 @@ class Guard:
             index=ws.index,
             stop_hook_active=bool(event.raw.get("stop_hook_active")),
             max_blocks=self.settings.challenge.max_stop_blocks_per_task,
+            message=event.last_assistant_message,
         )
         if not verdict.should_block:
             # Still carries findings: the gate can pass and have seen something worth
