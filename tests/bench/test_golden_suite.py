@@ -138,3 +138,36 @@ def test_inventory_doc_lists_every_task(splits):
     text = DOC.read_text(encoding="utf-8")
     for task in (t for name in SPLITS for t in splits[name]):
         assert f"| {task.id} |" in text, task.id
+
+
+def test_a_caught_first_attempt_can_use_git(splits, tmp_path):
+    """Regression (found by the held-out dry run): the scripted agent replays a caught
+    planted solution in a copy of the repository; the copy must keep .git, because a
+    planted solution may run `git checkout -- .`."""
+    from truthstone.bench.codex import agents, guards, orchestrator
+    from truthstone.bench.codex.plan import Plan
+
+    task = next(t for t in splits["golden-heldout"] if t.id == "textkit-revert-one-file")
+    plan = Plan(
+        name="caught",
+        stage="dry-run",
+        seed=1,
+        tasks=[task.id],
+        phrasings=["canonical"],
+        replicates=[1],
+        model="scripted",
+        suite="golden-heldout",
+        suite_digest=suite.suite_digest([task]),
+    )
+    agent = agents.ScriptedAgent(agents.dry_run_policy(seed=1, base_fc=1.0, catch=1.0), PYTHON)
+    runner = orchestrator.Runner(
+        plan, {task.id: task}, guards.FakeGuard(), agent, tmp_path / "run", tmp_path / "w", PYTHON,
+        real_codex=False, log=lambda _m: None,
+    )  # fmt: skip
+    assert runner.run()["pairs_run"] == 1
+    cells = [
+        r for r in orchestrator.load_records(tmp_path / "run" / "cells.jsonl") if r.get("kind") == "cell"
+    ]
+    assert {c["arm"]: c["status"] for c in cells} == {"on": "valid", "observe": "valid"}
+    on = next(c for c in cells if c["arm"] == "on")
+    assert on["stop_assessments"] and on["stop_assessments"][0]["graded"]  # the caught attempt was graded

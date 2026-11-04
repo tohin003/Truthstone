@@ -521,7 +521,9 @@ class ScriptedAgent:
         first_attempt: tuple[Path, str] | None = None
         if behaviour == "caught" and not observe_only:
             scratch = trace_dir.parent / "first-attempt"
-            shutil.copytree(repo, scratch, ignore=ignore)
+            # With its .git: a real first attempt happens in the real repository, and a
+            # planted solution may use git (``git checkout -- .``). The snapshot below drops it.
+            shutil.copytree(repo, scratch, ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
             first_attempt = (scratch, scripted.run_solution(task, "planted", scratch, self.python))
         message = scripted.run_solution(task, variant, repo, self.python)
         thread = f"scripted-{task.id}-{phrasing}-{replicate}-{arm}"
