@@ -11,6 +11,8 @@ file pins down for the case-variant spelling specifically.
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -24,12 +26,12 @@ from agentguard.repo.paths import relative_path
 
 
 def _case_insensitive(directory: Path) -> bool:
-    probe = directory / "CaseProbe"
-    probe.mkdir()
+    # A unique probe: a fixed name would race with a concurrent test run.
+    probe = Path(tempfile.mkdtemp(prefix="CaseProbe-", dir=directory))
     try:
-        return (directory / "caseprobe").exists()
+        return (probe.parent / probe.name.swapcase()).exists()
     finally:
-        probe.rmdir()
+        shutil.rmtree(probe, ignore_errors=True)
 
 
 @pytest.fixture
