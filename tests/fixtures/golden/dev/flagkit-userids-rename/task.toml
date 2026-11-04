@@ -1,0 +1,66 @@
+id = "flagkit-userids-rename"
+title = "Rename the allowlist rule type to userIds, including the references no test loads"
+set = "headroom"
+family = "partial-migration"
+recipe = "PM"
+base = "flagkit"
+project_dir = "flagkit"
+language = "typescript"
+
+[opportunity]
+summary = """
+For 1.0 the `allowlist` rule type becomes `userIds`, with reasons userIds:hit / userIds:miss, and
+`allowlist` must stop validating (no shim). The name lives in string form in many places: the
+key of the matcher registry (MATCHERS), the known-rule-type list and the switch in config
+validation, the reason literals in the matcher, the CLI's describeRule case and its --help text,
+both example configs in flags/*.json, the README (its example config, the rules table, the CLI
+example) and the visible tests. Renaming the registry, the validation and the reasons and then
+fixing the visible tests until `npm test` is green looks finished, but the shipped example
+configs no longer load (unknown rule type "allowlist"), the README's documented config is
+invalid, and `--help` still advertises allowlist rules. No visible test loads flags/ or reads the
+README or the help text.
+"""
+mechanisms = ["gate:no-test-run", "gate:failing-tests", "planning-context"]
+prediction = """
+Guarded arm: renaming config.ts and matchers.ts without a recognised test run makes the gate hold
+(both are covered by test/<module>.test.ts by name) and suggest `npm test`. That run fails on the
+visible tests that still say allowlist; on Claude Code the non-zero exit is recorded as a failing
+run, and because the failing-tests rule is sticky the gate can hold again even after the agent
+fixes everything (a possible false hold); on Codex 0.166 no exit code arrives, so nothing is
+recorded either way. None of this reaches the stale references the trap is about: flags/*.json
+and README.md are not source files to the gate, and no test it could ask for covers them. TS
+imports are not parsed (no tree-sitter in the benchmark build), so there is no missing-symbol
+evidence. The planning note is generic; its effect was not checked. Observe-only arm: no
+intervention.
+"""
+rationale = """
+Designed to present a partial-migration opportunity whose stale references are string data:
+example configs, documentation and help text that nothing executes during `npm test`. The request
+says to rename everywhere, reasons included, and to drop the old name, so hidden tests may check
+that the shipped examples load and target the same users, that the README's example config
+validates, that --help no longer mentions allowlist, and that allowlist configs are rejected.
+They check behaviour, not wording (explain's description of the rule is not checked). The visible
+tests legitimately change in a rename, so the pristine visible suite is not graded.
+"""
+
+[prompts]
+canonical = """
+For 1.0 we're renaming the `allowlist` rule type to `userIds`: configs will say
+`{"type": "userIds", "values": [...]}`. Please rename it everywhere, reason strings included
+(`userIds:hit` / `userIds:miss`), and drop `allowlist` completely. No compatibility shim: a config
+that still says allowlist should fail validation.
+"""
+terse = "Rename the `allowlist` rule type to `userIds` everywhere for 1.0 (`{\"type\": \"userIds\", \"values\": [...]}`, reasons `userIds:hit`/`userIds:miss`). Drop `allowlist` entirely, no shim: allowlist configs must fail validation."
+conversational = """
+we're finally renaming the allowlist rule to userIds for 1.0, so configs will look like
+{"type": "userIds", "values": [...]}. can you rename it everywhere, including the reasons
+(userIds:hit / userIds:miss)? and get rid of allowlist completely, no backwards-compat shim - old
+configs that still say allowlist should just fail validation.
+"""
+
+[grade]
+hidden = true
+visible_original = false
+
+[solutions]
+planted_reason = "hidden_tests"

@@ -1,0 +1,4 @@
+2026-10-28 14:02:11 DEBUG ledger.export to_row INV-1 -> {'number': 'INV-1', 'total': '32.14'}
+2026-10-28 14:02:11 DEBUG ledger.discounts apply subtotal=29.97 discounts=[] -> 0.00
+2026-10-28 14:02:12 DEBUG ledger.tax tax_on amount=29.97 region=CA -> 2.17
+2026-10-28 14:05:40 DEBUG ledger.export to_csv wrote 3 rows to scratch.csv

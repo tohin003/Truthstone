@@ -1,0 +1,8 @@
+﻿order_id;email;amount;quantity;region;created_at;notes
+Y-5001;Erin@Example.com;2.015,40;1;fr;31.10.2026 23:59;"Two parcels;
+second one fragile"
+Y-5002;fay@example.com;0,99;;be;01.11.2026 00:01;
+Y-5003;erin@example.com;-12,00;1;fr;01.11.2026 14:30;"Refund ""goodwill"""
+Y-5004;gus@example.com;15;4;nl;02.11.2026 07:05;Pick-up, not delivery
+;;;;;;
+;;;;;;
