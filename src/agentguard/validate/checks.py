@@ -15,7 +15,7 @@ the whole layer off.
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from agentguard.core.enums import (
     ChallengeCategory,
@@ -30,6 +30,7 @@ from agentguard.core.models import EvidenceRef, Finding
 from agentguard.core.taskstate import DEFAULT_UNRELATED_LIMIT, TaskState
 from agentguard.repo import manifests, scanner
 from agentguard.repo.index import RepoIndex
+from agentguard.validate import shell
 
 # A DIRECT-band task that has rewritten this much of the repository is not the task that
 # was described, whatever the file paths say.
@@ -40,11 +41,24 @@ DIRECT_BAND_FILE_LIMIT = 8
 # census built on coincidences is worse than no census.
 CONVENTION_MIN_SIBLINGS = 5
 
+# Only source files count toward scope and proportionality (IMPROVEMENTS.md A4). A docs
+# typo sweep and a monorepo dependency bump were each denied at file 9 because every
+# README and manifest they touched was counted as drift.
+_NOT_SOURCE = frozenset({"markdown", "yaml", "json", "toml", "unknown"})
+
+
+def counts_toward_scope(path: str) -> bool:
+    """Whether a changed file is evidence about the task's scope: source, not docs, data,
+    configuration or a dependency manifest."""
+    if manifests.is_manifest(path.rsplit("/", 1)[-1]):
+        return False
+    return scanner.detect_language(path) not in _NOT_SOURCE
+
 
 # -- scope (SPEC §18) -------------------------------------------------------------
 
 
-def scope_creep(state: TaskState, index: RepoIndex) -> list[Finding]:
+def scope_creep(state: TaskState, index: RepoIndex, path: str = "") -> list[Finding]:
     """SPEC §18's worked example.
 
         Task: Fix login validation.
@@ -53,6 +67,10 @@ def scope_creep(state: TaskState, index: RepoIndex) -> list[Finding]:
 
     Raised once per task. After the agent has heard it and chosen to continue, repeating
     it is nagging (SPEC §17).
+
+    `path` is the file the proposed edit writes, when there is one. Only the validator's
+    mutating file tools reach this: a scope challenge used to land on whatever came next,
+    including the agent's own `pytest` (IMPROVEMENTS.md A4).
     """
     if state.scope_challenged:
         return []
@@ -63,12 +81,12 @@ def scope_creep(state: TaskState, index: RepoIndex) -> list[Finding]:
     # Everything reachable from the expected scope counts as related: its importers, its
     # imports, and its tests. Only genuine outliers are worth raising.
     related: set[str] = set(spec.expected_scope)
-    for path in spec.expected_scope:
-        related |= index.blast_radius(path, depth=2)
-        related |= index.tests_for(path)
-        related |= {record.resolved for record in index.imports_of(path) if record.resolved}
+    for scoped in spec.expected_scope:
+        related |= index.blast_radius(scoped, depth=2)
+        related |= index.tests_for(scoped)
+        related |= {record.resolved for record in index.imports_of(scoped) if record.resolved}
 
-    unrelated = state.unrelated_files(related)
+    unrelated = {p for p in state.unrelated_files(related) if counts_toward_scope(p)}
     if len(unrelated) >= DEFAULT_UNRELATED_LIMIT:
         findings.append(
             Finding(
@@ -99,10 +117,8 @@ def scope_creep(state: TaskState, index: RepoIndex) -> list[Finding]:
         return findings
 
     # A proportionality check that does not depend on scope resolving at all.
-    if (
-        spec.complexity.depth is PlanningDepth.DIRECT
-        and len(state.touched_files) >= DIRECT_BAND_FILE_LIMIT
-    ):
+    source = {p for p in state.touched_files if counts_toward_scope(p)}
+    if spec.complexity.depth is PlanningDepth.DIRECT and _crosses_direct_band(source, path):
         findings.append(
             Finding(
                 category=ChallengeCategory.SCOPE,
@@ -113,25 +129,233 @@ def scope_creep(state: TaskState, index: RepoIndex) -> list[Finding]:
                 # deterministic layer can see. §3's planning failure proper is measured
                 # in Phase 9, against plan length and tool counts.
                 failure_mode=FailureMode.OVERPLANNED_TRIVIAL,
-                severity=Severity.MEDIUM,
+                # Recorded, never raised (IMPROVEMENTS.md A4, approved by the lead). The
+                # complexity band is read from the prompt alone, and it is wrong often
+                # enough to make this a nag: of 69 real turns that edited 8 or more
+                # files, 20 had been rated DIRECT (an upper bound), 14 of them on prompts
+                # over 200 characters. The census can count it; the agent never hears it
+                # until the census says it is precise.
+                severity=Severity.INFO,
                 subject="proportionality",
                 summary=(
-                    f"{len(state.touched_files)} files changed for a task assessed as "
-                    f"direct implementation"
+                    f"{len(source) + (1 if path else 0)} source files changed for a task "
+                    f"assessed as direct implementation"
                 ),
                 detail=(
                     f"Complexity was {spec.complexity.score:.0f}/100. Either the task is larger "
                     "than it appeared — in which case say so — or this change has grown beyond it."
                 ),
-                evidence=[
-                    EvidenceRef(source="filesystem", path=p)
-                    for p in sorted(state.touched_files)[:6]
-                ],
+                evidence=[EvidenceRef(source="filesystem", path=p) for p in sorted(source)[:6]],
                 level=EscalationLevel.DETERMINISTIC,
             )
         )
 
     return findings
+
+
+def _crosses_direct_band(source: set[str], path: str) -> bool:
+    """Whether the DIRECT-band limit is reached.
+
+    With the edit's `path`, only the edit that *crosses* the limit — a new source file
+    beyond it — is recorded, so the census counts a disproportionate task once rather than
+    once per edit after the ninth. Without one, the task's state as a whole is judged.
+    """
+    if not path:
+        return len(source) >= DIRECT_BAND_FILE_LIMIT
+    return (
+        counts_toward_scope(path)
+        and path not in source
+        and len(source) == DIRECT_BAND_FILE_LIMIT
+    )
+
+
+# -- read-only commands (IMPROVEMENTS.md A4) -----------------------------------------
+#
+# A Bash command that only reads, or only runs the tests, changes nothing that the scope
+# and evidence checks are about. Pebble pins this (`guard.py:549-573`,
+# `test_run_tests_is_never_scope_challenged_while_writes_still_are`). The allowlist is
+# short on purpose: a command missing from it is simply checked, which costs a little
+# latency and nothing else. Every part of the line must qualify, in command position after
+# assignments and wrappers, and nothing may write a file through a redirection.
+
+_READERS = frozenset(
+    {"ls", "cat", "head", "tail", "wc", "rg", "grep", "egrep", "fgrep", "pwd", "which", "echo", "printf"}
+)
+_FIND_WRITES = frozenset(
+    {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"}
+)
+_GIT_READS = frozenset({"status", "log", "diff", "show", "rev-parse"})
+_GIT_BRANCH_LISTING = frozenset(
+    {
+        "-a", "-r", "-v", "-vv", "--all", "--remotes", "--verbose", "--list", "-l",
+        "--show-current", "--color", "--no-color", "--column", "--no-column", "-i",
+        "--ignore-case",
+    }
+)
+_GIT_BRANCH_VALUED = frozenset(
+    {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format"}
+)
+# Redirection targets that are not files.
+_SINK = re.compile(r"/dev/(?:null|stdout|stderr|tty)|&?-|&?\d{1,2}")
+_TEST_RUNNERS = frozenset(
+    {"pytest", "py.test", "tox", "nox", "jest", "vitest", "mocha", "ava", "rspec", "phpunit"}
+)
+_PYTHON_TEST_MODULES = frozenset({"pytest", "unittest", "tox", "nox"})
+# Commands whose test subcommand runs the suite: `go test`, `cargo test`, `npm test`.
+_TEST_SUBCOMMANDS: dict[str, frozenset[str]] = {
+    "go": frozenset({"test"}),
+    "cargo": frozenset({"test", "nextest"}),
+    "dotnet": frozenset({"test"}),
+    "deno": frozenset({"test"}),
+    "bun": frozenset({"test"}),
+    "npm": frozenset({"test", "t"}),
+    "pnpm": frozenset({"test", "t"}),
+    "yarn": frozenset({"test"}),
+}
+# Build tools whose goals must *all* be test goals (`mvn deploy test` publishes).
+_TEST_GOALS: dict[str, frozenset[str]] = {
+    "mvn": frozenset({"test"}),
+    "mvnw": frozenset({"test"}),
+    "gradle": frozenset({"test", "check"}),
+    "gradlew": frozenset({"test", "check"}),
+    "make": frozenset({"test", "check"}),
+}
+# `npx vitest run`, `uv run pytest`: the command after the launcher is what runs.
+_LAUNCHERS: dict[str, frozenset[str]] = {
+    "npx": frozenset(),
+    "pnpx": frozenset(),
+    "bunx": frozenset(),
+    "uv": frozenset({"run"}),
+    "poetry": frozenset({"run"}),
+    "pipenv": frozenset({"run"}),
+    "pdm": frozenset({"run"}),
+}
+_PACKAGE_RUNNERS = frozenset({"npm", "pnpm", "yarn", "bun"})
+_PACKAGE_VALUED = frozenset({"--filter", "-F", "--prefix", "-C", "--dir", "--workspace", "-w", "--cwd"})
+
+
+def read_only_bash(event: AgentEvent) -> bool:
+    """Whether a Bash action certainly changes nothing: every part reads or runs tests.
+
+    Unsure means False, and False only means "checked as usual".
+    """
+    if event.tool != "Bash":
+        return False
+    command = event.arg("command")
+    if not isinstance(command, str) or not command.strip():
+        return False
+    return read_only(shell.parse(command))
+
+
+def read_only(parsed: shell.Parsed) -> bool:
+    if parsed.truncated or parsed.reasons or not parsed.parts:
+        return False
+    return all(_reads_only(part) for part in parsed.parts)
+
+
+def _reads_only(part: shell.Part) -> bool:
+    if part.opaque or not part.argv:
+        return False
+    if any(wrapper in ("sudo", "doas") for wrapper in part.wrappers):
+        return False
+    for operator, target in part.redirects:
+        if ">" in operator and not _SINK.fullmatch(target):
+            return False  # writes a file
+    name, args = part.name, part.argv[1:]
+    if name in _READERS:
+        # ripgrep's --pre runs a program on every file it searches.
+        return not (name == "rg" and any(a == "--pre" or a.startswith("--pre=") for a in args))
+    if name == "find":
+        return not any(arg in _FIND_WRITES for arg in args)
+    if name == "git":
+        return _git_reads(args)
+    return _runs_tests(part.argv)
+
+
+def _git_reads(args: tuple[str, ...]) -> bool:
+    rest = list(args)
+    while rest and rest[0].startswith("-"):
+        if rest[0] == "-C" and len(rest) > 1:
+            rest = rest[2:]
+        elif rest[0] in ("--no-pager", "-P", "--no-optional-locks"):
+            rest = rest[1:]
+        else:
+            return False  # -c, --git-dir, --exec-path ...: not worth trusting
+    if not rest:
+        return False
+    sub, sub_args = rest[0], rest[1:]
+    if any(arg.startswith("--output") or arg == "--ext-diff" for arg in sub_args):
+        return False  # `git diff --output=FILE` writes
+    if sub in _GIT_READS:
+        return True
+    return sub == "branch" and _lists_branches(sub_args)
+
+
+def _lists_branches(args: list[str]) -> bool:
+    """`git branch`, `-a`, `-vv`, `--list 'feat*'`; never a name that creates one, or -d/-m."""
+    listing = False
+    positional = False
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("--list", "-l"):
+            listing = True
+        elif arg in _GIT_BRANCH_LISTING:
+            pass
+        elif arg.split("=", 1)[0] in _GIT_BRANCH_VALUED:
+            if "=" not in arg and i + 1 < len(args) and not args[i + 1].startswith("-"):
+                i += 1
+        elif arg.startswith("-"):
+            return False  # -d, -D, -m, -M, -c, -C, -f, -u, --set-upstream-to ...
+        else:
+            positional = True
+        i += 1
+    return listing or not positional
+
+
+def _runs_tests(argv: tuple[str, ...], depth: int = 0) -> bool:
+    """Whether argv runs a test suite, recognised by command position (not by mention)."""
+    if not argv or depth > 2:
+        return False
+    name = PurePosixPath(argv[0]).name
+    args = argv[1:]
+    if name in _TEST_RUNNERS:
+        return True
+    if name.startswith("python") and len(args) >= 2 and args[0] == "-m":
+        return args[1] in _PYTHON_TEST_MODULES
+    if name == "node":
+        return "--test" in args
+    if name in _LAUNCHERS:
+        rest = list(args)
+        if _LAUNCHERS[name]:
+            if not rest or rest[0] not in _LAUNCHERS[name]:
+                return False
+            rest = rest[1:]
+        while rest and rest[0].startswith("-"):
+            rest = rest[1:]
+        if name in ("npx", "pnpx", "bunx") and rest[:2] == ["playwright", "test"]:
+            return True
+        return _runs_tests(tuple(rest), depth + 1)
+    if name in _TEST_GOALS:
+        goals = [arg for arg in args if not arg.startswith("-")]
+        return bool(goals) and set(goals) <= _TEST_GOALS[name]
+    if name in _TEST_SUBCOMMANDS:
+        rest = list(args)
+        while rest and rest[0].startswith("-"):
+            valued = name in _PACKAGE_RUNNERS and rest[0] in _PACKAGE_VALUED
+            rest = rest[2:] if valued else rest[1:]
+        if not rest:
+            return False
+        if rest[0] in _TEST_SUBCOMMANDS[name]:
+            return True
+        # `npm run test`, `pnpm run test:unit`
+        return (
+            name in _PACKAGE_RUNNERS
+            and rest[0] == "run"
+            and len(rest) > 1
+            and (rest[1] == "test" or rest[1].startswith("test:"))
+        )
+    return False
 
 
 # -- risky commands (SPEC §18 risk check) -----------------------------------------

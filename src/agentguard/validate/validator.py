@@ -75,6 +75,12 @@ def validate(
     if human:
         return _review(findings, human, modify.safer_form(event, risky))
 
+    # A command that only reads, or only runs the tests, is not a change: nothing below is
+    # about it (IMPROVEMENTS.md A4). `grep -rn "npm install lodash" docs/` was denied as a
+    # new dependency; Pebble skips validation for read-only Bash the same way.
+    if checks.read_only_bash(event):
+        return Decision.allow()
+
     if not index.is_built:
         return Decision.allow()
 
@@ -87,8 +93,11 @@ def validate(
         findings.extend(checks.pattern_consistency(event, index, path))
         findings.extend(checks.dependency_added(event, index, path))
 
-    if state is not None:
-        findings.extend(checks.scope_creep(state, index))
+    # Scope is about the files a task writes, so it is judged on the edit that writes one —
+    # never on a Bash command. It used to run on every non-read-only action, so the deny
+    # landed on whatever came next, including the agent's own `pytest` (A4).
+    if state is not None and _writes_a_file(event):
+        findings.extend(checks.scope_creep(state, index, path))
 
     if not findings:
         return Decision.allow(level)
@@ -151,6 +160,12 @@ def _review(findings: list[Finding], human: list[Finding], safer: str | None = N
         # than letting it through (core/hosts.py, H1).
         signoff_required=True,
     )
+
+
+def _writes_a_file(event: AgentEvent) -> bool:
+    """The mutating file tools — plus `Delete`, the core's word for a file removal (the
+    Codex adapter maps `apply_patch`'s Delete File to it)."""
+    return event.is_mutating or event.tool == "Delete"
 
 
 def _edited_path(event: AgentEvent, index: RepoIndex) -> str:

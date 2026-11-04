@@ -149,7 +149,9 @@ class TestScopeViolation:
 
     def test_a_direct_task_that_rewrites_the_repo_is_disproportionate(self, index):
         """Proportionality catches drift even when nothing grounded, so scope creep
-        cannot be measured (SPEC §2)."""
+        cannot be measured (SPEC §2) — and is recorded, never raised (IMPROVEMENTS.md A4:
+        20 of 69 real 8+-file turns had been rated DIRECT from the prompt)."""
+        from agentguard.core.enums import Severity
         from agentguard.validate import checks
 
         state = state_for("Make everything better.", index)
@@ -159,7 +161,32 @@ class TestScopeViolation:
             state.touch(path)
 
         findings = checks.scope_creep(state, index)
-        assert any(f.subject == "proportionality" for f in findings)
+        recorded = [f for f in findings if f.subject == "proportionality"]
+        assert recorded
+        assert recorded[0].severity is Severity.INFO, "below the challenge threshold: census only"
+
+    def test_proportionality_is_recorded_once_at_the_crossing_edit(self, index):
+        """With the edit's path, only the edit that adds the ninth source file records it."""
+        from agentguard.validate import checks
+
+        state = state_for("Make everything better.", index)
+        for i in range(checks.DIRECT_BAND_FILE_LIMIT):
+            state.touch(f"src/shop/f{i}.py")
+        assert any(f.subject == "proportionality" for f in checks.scope_creep(state, index, "src/new.py"))
+        # Re-editing a touched file, or editing docs, crosses nothing.
+        assert not checks.scope_creep(state, index, "src/shop/f0.py")
+        assert not checks.scope_creep(state, index, "docs/notes.md")
+        state.touch("src/new.py")
+        assert not checks.scope_creep(state, index, "src/later.py")
+
+    def test_docs_and_manifests_are_not_proportionality(self, index):
+        from agentguard.validate import checks
+
+        state = state_for("Make everything better.", index)
+        for i in range(20):
+            state.touch(f"docs/page_{i}.md")
+        state.touch("package.json")
+        assert checks.scope_creep(state, index) == []
 
     def test_grounded_drift_reports_scope_rather_than_proportionality(self, index):
         """When the task *did* ground, naming the unrelated files is more useful than

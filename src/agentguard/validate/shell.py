@@ -6,9 +6,14 @@ message saying "never git push --force", a grep for "DROP TABLE". This module sp
 line into its simple commands first — the pieces joined by `;`, `&&`, `||`, `|`, `&` and
 newlines — with quotes, comments and here-document bodies respected.
 
-Provenance: the scanner (`_end_word`, `_bodies`, `split`) is ported from Pebble,
-`backend/pebble/shell_policy.py` (`_end_word`, `_bodies`, `_scan`; same owner,
-Apache-2.0), whose tests include a zsh-oracle fuzz test. Changes from Pebble:
+Each piece is then read into a `Part`: its argv with redirections, leading assignments and
+wrappers (`env`, `nohup`, `time`, `timeout N`, `nice`, `xargs`, ...) removed, so checks see
+the command that actually runs.
+
+Provenance: the scanner (`_end_word`, `_bodies`, `split`) and the part reader (`_part`)
+are ported from Pebble, `backend/pebble/shell_policy.py` (`_end_word`, `_bodies`,
+`_scan`, `_part`; same owner, Apache-2.0), whose tests include a zsh-oracle fuzz test.
+Changes from Pebble:
 
 * each piece keeps its offsets in the line and the separators on either side, so a
   rewrite can be applied in place (A5) and an `a || b` list is never mistaken for `a; b`;
@@ -22,13 +27,34 @@ Everything here is linear in the length of the line.
 
 from __future__ import annotations
 
+import re
+import shlex
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 # R13: a 900 KB command line once cost 203 s in backtracking regexes, wedging the daemon.
 # Nothing past this many characters is scanned; `Split.truncated` says so.
 MAX_SCAN = 64 * 1024
 
 _END_WORD_STOP = frozenset(" \t\n;&|<>()")
+
+# Commands that run the command after their own options (Pebble's WRAPPERS, plus
+# `timeout N` and `xargs`, handled in `_part`).
+WRAPPERS = frozenset({"env", "nohup", "time", "nice", "command", "exec", "caffeinate", "stdbuf"})
+# A word in command position that makes the piece control flow, not a simple command.
+OPAQUE_KEYWORDS = frozenset(
+    {
+        "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case",
+        "esac", "function", "select", "[[", "{", "}", "eval", "source", ".", "coproc", "trap",
+    }
+)
+_OPERATOR = frozenset("<>&|")
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
+# xargs options that take a value (GNU and BSD).
+_XARGS_VALUED = frozenset({"-n", "-I", "-J", "-L", "-P", "-R", "-S", "-s", "-E", "-d", "-a"})
+_ENV_VALUED = frozenset({"-u", "--unset", "-C", "--chdir"})
+_PRIVILEGE = frozenset({"sudo", "doas"})
+_SUDO_VALUED = frozenset({"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,3 +426,175 @@ def words(text: str) -> list[Word]:
         i += 1
     flush(n)
     return out
+
+
+# -- parts ------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Part:
+    """One simple command, read: what runs, with what, and where its output goes.
+
+    `argv` is the command after removing redirections, leading `NAME=value` assignments
+    and wrappers, with quotes removed (`grep -rn "a b" x` -> `("grep", "-rn", "a b", "x")`).
+    An opaque part's argv is a best effort and must not be trusted on its own.
+    """
+
+    argv: tuple[str, ...]
+    redirects: tuple[tuple[str, str], ...]  # (operator, target)
+    assignments: tuple[str, ...]  # leading NAME=value words, as written
+    piece: Piece
+    wrappers: tuple[str, ...] = ()  # wrapper commands removed from the front, in order
+    replace: str = ""  # the replacement string of an `xargs -I R` that runs argv
+    opaque: tuple[str, ...] = ()
+
+    @property
+    def text(self) -> str:
+        return self.piece.text
+
+    @property
+    def name(self) -> str:
+        """The command's basename (`/usr/bin/git` -> `git`), or "" when there is none."""
+        return PurePosixPath(self.argv[0]).name if self.argv else ""
+
+
+@dataclass(frozen=True, slots=True)
+class Parsed:
+    line: str
+    parts: tuple[Part, ...]
+    heredocs: tuple[Heredoc, ...] = ()
+    reasons: tuple[str, ...] = ()  # reasons that concern the whole line
+    truncated: bool = False
+
+    @property
+    def opaque(self) -> bool:
+        """Whether anything in the line could not be fully read."""
+        return bool(self.reasons) or any(part.opaque for part in self.parts)
+
+
+def parse(command: str) -> Parsed:
+    """The line's parts. Never raises; bounded by `MAX_SCAN`."""
+    split_line = split(command)
+    parts = tuple(_part(piece) for piece in split_line.pieces)
+    return Parsed(
+        line=split_line.line,
+        parts=parts,
+        heredocs=split_line.heredocs,
+        reasons=split_line.reasons,
+        truncated=split_line.truncated,
+    )
+
+
+def _lex(text: str) -> list[str] | None:
+    try:
+        lexer = shlex.shlex(text, posix=True, punctuation_chars="<>&|")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        return list(lexer)
+    except ValueError:
+        return None
+
+
+def _part(piece: Piece) -> Part:
+    """Read one piece into argv, redirections and assignments, and strip its wrappers.
+
+    Ported from Pebble `shell_policy._part`.
+    """
+    opaque = list(piece.opaque)
+    # A backslash-newline is a line continuation, not a word.
+    tokens = _lex(piece.text.replace("\\\n", " "))
+    if tokens is None:
+        opaque.append("quoting that cannot be read")
+        return Part((), (), (), piece, opaque=tuple(dict.fromkeys(opaque)))
+
+    argv: list[str] = []
+    redirects: list[tuple[str, str]] = []
+    assignments: list[str] = []
+    i = 0
+    while i < len(tokens):
+        word = tokens[i]
+        if word and set(word) <= _OPERATOR:
+            redirects.append((word, tokens[i + 1] if i + 1 < len(tokens) else ""))
+            i += 2
+            continue
+        if word.isdigit() and i + 1 < len(tokens) and tokens[i + 1] and set(tokens[i + 1]) <= _OPERATOR:
+            i += 1  # a file descriptor before its redirection (2>&1)
+            continue
+        if not argv and _ASSIGNMENT.fullmatch(word):
+            assignments.append(word)
+        else:
+            argv.append(word)
+        i += 1
+
+    # Wrappers run the command after their own options: env FOO=1 cmd, nohup cmd,
+    # time cmd, timeout 30 cmd, xargs -n1 cmd.
+    wrappers: list[str] = []
+    replace = ""
+    while argv:
+        head = PurePosixPath(argv[0]).name
+        if head in WRAPPERS:
+            rest = argv[1:]
+            while rest and (
+                rest[0].startswith("-")
+                or (head == "env" and "=" in rest[0])
+                or (head == "nice" and rest[0].lstrip("-").isdigit())
+            ):
+                if len(rest) > 1 and (
+                    (head == "nice" and rest[0] == "-n")
+                    or (head == "env" and rest[0] in _ENV_VALUED)
+                ):
+                    rest = rest[1:]  # `nice -n 10 cmd`, `env -u NAME cmd`: the value too
+                rest = rest[1:]
+            wrappers.append(head)
+            argv = rest
+            continue
+        if head in _PRIVILEGE:
+            # Not a wrapper to Pebble, which refuses it outright. Here the command it runs
+            # is what gets judged, and `wrappers` keeps the privilege visible.
+            rest = argv[1:]
+            while rest and rest[0].startswith("-") and rest[0] != "--":
+                rest = rest[2:] if rest[0] in _SUDO_VALUED else rest[1:]
+            if rest and rest[0] == "--":
+                rest = rest[1:]
+            wrappers.append(head)
+            argv = rest
+            continue
+        if head == "timeout":
+            rest = argv[1:]
+            while rest and rest[0].startswith("-"):
+                valued = rest[0] in ("-s", "-k", "--signal", "--kill-after")
+                rest = rest[2:] if valued else rest[1:]
+            wrappers.append(head)
+            argv = rest[1:]  # the duration
+            continue
+        if head == "xargs":
+            rest = argv[1:]
+            while rest and rest[0].startswith("-"):
+                # The replacement string is this xargs's own option, never a word of the
+                # part's text (Pebble 1.9.28, sec-w7 1).
+                flag = rest[0]
+                if flag in ("-I", "-J") and len(rest) > 1:
+                    replace = rest[1]
+                elif re.fullmatch(r"-[IJ].+", flag):
+                    replace = flag[2:]
+                elif flag.startswith(("--replace=", "-i")) and flag != "--replace=":
+                    replace = flag.split("=", 1)[1] if "=" in flag else flag[2:] or "{}"
+                elif flag == "--replace":
+                    replace = "{}"
+                rest = rest[2:] if flag in _XARGS_VALUED else rest[1:]
+            wrappers.append(head)
+            argv = rest
+            continue
+        break
+
+    if argv and (argv[0] in OPAQUE_KEYWORDS or argv[0].endswith("()")):
+        opaque.append("control flow")
+    return Part(
+        argv=tuple(argv),
+        redirects=tuple(redirects),
+        assignments=tuple(assignments),
+        piece=piece,
+        wrappers=tuple(wrappers),
+        replace=replace,
+        opaque=tuple(dict.fromkeys(opaque)),
+    )
