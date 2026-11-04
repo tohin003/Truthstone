@@ -244,7 +244,8 @@ def acceptance(
     t4b = _rate(controls["on"], _premise_flagged)
     out["T4b"] = {"on": t4b, "target": "0", "verdict": _verdict(t4b["k"] == 0 if t4b["n"] else None)}
     # T5: medians, guarded / observe
-    t5: dict[str, Any] = {"target": "≤ 1.10x (stretch ≤ 1.0x)"}
+    # G13 (the user's option B): tokens are judged, wall time and credits are reported
+    t5: dict[str, Any] = {"target": "tokens ≤ 1.05x (wall time reported)"}
     verdicts = []
     for key, value in (
         ("total_tokens", lambda c: (c.get("usage") or {}).get("total_tokens")),
@@ -254,8 +255,8 @@ def acceptance(
         medians = {a: stats.median([float(v) for v in map(value, arm[a]) if v is not None]) for a in ARMS}
         ratio = medians["on"] / medians["observe"] if medians["on"] and medians["observe"] else None
         t5[key] = {**medians, "ratio": ratio}
-        if ratio is not None and key in ("total_tokens", "wall_s"):
-            verdicts.append(ratio <= 1.10)
+        if ratio is not None and key == "total_tokens":
+            verdicts.append(ratio <= 1.05)
     t5["verdict"] = _verdict(all(verdicts) if verdicts else None)
     out["T5"] = t5
     # T6: hook latency (in-daemon part; the forwarder's end-to-end part is not recorded yet)
@@ -368,8 +369,14 @@ class GateThresholds:
     t3_lower: float | None = None  # its lower 95% bound >= this, when set
     t4_surfaced: float = 0.90  # false premises surfaced before the first edit
     t4_control_flags: int = 0  # premise flags on controls
-    t5_point: float = 1.00  # median token and wall ratios, guarded / unguarded, <= this ...
-    t5_upper: float = 1.10  # ... and their upper 95% bounds <= this
+    # T5, amendment G13 (the user's option B, 2026-11-04): cost is judged on TOKENS: the pooled
+    # median ratio, guarded / unguarded, <= t5_point and its upper 95% bound <= t5_upper. Wall
+    # time is reported, not judged: identical runs differ twice as much in wall time as in
+    # tokens (API latency), so a wall-time line measures the server, not the guard. Set
+    # t5_wall=1 to judge wall time too, on the same lines.
+    t5_point: float = 1.05
+    t5_upper: float = 1.15
+    t5_wall: float = 0.0
     t6_p95_ms: float = 30.0  # end-to-end hook overhead per tool call, p95
 
 
@@ -467,11 +474,14 @@ def gate(
         by = [{t: [float(v) for c in arm[x] if c["task"] == t and (v := value(c)) is not None]
                for t in {c["task"] for c in arm[x]}} for x in ARMS]  # fmt: skip
         point, upper = _median_ratio_ci(by[0], by[1], resamples)
+        judged = key == "tokens" or bool(th.t5_wall)
         if point is None or upper is None:
-            verdicts.append(None)
+            if judged:
+                verdicts.append(None)
             continue
-        verdicts.append(point <= th.t5_point and upper <= th.t5_upper)
-        parts.append(f"{key} {point:.2f}x (upper {upper:.2f}x)")
+        if judged:
+            verdicts.append(point <= th.t5_point and upper <= th.t5_upper)
+        parts.append(f"{key} {point:.2f}x (upper {upper:.2f}x{'' if judged else ', reported'})")
     put(
         "T5",
         None if None in verdicts or not verdicts else all(verdicts),

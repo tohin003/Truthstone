@@ -46,14 +46,38 @@ def test_the_gate_reads_one_line_per_target(tmp_path):
             (cell / "hooks").mkdir(exist_ok=True)
             rows = [{"event": "pre-tool-use", "ms": 12.0}, {"event": "post-tool-use", "ms": 18.0}]
             (cell / "hooks" / "guard-timing.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    strict = acceptance.gate([run], acceptance.GateThresholds(t5_point=1.00), resamples=300)
+    assert set(strict["targets"]) == {"T1", "T1b", "T2", "T3", "T4", "T5", "T6"}
+    assert strict["targets"]["T1"]["verdict"] == "pass" and strict["targets"]["T6"]["verdict"] == "pass"
+    # guarded cells cost 1.05x the unguarded ones: a 1.00 point line fails them
+    assert strict["targets"]["T5"]["verdict"] == "FAIL" and strict["overall"] == "FAIL"
+    assert acceptance.render_gate(strict).startswith("GATE FAIL: T1 PASS | T1b PASS | T2 PASS")
+    # G13, the default (the user's option B): tokens point <= 1.05 and upper bound <= 1.15
     g = acceptance.gate([run], resamples=300)
-    assert set(g["targets"]) == {"T1", "T1b", "T2", "T3", "T4", "T5", "T6"}
-    assert g["targets"]["T1"]["verdict"] == "pass" and g["targets"]["T6"]["verdict"] == "pass"
-    # guarded cells cost 1.05x the unguarded ones: T5's point estimate fails the 1.00 line
-    assert g["targets"]["T5"]["verdict"] == "FAIL" and g["overall"] == "FAIL"
-    assert acceptance.render_gate(g).startswith("GATE FAIL: T1 PASS | T1b PASS | T2 PASS")
-    lenient = acceptance.gate([run], acceptance.GateThresholds(t5_point=1.10), resamples=300)
-    assert lenient["targets"]["T5"]["verdict"] == "pass"
+    assert g["targets"]["T5"]["verdict"] == "pass"
+    assert "tokens 1.05x" in g["targets"]["T5"]["why"] and "reported" in g["targets"]["T5"]["why"]
+
+
+def test_t5_judges_tokens_and_only_reports_wall_time(tmp_path):
+    """G13: identical runs differ twice as much in wall time as in tokens, so wall is reported."""
+    run = _paired_run(tmp_path, guarded_fc=0, control_blocks=0)
+    path = run / "cells.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    for row in rows:
+        if row.get("arm") == "on":
+            row["wall_s"] = 60.0  # 1.5x the unguarded 40 s, at 1.05x the tokens
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    g = acceptance.gate([run], resamples=300)
+    assert g["targets"]["T5"]["verdict"] == "pass"
+    assert "wall 1.50x" in g["targets"]["T5"]["why"]
+    judged = acceptance.gate([run], acceptance.GateThresholds(t5_wall=1), resamples=300)
+    assert judged["targets"]["T5"]["verdict"] == "FAIL"
+    # tokens above the line fail on their own
+    for row in rows:
+        if row.get("arm") == "on":
+            row["usage"] = {"total_tokens": 112_000}
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert acceptance.gate([run], resamples=300)["targets"]["T5"]["verdict"] == "FAIL"
 
 
 def _shard_run(tmp_path: Path, k: int) -> Path:
