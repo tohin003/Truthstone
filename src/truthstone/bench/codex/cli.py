@@ -363,11 +363,16 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
         if ctx is None:
             return None
         env = guard.base_env(ctx, ctx.codex_template)
-        try:
-            with appserver.AppServer(args.codex, env) as server:
-                return appserver.plan_type_and_windows(server.rate_limits())
-        except appserver.AppServerError:
-            return None
+        # A transient app-server failure must not refuse a whole study at its start: retry,
+        # and say what failed (an unreadable window still stops the run, as registered).
+        for attempt in range(3):
+            try:
+                with appserver.AppServer(args.codex, env) as server:
+                    return appserver.plan_type_and_windows(server.rate_limits())
+            except appserver.AppServerError as exc:
+                runner.log(f"usage windows unreadable (attempt {attempt + 1} of 3): {exc}")
+                time.sleep(2 * (attempt + 1))
+        return None
 
     runner.limits_reader = read_limits
     runner.allow_partial = bool(getattr(args, "allow_partial", False))
@@ -787,6 +792,19 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
     return status
 
 
+def _cmd_calibrate(args: argparse.Namespace) -> int:
+    """The dev review's calibration table pooled over several runs (pilot + extended screen)."""
+    try:
+        cal = report.pooled_calibration([Path(d) for d in args.run_dir])
+    except ValueError as exc:
+        print(f"refusing to pool: {exc}")
+        return 2
+    if args.json:
+        Path(args.json).write_text(json.dumps(cal, indent=2, default=str), encoding="utf-8")
+    print(report.render_pooled_calibration(cal))
+    return 0
+
+
 def _cmd_analyze(args: argparse.Namespace) -> int:
     run_dir = Path(args.run_dir)
     analysis = report.analyze(run_dir)
@@ -974,6 +992,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run-dir")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=_cmd_allowance)
+
+    p = sub.add_parser(
+        "calibrate", help="Dev review: observe-arm base rates pooled over runs of one suite (blind)."
+    )
+    p.add_argument("--run-dir", action="append", required=True, help="Repeat for each run to pool.")
+    p.add_argument("--json")
+    p.set_defaults(func=_cmd_calibrate)
 
     p = sub.add_parser("analyze", help="Pre-registered analysis of a run directory.")
     p.add_argument("--run-dir", required=True)

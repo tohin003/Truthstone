@@ -72,6 +72,9 @@ SUITES: dict[str, SuiteSpec] = {
     "codex_bench": SuiteSpec("codex_bench", SUITE_ROOT, "tasks"),
     "golden-dev": SuiteSpec("golden-dev", GOLDEN_ROOT, "dev"),
     "golden-heldout": SuiteSpec("golden-heldout", GOLDEN_ROOT, "heldout"),
+    # Harder recipe variants built after the dev pilot; validated like any task, never run
+    # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
+    "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates"),
 }
 
 SETS = ("headroom", "impossible", "control")

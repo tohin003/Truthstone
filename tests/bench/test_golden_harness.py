@@ -51,7 +51,7 @@ needs_node = pytest.mark.skipif(not _node_available(), reason="Node 22.18+ is ne
 
 def test_the_original_suite_is_the_default_and_its_digest_is_unchanged():
     assert suite.DEFAULT_SUITE == "codex_bench"
-    assert set(suite.SUITES) == {"codex_bench", "golden-dev", "golden-heldout"}
+    assert set(suite.SUITES) == {"codex_bench", "golden-dev", "golden-heldout", "golden-candidates"}
     tasks = suite.load_suite()
     assert len(tasks) == 32
     assert suite.suite_digest(tasks) == OLD_SUITE_DIGEST
@@ -573,6 +573,51 @@ def test_a_screening_run_needs_one_cell_per_pair_and_reports_observe_rates_only(
     cli.main(["status", "--run-dir", str(tmp_path / "run")])
     out = capsys.readouterr().out
     assert "pairs complete 6/6" in out and "arms observe" in out and "runner: not running" in out
+
+
+def _screening_run(tmp_path, name, replicates, model="scripted"):
+    from truthstone.bench.codex import agents, guards
+
+    tasks = suite.load_suite(only=_plan_kwargs()["tasks"])
+    plan = Plan(
+        **_plan_kwargs(
+            name=name,
+            arms=["observe"],
+            stage="dry-run",
+            model=model,
+            replicates=replicates,
+            phrasings=["canonical"],
+            suite_digest=suite.suite_digest(tasks),
+        )
+    )
+    runner = orchestrator.Runner(
+        plan,
+        {t.id: t for t in tasks},
+        guards.FakeGuard(),
+        agents.ScriptedAgent(agents.dry_run_policy(seed=1, base_fc=1.0), PYTHON, model=model),
+        tmp_path / name,
+        tmp_path / f"{name}-work",
+        PYTHON,
+        real_codex=False,
+        log=lambda _m: None,
+    )
+    runner.run()
+    return tmp_path / name
+
+
+def test_the_dev_review_pools_the_pilot_and_the_extended_screen(tmp_path, capsys):
+    pilot = _screening_run(tmp_path, "pilot", [0])
+    screen = _screening_run(tmp_path, "screen", [1, 2])
+    cal = report.pooled_calibration([pilot, screen])
+    assert [r["observe_cells"] for r in cal["runs"]] == [3, 6]
+    families = cal["observe_by_family"]
+    assert sum(row["observe_cells"] for row in families.values()) == 6  # 9 cells minus 3 controls
+    assert cal["guarded_harm"] is None
+    assert cli.main(["calibrate", "--run-dir", str(pilot), "--run-dir", str(screen)]) == 0
+    assert "pooled over 2 run(s)" in capsys.readouterr().out
+    other = _screening_run(tmp_path, "other", [3], model="scripted-other")
+    with pytest.raises(ValueError, match="differ"):
+        report.pooled_calibration([pilot, other])
 
 
 def test_an_observe_only_run_still_reads_the_usage_windows():

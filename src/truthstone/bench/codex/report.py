@@ -236,6 +236,33 @@ def calibration(pairs: Pairs, screened: list[dict] | None = None) -> dict[str, A
     return result
 
 
+def pooled_calibration(run_dirs: list[Path]) -> dict[str, Any]:
+    """The dev review over several runs of one suite (the pilot plus the extended screen):
+    every run's observe cells, pooled, through the same calibration rule. Runs must share
+    suite, suite digest, model, effort and host; a paired run contributes its observe cells
+    only. The guarded arm is never read."""
+    plans = [Plan.load(d / "plan.json") for d in run_dirs]
+    keys = {(p.suite, p.suite_digest, p.model, p.effort, p.host) for p in plans}
+    if len(keys) != 1:
+        raise ValueError(f"runs differ in suite, digest, model, effort or host: {sorted(keys)}")
+    observed: list[dict] = []
+    runs = []
+    for run_dir, plan in zip(run_dirs, plans, strict=True):
+        records = load_records(run_dir / "cells.jsonl")
+        cells = screened_cells(records) if plan.screening else [obs for _on, obs in complete_pairs(records)]
+        runs.append({"run": run_dir.name, "plan": plan.digest(), "observe_cells": len(cells)})
+        observed += cells
+    result = calibration([], observed)
+    result["runs"] = runs
+    return result
+
+
+def render_pooled_calibration(cal: dict[str, Any]) -> str:
+    runs = "; ".join(f"{r['run']} ({r['observe_cells']} observe cells)" for r in cal["runs"])
+    lines = [f"# Dev calibration, pooled over {len(cal['runs'])} run(s)", "", f"Runs: {runs}.", ""]
+    return "\n".join(lines + _render_calibration(cal))
+
+
 def render_blind(a: dict[str, Any]) -> str:
     dq = a["data_quality"]
     return "\n".join(
