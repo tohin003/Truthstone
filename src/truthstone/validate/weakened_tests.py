@@ -433,7 +433,10 @@ def _failed(item: Weakening, failed: tuple[set[str], set[str]]) -> bool:
         name = item.test.rsplit("::", 1)[-1]
         if any(test.split("::")[-1].split("[", 1)[0] == name and item.path in test for test in ids):
             return True
-        if any(item.test in test for test in ids):
+        # An id without its file (some runners report the bare name): the name alone, exactly.
+        # Not a substring: `test_totals` is not `tests/test_totals.py::test_totals_currency`
+        # (audit of 66e1617, M10).
+        if any("::" not in test and test.split("[", 1)[0] in (name, item.test) for test in ids):
             return True
     return (
         any(

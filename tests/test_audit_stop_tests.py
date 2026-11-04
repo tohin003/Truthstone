@@ -813,3 +813,24 @@ def test_a_js_skip_is_a_test_call_option_not_a_data_key(line, skips):
     from truthstone.validate import weakened_tests
 
     assert bool(weakened_tests._JS_SKIP.search(line)) is skips
+
+
+# -- "the test failed earlier" is an exact match (M10) ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ids, failed",
+    [
+        ({"tests/test_totals.py::test_totals"}, True),
+        ({"tests/test_totals.py::test_totals[eur]"}, True),
+        ({"test_totals"}, True),  # a runner that reports the bare name
+        ({"tests/test_totals.py::test_totals_currency"}, False),
+        ({"test_totals_currency"}, False),
+        ({"tests/test_other.py::test_totals"}, False),
+    ],
+)
+def test_a_weakened_test_failed_earlier_only_by_its_own_id(ids, failed):
+    from truthstone.validate import weakened_tests
+
+    item = weakened_tests.Weakening("tests/test_totals.py", "test_totals", "expected-changed")
+    assert weakened_tests._failed(item, (ids, set())) is failed
