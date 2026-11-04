@@ -20,6 +20,13 @@ Three rules:
 The second encounter is also the SPEC §17 acceptance path: an agent that was challenged,
 reconsidered, and came back with the same approach is *allowed to proceed*. AgentGuard
 supplied the evidence; the host applied its intelligence; that is the whole design.
+
+**None of this applies to a review request** (`Verdict.REQUIRES_HUMAN`, IMPROVEMENTS.md
+A1). Rationing is about not nagging the *agent*; a review request asks the *developer*,
+whose answer AgentGuard never sees. The validator does not send review requests here at
+all; should anything else, `admit` passes them through untouched and `record` ignores
+them, so they can never be deduplicated, silenced for want of a task, or spend the budget
+the agent-facing challenges share.
 """
 
 from __future__ import annotations
@@ -28,6 +35,7 @@ from dataclasses import dataclass
 
 from agentguard.challenge.renderer import severity_at_least
 from agentguard.core.config import ChallengeSettings
+from agentguard.core.enums import Verdict
 from agentguard.core.models import Finding
 from agentguard.core.store import Store
 
@@ -53,21 +61,25 @@ class ChallengeLedger:
         if not findings:
             return LedgerVerdict([], [])
 
+        # Review requests are never rationed (module docstring, A1).
+        asks = [f for f in findings if f.verdict is Verdict.REQUIRES_HUMAN]
+        findings = [f for f in findings if f.verdict is not Verdict.REQUIRES_HUMAN]
+
         eligible = [f for f in findings if severity_at_least(f, self.settings.min_severity)]
         below = [f for f in findings if f not in eligible]
 
         if not eligible:
-            return LedgerVerdict([], below, "below severity threshold")
+            return LedgerVerdict(asks, below, "" if asks else "below severity threshold")
 
         if task_id is None:
             # No task context means no ledger, and no ledger means no way to avoid
             # repeating ourselves. Record only.
-            return LedgerVerdict([], findings, "no task context")
+            return LedgerVerdict(asks, findings, "no task context")
 
         already = self.store.challenge_count(task_id)
         if already >= self.settings.max_per_task:
             return LedgerVerdict(
-                [], findings, f"task challenge budget spent ({already}/{self.settings.max_per_task})"
+                asks, findings, f"task challenge budget spent ({already}/{self.settings.max_per_task})"
             )
 
         raise_now: list[Finding] = []
@@ -87,12 +99,14 @@ class ChallengeLedger:
                 continue
             raise_now.append(finding)
 
-        return LedgerVerdict(raise_now, suppressed)
+        return LedgerVerdict(asks + raise_now, suppressed)
 
     def record(self, task_id: str | None, findings: list[Finding]) -> None:
         if task_id is None:
             return
         for finding in findings:
+            if finding.verdict is Verdict.REQUIRES_HUMAN:
+                continue  # a review request never spends the advisory budget (A1)
             self.store.record_challenge(task_id, finding.fingerprint(), finding.subject)
 
     def resolve(self, task_id: str | None, findings: list[Finding]) -> None:

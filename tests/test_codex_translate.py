@@ -517,16 +517,20 @@ class TestThroughTheGuard:
         assert handle(guard, payload(repo, "PostToolUse", tool_response="api\nmodels.py\n", **bash)) == {}
         assert handle(guard, payload(repo, "SessionStart", source="startup")) == {}
 
-    def test_force_push_needs_sign_off_and_is_not_asked_twice(self, guard, repo):
+    def test_force_push_needs_sign_off_every_time(self, guard, repo):
         handle(guard, payload(repo, "UserPromptSubmit", prompt="Publish the branch"))
         bash = {"tool_name": "Bash", "tool_input": {"command": "git push --force origin main"}}
         first = handle(guard, payload(repo, "PreToolUse", **bash))
         assert first["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert first["hookSpecificOutput"]["permissionDecisionReason"].startswith(render.SIGN_OFF)
         assert "systemMessage" in first
-        # Today's core raises a concern once per task (IMPROVEMENTS.md A1 will change that):
-        # a re-run after the developer confirms goes through.
-        assert handle(guard, payload(repo, "PreToolUse", **bash)) == {}
+        # IMPROVEMENTS.md A1: an irreversible command is never rationed. AgentGuard cannot
+        # see whether the developer confirmed or refused the first sign-off request, and on
+        # Codex a deny is the only way to ask — so a plain re-run is denied again rather
+        # than silently going through.
+        second = handle(guard, payload(repo, "PreToolUse", **bash))
+        assert second["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert second["hookSpecificOutput"]["permissionDecisionReason"].startswith(render.SIGN_OFF)
 
     def test_an_unguarded_variable_delete_is_challenged_with_the_guarded_form(self, guard, repo):
         handle(guard, payload(repo, "UserPromptSubmit", prompt="Clean the build output"))

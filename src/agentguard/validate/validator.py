@@ -71,20 +71,7 @@ def validate(
     # A command needing human sign-off is decided here; nothing further is relevant.
     human = [f for f in findings if f.verdict is Verdict.REQUIRES_HUMAN]
     if human:
-        verdict = ledger.admit(task_id, human)
-        if verdict.should_challenge:
-            ledger.record(task_id, verdict.raise_now)
-            return Decision(
-                action=DecisionAction.REQUEST_REVIEW,
-                level=EscalationLevel.DETERMINISTIC,
-                reason=render_challenge(verdict.raise_now),
-                findings=findings,
-                # Every REQUEST_REVIEW produced here is an irreversible command: the
-                # developer must say yes, so a host whose `ask` fails open renders this
-                # as a deny rather than letting it through (core/hosts.py, H1).
-                signoff_required=True,
-            )
-        return Decision(action=DecisionAction.ALLOW, findings=findings, reason=verdict.reason)
+        return _review(findings, human)
 
     if not index.is_built:
         return Decision.allow()
@@ -125,6 +112,36 @@ def validate(
         level=EscalationLevel.HOST_CHALLENGE,
         reason=render_challenge(verdict.raise_now),
         findings=findings,
+    )
+
+
+def _review(findings: list[Finding], human: list[Finding]) -> Decision:
+    """Ask the developer, every time (IMPROVEMENTS.md A1).
+
+    A review request is not a challenge, and the ledger's rationing must never touch it.
+    Rationing assumes the recipient can answer — "the agent has heard this and chosen to
+    proceed" — but the recipient here is the developer, and AgentGuard cannot see whether
+    they approved or refused. So:
+
+    * no "once per concern": an identical retry is asked again (on a host without a
+      native ask, a retry after a refused sign-off would otherwise simply run);
+    * no task budget: an irreversible command after six challenges is still asked;
+    * no "no task context" silence: a command before the first prompt is still asked.
+
+    Pebble behaves the same way (`shell_policy.py`: deleting outside the workbench is "a
+    gate no setting waives"). The ask is still recorded: the engine persists this decision
+    and its findings, which is the log. It is never written to the challenge ledger, so it
+    never spends the advisory budget the agent-facing challenges share.
+    """
+    return Decision(
+        action=DecisionAction.REQUEST_REVIEW,
+        level=EscalationLevel.DETERMINISTIC,
+        reason=render_challenge(human),
+        findings=findings,
+        # Every REQUEST_REVIEW produced here is an irreversible command: the developer
+        # must say yes, so a host whose `ask` fails open renders this as a deny rather
+        # than letting it through (core/hosts.py, H1).
+        signoff_required=True,
     )
 
 
