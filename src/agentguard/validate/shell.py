@@ -986,6 +986,8 @@ def _part(piece: Piece, depth: int = 0, scope: int = 0, reader: str = "") -> Par
                     (head == "nice" and argv[k] == "-n") or (head == "env" and argv[k] in _ENV_VALUED)
                 ):
                     k += 1  # `nice -n 10 cmd`, `env -u NAME cmd`: the value too
+                elif head == "env" and _ASSIGNMENT.fullmatch(argv[k]):
+                    assignments.append(words[k].raw)  # `env HUSKY=0 git commit`: the same as a prefix
                 k += 1
             wrappers.append(head)
             words = words[k:]

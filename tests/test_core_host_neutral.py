@@ -67,9 +67,9 @@ ALLOWED: dict[tuple[str, str], int] = {
     ("agentguard.evidence.extractors", "notebook_path"): 1,
     ("agentguard.evidence.extractors", "old_string"): 2,
     ("agentguard.evidence.extractors", "replace_all"): 2,
-    # 2: risky_command and A4's read-only-Bash classifier. Bash stays the core's shell
-    # vocabulary until canonical actions (H6) replace it.
-    ("agentguard.validate.checks", "Bash"): 2,
+    # 3: risky_command, A4's read-only-Bash classifier and A8's verification-bypass
+    # check. Bash stays the core's shell vocabulary until canonical actions (H6).
+    ("agentguard.validate.checks", "Bash"): 3,
     ("agentguard.validate.checks", "Edit"): 1,
     ("agentguard.validate.checks", "MultiEdit"): 1,
     ("agentguard.validate.checks", "Write"): 2,

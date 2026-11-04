@@ -81,30 +81,32 @@ def validate(
     if human:
         return _review(findings, human, modify.safer_form(event, risky))
 
+    # Level-0 concerns the agent should hear (once), which need no repository: a command
+    # that switches off the checks verifying the work (A8).
+    findings.extend(checks.verification_bypass(event))
+
     # A command that only reads, or only runs the tests, is not a change: nothing below is
     # about it (IMPROVEMENTS.md A4). `grep -rn "npm install lodash" docs/` was denied as a
     # new dependency; Pebble skips validation for read-only Bash the same way.
-    if checks.read_only_bash(event):
+    if not findings and checks.read_only_bash(event):
         return Decision.allow()
 
-    if not index.is_built:
-        return Decision.allow()
+    # -- Level 1: repository evidence (once the index is ready) ------------------
+    if index.is_built:
+        level = EscalationLevel.REPOSITORY
+        findings.extend(evidence.check(event, index))
 
-    # -- Level 1: repository evidence ---------------------------------------------
-    level = EscalationLevel.REPOSITORY
-    findings.extend(evidence.check(event, index))
+        path = _edited_path(event, index)
+        if path:
+            findings.extend(checks.pattern_consistency(event, index, path))
+            findings.extend(checks.dependency_added(event, index, path))
+        findings = _dependencies_in_context(findings, event, state)
 
-    path = _edited_path(event, index)
-    if path:
-        findings.extend(checks.pattern_consistency(event, index, path))
-        findings.extend(checks.dependency_added(event, index, path))
-    findings = _dependencies_in_context(findings, event, state)
-
-    # Scope is about the files a task writes, so it is judged on the edit that writes one —
-    # never on a Bash command. It used to run on every non-read-only action, so the deny
-    # landed on whatever came next, including the agent's own `pytest` (A4).
-    if state is not None and _writes_a_file(event):
-        findings.extend(checks.scope_creep(state, index, path))
+        # Scope is about the files a task writes, so it is judged on the edit that writes
+        # one — never on a Bash command. It used to run on every non-read-only action, so
+        # the deny landed on whatever came next, including the agent's own `pytest` (A4).
+        if state is not None and _writes_a_file(event):
+            findings.extend(checks.scope_creep(state, index, path))
 
     if not findings:
         return Decision.allow(level)

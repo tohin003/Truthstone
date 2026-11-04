@@ -747,6 +747,125 @@ def risky_command(event: AgentEvent) -> list[Finding]:
     ]
 
 
+# -- verification bypass (IMPROVEMENTS.md A8) -------------------------------------------
+#
+# A command that switches off the checks meant to verify the work: git hooks, or a
+# build's test phase. Transcripts show five uses of `--no-verify`, none flagged. Pebble
+# looks for the same flags (`conventions.py:285-297`). Raised once per concern per task
+# (the ledger), at MEDIUM: skipping a hook may be right, so the agent is told, not stopped.
+
+_GIT_GLOBAL_VALUED = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"})
+_HOOKED = frozenset({"commit", "push", "merge", "rebase"})
+# `git commit` short options that take a value: in `-nm msg` the n is a flag, in `-mn`
+# the n is the message.
+_COMMIT_VALUED = frozenset("mFCcSt")
+_SKIP_TESTS_FLAGS = frozenset({"-DskipTests", "-DskipTests=true", "-Dmaven.test.skip=true", "--skip-tests"})
+_HOOKS = "git hooks skipped"
+_TESTS = "test phase skipped"
+_BYPASS_TEXT = re.compile(r"--no-verify\b|-DskipTests\b|-Dmaven\.test\.skip=true|--skip-tests\b|\bHUSKY=0\b")
+
+
+def _git_subcommand(argv: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+    """(subcommand, its arguments) of a git argv, global options stepped over."""
+    rest = list(argv[1:])
+    while rest and rest[0].startswith("-"):
+        option = rest[0]
+        rest = rest[2:] if option in _GIT_GLOBAL_VALUED and "=" not in option else rest[1:]
+    return (rest[0], tuple(rest[1:])) if rest else ("", ())
+
+
+def _commit_no_verify_short(args: tuple[str, ...]) -> bool:
+    """`git commit -n`, also inside a cluster (`-anm msg`) — never in a value (`-mn`)."""
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg == "--":
+            return False
+        if not arg.startswith("-") or arg.startswith("--") or len(arg) < 2:
+            continue
+        for at, letter in enumerate(arg[1:], 1):
+            if letter == "n":
+                return True
+            if letter in _COMMIT_VALUED:
+                skip = at == len(arg) - 1  # the value is the next word unless glued
+                break
+    return False
+
+
+def _assigned(part: shell.Part) -> dict[str, str]:
+    """NAME -> value for the assignments that reach this part's command's environment:
+    a prefix (`HUSKY=0 git commit`), `env NAME=value`, or `export NAME=value`."""
+    raws = list(part.assignments)
+    if part.name in ("export", "declare", "typeset"):
+        raws += [w.raw for w in part.words[1:]]
+    out: dict[str, str] = {}
+    for raw in raws:
+        name, sep, value = raw.partition("=")
+        if sep:
+            out[name] = value.strip("'\"")
+    return out
+
+
+def verification_bypass(event: AgentEvent) -> list[Finding]:
+    """`--no-verify`, `git commit -n`, `HUSKY=0`, `SKIP=` before git, `-DskipTests`,
+    `-Dmaven.test.skip=true`, `--skip-tests`, `SKIP_TESTS=1`. Never `git push -n`, which
+    is a dry run."""
+    if event.tool != "Bash":
+        return []
+    command = event.arg("command")
+    if not isinstance(command, str) or not command.strip():
+        return []
+
+    found: dict[str, str] = {}  # concern -> the spelling that triggered it
+    for part in shell.parse(command).parts:
+        if part.opaque:
+            match = _BYPASS_TEXT.search(part.text)
+            if match:
+                found.setdefault(_TESTS if "test" in match.group(0).lower() else _HOOKS, match.group(0))
+            continue
+        env = _assigned(part)
+        if env.get("HUSKY") == "0":
+            found.setdefault(_HOOKS, "HUSKY=0")
+        if env.get("SKIP_TESTS", "").lower() in ("1", "true", "yes"):
+            found.setdefault(_TESTS, "SKIP_TESTS=1")
+        if part.name == "git":
+            sub, args = _git_subcommand(part.argv)
+            if sub in _HOOKED and "--no-verify" in args:
+                found.setdefault(_HOOKS, f"git {sub} --no-verify")
+            elif sub == "commit" and _commit_no_verify_short(args):
+                found.setdefault(_HOOKS, "git commit -n")
+            if sub in _HOOKED and "SKIP" in env:
+                found.setdefault(_HOOKS, f"SKIP={env['SKIP']}")  # pre-commit's skip list
+        elif part.name == "pre-commit" and "SKIP" in env:
+            found.setdefault(_HOOKS, f"SKIP={env['SKIP']}")
+        flag = next((arg for arg in part.argv[1:] if arg in _SKIP_TESTS_FLAGS), None)
+        if flag:
+            found.setdefault(_TESTS, flag)
+
+    return [
+        Finding(
+            category=ChallengeCategory.TESTABILITY,
+            verdict=Verdict.SUPPORTED_WITH_RISK,
+            failure_mode=FailureMode.VERIFICATION_TAMPERING,
+            severity=Severity.MEDIUM,
+            subject=concern,
+            summary=f"Verification skipped: `{spelling}` turns off the "
+            + ("git hooks" if concern == _HOOKS else "build's tests"),
+            detail=f"`{command.strip()[:200]}`",
+            evidence=[EvidenceRef(source="runtime", note=command.strip()[:200])],
+            suggestion=(
+                "Run the hooks and fix what they report."
+                if concern == _HOOKS
+                else "Run the tests and fix what they report."
+            ),
+            level=EscalationLevel.DETERMINISTIC,
+        )
+        for concern, spelling in found.items()
+    ]
+
+
 # -- repository consistency (SPEC §16 CONSISTENCY · SPEC §3 "ignore existing patterns") --
 #
 # Every finding below is INFO, which puts it under the challenge threshold: recorded in

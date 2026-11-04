@@ -26,7 +26,7 @@ one-way is what stops evidence and challenge importing each other.
 
 from __future__ import annotations
 
-from agentguard.core.enums import ChallengeCategory, Severity, Verdict
+from agentguard.core.enums import ChallengeCategory, FailureMode, Severity, Verdict
 from agentguard.core.models import Finding
 
 HEADER = "AgentGuard — evidence check"
@@ -88,6 +88,10 @@ def _closing(findings: list[Finding]) -> str:
     """
     contradicted = any(f.verdict is Verdict.CONTRADICTED for f in findings)
     dependency = any(f.category is ChallengeCategory.DEPENDENCY for f in findings)
+    skipped = all(f.failure_mode is FailureMode.VERIFICATION_TAMPERING for f in findings)
+
+    if skipped:
+        return "Skipping a check hides what it would have found: run it, and fix what it reports."
 
     if dependency and not contradicted:
         # No "add it to the manifest" here: `uv add`, `npm install <pkg>` and the like
