@@ -464,13 +464,18 @@ class Guard:
             # file would pollute scope/completion state even though no file was indexed.
             if not path:
                 return Decision.allow()
-            if state is not None and event.is_delete:
+            # Reads are not writes (H3): only an edit, a write or a deletion that went
+            # through changes the file. A Read's post-event (hosts such as Cursor and
+            # Gemini send them) or a failed Edit touched nothing, and counting either fed
+            # scope and the gate files the agent never changed.
+            wrote = event.is_mutating and event.event is not EventType.POST_TOOL_FAILURE
+            if state is not None and wrote and event.is_delete:
                 # Snapshot the tests that reached the file *before* refresh_path drops it
                 # from the index; afterwards nothing would say which tests to run (G5).
                 covering = set(runners.affected_tests(ws.index, {path})) if ws.index.is_built else set()
                 state.delete(path, covering)
-            elif state is not None:
-                if event.is_mutating and ws.index.is_built and path not in ws.index.files:
+            elif state is not None and wrote:
+                if ws.index.is_built and path not in ws.index.files:
                     state.created_files.add(path)  # new to the repository: this task wrote it
                 state.touch(path)
             # Re-parse exactly the file that changed (~1ms) rather than re-statting the
