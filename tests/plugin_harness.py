@@ -22,7 +22,9 @@ PLUGIN_ROOT = REPO_ROOT / "plugins" / "truthstone-claude"
 HOOKS_FILE = PLUGIN_ROOT / "hooks" / "hooks.json"
 MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
 MARKETPLACE = REPO_ROOT / ".claude-plugin" / "marketplace.json"
-HOOK_SCRIPT = PLUGIN_ROOT / "scripts" / "hook.sh"
+HOOK_SCRIPT = PLUGIN_ROOT / "scripts" / "hook.sh"  # every event but SessionStart; installs nothing
+SESSION_SCRIPT = PLUGIN_ROOT / "scripts" / "session-start.sh"  # SessionStart: the one install step
+COMMAND_SCRIPT = PLUGIN_ROOT / "scripts" / "command.sh"  # the /truthstone:* commands
 
 _EXACT = re.compile(r"^[A-Za-z0-9_\-\s,|]*$")
 
@@ -76,8 +78,10 @@ def run_event(
     payload: dict,
     env: dict[str, str],
     timeout: float = 120.0,
+    cwd: str | None = None,
 ) -> list[HookRun]:
-    """Every hook that would fire for ``payload``, run in declaration order."""
+    """Every hook that would fire for ``payload``, run in declaration order, in ``cwd``
+    (default: the project directory, where Claude Code usually is)."""
     runs = []
     tool = payload.get("tool_name")
     match_value = tool if event.startswith(("PreToolUse", "PostToolUse")) else payload.get("source")
@@ -96,7 +100,7 @@ def run_event(
                 input=json.dumps({**payload, "hook_event_name": event}).encode(),
                 capture_output=True,
                 env=env,
-                cwd=env["CLAUDE_PROJECT_DIR"],
+                cwd=cwd or env["CLAUDE_PROJECT_DIR"],
                 timeout=timeout,
                 check=False,
             )

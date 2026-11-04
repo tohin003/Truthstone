@@ -1,5 +1,5 @@
 {
-  "description": "Truthstone: evidence checks, risk and scope review, and a completion gate. Session and prompt hooks run scripts/hook.sh, which installs the Truthstone runtime on first use; per-tool hooks exec that runtime's lean forwarder directly, and do nothing until it exists.",
+  "description": "Truthstone: evidence checks, risk and scope review, and a completion gate. Every hook runs a shell script in this plugin's scripts/ folder. scripts/session-start.sh installs the Truthstone runtime with uv on first use, the plugin's only download (TRUTHSTONE_NO_BOOTSTRAP=1 makes it use a runtime you installed instead); scripts/hook.sh hands every other event to that runtime and installs nothing. Outside a git work tree both do nothing.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" session-start",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh\"",
             "timeout": 300,
             "statusMessage": "Truthstone: starting (the first session installs its runtime)"
           }
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "p=\"${CLAUDE_PLUGIN_DATA}/runtime/bin/python\"; [ -x \"$p\" ] || exit 0; exec \"$p\" -I -S \"${CLAUDE_PLUGIN_DATA}/forward.py\" --timeout 4",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" pre-tool",
             "timeout": 5
           }
         ]
@@ -43,7 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "p=\"${CLAUDE_PLUGIN_DATA}/runtime/bin/python\"; [ -x \"$p\" ] || exit 0; exec \"$p\" -I -S \"${CLAUDE_PLUGIN_DATA}/forward.py\" --timeout 4",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" post-tool",
             "timeout": 5
           }
         ]
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "p=\"${CLAUDE_PLUGIN_DATA}/runtime/bin/python\"; [ -x \"$p\" ] || exit 0; exec \"$p\" -I -S \"${CLAUDE_PLUGIN_DATA}/forward.py\" --timeout 4",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" tool-failure",
             "timeout": 5
           }
         ]
@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "p=\"${CLAUDE_PLUGIN_DATA}/runtime/bin/python\"; [ -x \"$p\" ] || exit 0; exec \"$p\" -I -S \"${CLAUDE_PLUGIN_DATA}/forward.py\" --timeout 9",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" stop",
             "timeout": 10
           }
         ]
@@ -77,7 +77,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "p=\"${CLAUDE_PLUGIN_DATA}/runtime/bin/python\"; [ -x \"$p\" ] || exit 0; exec \"$p\" -I -S \"${CLAUDE_PLUGIN_DATA}/forward.py\" --timeout 1",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh\" session-end",
             "timeout": 2
           }
         ]

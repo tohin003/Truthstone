@@ -659,8 +659,15 @@ class TestIgnoredRepositoryPatterns:
 
     @pytest.fixture
     def own_index(self) -> RepoIndex:
-        """Truthstone's own repository — real conventions, not ones written to be broken."""
-        return RepoIndex(REPO_ROOT).build()
+        """Truthstone's own repository — real conventions, not ones written to be broken.
+
+        `examples/` holds sample projects with their own tests and layout (the reviewer
+        demo), so it is left out: its conventions are not this repository's.
+        """
+        index = RepoIndex(REPO_ROOT).build()
+        for path in [p for p in index.files if p.startswith("examples/")]:
+            del index.files[path]
+        return index
 
     def creation(self, root: Path, path: str) -> AgentEvent:
         return event(

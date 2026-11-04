@@ -1,0 +1,7 @@
+﻿order_id;email;amount;quantity;region;created_at;notes
+X-3001;ana@example.com;12,50;1;de;05.10.2026 08:12;
+X-3002;Ben@Example.com;1.240,00;2;at;05.10.2026 09:30;"Gift wrap, please.
+Leave at reception."
+X-3003;cara@example.com;-3,99;1;de;05.10.2026 17:45;Refund: lid was cracked
+X-3004;dev@example.com;7;3;ch;06.10.2026 10:15;"Customer wrote ""urgent"" twice"
+;;;;;;

@@ -29,6 +29,12 @@ Hooks do not run in the Codex IDE extension (it does not support plugins), in Ch
 or mobile, or in cloud tasks. macOS and Linux are supported. Windows is untested (the
 plugin's launcher is POSIX `sh`).
 
+**Only inside git repositories.** The plugin's launcher has a project gate: unless the
+session's directory is inside a git work tree (it, or a folder above it, has a `.git`
+entry), every hook exits 0 at once with no output. No runtime is called, nothing is
+installed, and the "unguarded" notice is not shown. The plain hooks written by
+`truthstone install codex` call the runtime directly and have no such gate.
+
 ### As a Codex plugin (recommended)
 
 ```bash
@@ -45,10 +51,11 @@ them. In the CLI, open `/hooks` and trust the six Truthstone hooks. In the deskt
 every plugin update asks for review again (see
 [the trust model](#hook-trust-the-step-users-must-not-miss)).
 
-The hooks call the Truthstone runtime (Python 3.12+). Install it once:
+The hooks call the Truthstone runtime (Python 3.12+). Install it once, from the release
+tag that matches the plugin:
 
 ```bash
-uv tool install git+https://github.com/tohin003/Truthstone     # or: pipx install git+https://…
+uv tool install git+https://github.com/tohin003/Truthstone@v0.1.0   # or: pipx install git+https://…@v0.1.0
 ```
 
 If `uv` is available and no runtime is installed, the plugin installs a **private copy** on
@@ -279,12 +286,16 @@ hooks after any change. The plugin therefore holds nothing that evolves:
 plugins/truthstone/
   .codex-plugin/plugin.json      generated: identity + listing metadata
   hooks/hooks.json               generated: six command hooks
-  hooks/truthstone-hook.sh       generated: POSIX launcher, ~50 lines
+  hooks/truthstone-hook.sh       generated: POSIX launcher, ~60 lines
+  README.md                      generated: what it runs, sends, fetches and stores
+  SECURITY.md                    generated: the security contract and how to report
+  LICENSE                        generated: a copy of the repository's Apache-2.0 licence
   skills/truthstone/SKILL.md     how to read and resolve Truthstone challenges
   assets/*.svg                   logo, dark logo, composer icon (original, 48–64 px)
 ```
 
 Every hook runs `/bin/sh "${PLUGIN_ROOT}/hooks/truthstone-hook.sh" <event>`. The launcher
+first applies the project gate (outside a git work tree it exits 0 and does nothing), then
 only *finds* the runtime: `$TRUTHSTONE_CODEX_HOOK`, then `truthstone-codex-hook` on `PATH`,
 then the private copy in `$PLUGIN_DATA`. It hands the payload over and always exits 0. All
 logic lives in the runtime, so **upgrading Truthstone never touches the plugin and never
@@ -354,7 +365,21 @@ continues the turn; `additionalContext` is supported; `systemMessage` is not sho
 | BLOCK at Stop (completion gate) | `{"decision":"block","reason":…}`, never with `hookSpecificOutput` |
 | anything at SessionEnd | nothing |
 
-**Policy calls flagged for the user:**
+**Safety policies, confirmed by the user on 2026-11-04.** Both were flagged for a decision
+during this work, and the user confirmed them as written:
+
+1. **On hosts without `ask`, irreversible actions are denied pending developer sign-off.**
+   Codex has no permission prompt that a hook can raise, so a REQUEST_REVIEW for an
+   irreversible action is rendered as a `deny` that asks the agent to get the user's
+   confirmation before re-running it. Truthstone never turns such an action into a silent
+   allow.
+2. **Claude Code MODIFY renders as `ask` + `updatedInput`, never `defer`.** On Claude Code
+   the narrowed command is shown to the developer in Claude Code's own permission prompt
+   (see `docs/CLAUDE-PLUGIN.md`). `defer` is never emitted: it ends the turn in `-p` and is
+   ignored interactively. On Codex, which has neither, MODIFY stays a challenge carrying the
+   guarded form (below).
+
+The details behind each call:
 
 - **No `ask` exists, so irreversible actions become a sign-off deny, released by a
   one-time code** (`IMPROVEMENTS.md` A1, A1b). Irreversible asks are raised every time,
@@ -528,22 +553,10 @@ found, "all 6 AgentGuard hooks are trusted in Codex".
   review. Consequence for releases: push the tag `v<version>` *before* publishing a plugin
   version, or the bootstrap fails open with its install hint. Protect `v*` tags on GitHub so
   they cannot be moved. After PyPI publication, switch the spec to the package.
-- **Listing URLs are placeholders.** The privacy and terms URLs point at the placeholder
-  sections below.
-
-### Placeholder: privacy policy
-
-*Placeholder, not a policy.* Truthstone runs entirely on the user's machine. It makes no
-network calls of its own, contains no model, and stores its decisions, findings and logs
-under `TRUTHSTONE_HOME` (default `~/.truthstone`), with owner-only permissions. The only
-network access is the optional first-run bootstrap, which installs the runtime with `uv`
-from the public Git repository (or PyPI). A real privacy policy must be written and hosted
-before any public listing.
-
-### Placeholder: terms of service
-
-*Placeholder, not terms.* Truthstone is distributed under the Apache License 2.0, without
-warranty. Real terms of service must be written and hosted before any public listing.
+- **Listing URLs** point at the repository's legal pages as plain GitHub file URLs:
+  `docs/legal/PRIVACY.md`, `docs/legal/TERMS.md` and `docs/legal/SUPPORT.md` (publisher
+  Tohin Majumder, tohin1400@gmail.com). They resolve once the repository is public under
+  `tohin003/Truthstone`.
 
 ## Maintainer notes
 

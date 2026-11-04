@@ -1,0 +1,20 @@
+{
+  "flags": {
+    "new-checkout": {
+      "enabled": true,
+      "description": "test fixture",
+      "rules": [
+        { "type": "allowlist", "values": ["qa-anna", "qa-ben"] },
+        { "type": "country", "values": ["DE", "AT"] },
+        { "type": "percentage", "percent": 20 }
+      ]
+    },
+    "gift-cards": {
+      "enabled": false,
+      "rules": [{ "type": "country", "values": ["DE"] }]
+    },
+    "dark-mode": {
+      "enabled": true
+    }
+  }
+}

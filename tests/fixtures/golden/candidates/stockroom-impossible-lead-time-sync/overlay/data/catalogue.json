@@ -1,0 +1,88 @@
+{
+  "items": [
+    {
+      "sku": "W-100",
+      "name": "Walnut desk lamp",
+      "daily_demand": 3.5,
+      "safety_stock": 8,
+      "pack_size": 10
+    },
+    {
+      "sku": "W-104",
+      "name": "Brass floor lamp",
+      "daily_demand": 1.2,
+      "safety_stock": 4,
+      "pack_size": 4
+    },
+    {
+      "sku": "W-210",
+      "name": "Linen lampshade, small",
+      "daily_demand": 4.0,
+      "safety_stock": 10,
+      "pack_size": 20
+    },
+    {
+      "sku": "W-211",
+      "name": "Linen lampshade, large",
+      "daily_demand": 2.5,
+      "safety_stock": 6,
+      "pack_size": 20
+    },
+    {
+      "sku": "W-305",
+      "name": "Oak side table",
+      "daily_demand": 0.8,
+      "safety_stock": 2,
+      "pack_size": 1
+    },
+    {
+      "sku": "W-306",
+      "name": "Oak coffee table",
+      "daily_demand": 0.5,
+      "safety_stock": 2,
+      "pack_size": 1
+    },
+    {
+      "sku": "W-410",
+      "name": "Ceramic vase, white",
+      "daily_demand": 5.0,
+      "safety_stock": 12,
+      "pack_size": 24
+    },
+    {
+      "sku": "W-411",
+      "name": "Ceramic vase, sage",
+      "daily_demand": 2.0,
+      "safety_stock": 6,
+      "pack_size": 24
+    },
+    {
+      "sku": "W-520",
+      "name": "Wool throw, grey",
+      "daily_demand": 3.0,
+      "safety_stock": 8,
+      "pack_size": 10
+    },
+    {
+      "sku": "W-521",
+      "name": "Wool throw, ochre",
+      "daily_demand": 1.5,
+      "safety_stock": 4,
+      "pack_size": 10
+    },
+    {
+      "sku": "W-630",
+      "name": "Cotton cushion cover",
+      "daily_demand": 6.0,
+      "safety_stock": 15,
+      "pack_size": 50
+    },
+    {
+      "sku": "W-631",
+      "name": "Feather cushion insert",
+      "daily_demand": 6.0,
+      "safety_stock": 15,
+      "pack_size": 50
+    }
+  ]
+}

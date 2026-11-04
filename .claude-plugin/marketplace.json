@@ -1,7 +1,8 @@
 {
   "name": "truthstone",
   "owner": {
-    "name": "tohin003",
+    "name": "Tohin Majumder",
+    "email": "tohin1400@gmail.com",
     "url": "https://github.com/tohin003"
   },
   "description": "Truthstone (previously named AgentGuard): a deterministic reliability layer for coding agents.",

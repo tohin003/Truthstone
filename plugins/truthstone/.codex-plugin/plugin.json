@@ -3,8 +3,9 @@
   "version": "0.1.0-dev.0",
   "description": "Deterministic, LLM-free reliability layer for Codex. It grounds the agent's claims in repository evidence, sizes planning to the task, watches scope, and holds an unverified 'done' until tests back it. Silent unless it has evidence.",
   "author": {
-    "name": "Truthstone",
-    "url": "https://github.com/tohin003/Truthstone"
+    "name": "Tohin Majumder",
+    "email": "tohin1400@gmail.com",
+    "url": "https://github.com/tohin003"
   },
   "homepage": "https://github.com/tohin003/Truthstone",
   "repository": "https://github.com/tohin003/Truthstone",
@@ -25,15 +26,16 @@
   "interface": {
     "displayName": "Truthstone",
     "shortDescription": "Evidence checks for agent work",
-    "longDescription": "Truthstone (previously named AgentGuard) sits beside Codex through lifecycle hooks and checks what the agent is about to do against the repository itself: symbols that do not exist, edits that wander far outside the task, irreversible shell commands, and a finished turn whose changes no test has exercised. When it finds evidence of a problem it hands the evidence back to Codex as a challenge, so the agent's own reasoning fixes it. Otherwise it says nothing.\n\nIt has no model of its own and makes no network calls: everything runs in a local daemon on 127.0.0.1, with decisions recorded under ~/.truthstone. It never grants permissions — it can only stay silent, object, or ask for your confirmation — and if it is unavailable Codex simply continues unguarded.\n\nRequires the Truthstone runtime (Python 3.12+). If it is not installed, the plugin installs a private copy with uv on first use, or tells you how to install it. Codex runs plugin hooks only after you review and trust them in /hooks. Works in the Codex CLI and in local threads of the ChatGPT desktop app; hooks do not run in the IDE extension, web, mobile or cloud tasks.",
-    "developerName": "Truthstone",
+    "longDescription": "Truthstone (previously named AgentGuard) sits beside Codex through lifecycle hooks and checks what the agent is about to do against the repository itself: symbols that do not exist, edits that wander far outside the task, irreversible shell commands, and a finished turn whose changes no test has exercised. When it finds evidence of a problem it hands the evidence back to Codex as a challenge, so the agent's own reasoning fixes it. Otherwise it says nothing.\n\nIt has no model of its own and makes no network calls while it works: everything runs in a local daemon on 127.0.0.1, with decisions recorded under ~/.truthstone. It never grants permissions — it can only stay silent, object, or ask for your confirmation — and if it is unavailable Codex simply continues unguarded. It works only inside git repositories; elsewhere its hooks do nothing.\n\nRequires the Truthstone runtime (Python 3.12+). If it is not installed, the plugin installs a private copy with uv on first use, from the GitHub release that matches the plugin, or tells you how to install it; set TRUTHSTONE_NO_BOOTSTRAP=1 to skip that download. Codex runs plugin hooks only after you review and trust them in /hooks. Works in the Codex CLI and in local threads of the ChatGPT desktop app; hooks do not run in the IDE extension, web, mobile or cloud tasks.",
+    "developerName": "Tohin Majumder",
     "category": "Developer Tools",
     "capabilities": [
       "Read"
     ],
     "websiteURL": "https://github.com/tohin003/Truthstone",
-    "privacyPolicyURL": "https://github.com/tohin003/Truthstone/blob/master/docs/CODEX.md#placeholder-privacy-policy",
-    "termsOfServiceURL": "https://github.com/tohin003/Truthstone/blob/master/docs/CODEX.md#placeholder-terms-of-service",
+    "supportURL": "https://github.com/tohin003/Truthstone/blob/master/docs/legal/SUPPORT.md",
+    "privacyPolicyURL": "https://github.com/tohin003/Truthstone/blob/master/docs/legal/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/tohin003/Truthstone/blob/master/docs/legal/TERMS.md",
     "defaultPrompt": [
       "Explain why Truthstone blocked my last action and how to resolve it",
       "Check whether Truthstone is guarding this repository and fix the setup",

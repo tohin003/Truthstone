@@ -1,0 +1,7 @@
+order_id,email,amount,quantity,region,created_at
+P-3001,lena@example.com,18.00,1,de,2026-10-03T11:15:00+02:00
+P-3002,omar@example.com,6.50,2,us,2026-10-02T21:40:00-0500
+P-3003,lena@example.com,42.00,1,de,2026-10-03T16:02:11.250+02:00
+P-3004,ravi@example.com,9.99,1,in,2026-10-03T01:30:00+05:30
+P-3005,omar@example.com,3.25,1,us,2026-10-03T08:05:00Z
+P-3006,mia@example.com,27.40,1,fr,2026-10-04T00:20:00.500+02:00

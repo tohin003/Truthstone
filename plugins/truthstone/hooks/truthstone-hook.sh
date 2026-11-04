@@ -10,6 +10,7 @@
 # Codex's per-plugin data directory ($PLUGIN_DATA), which the session-start hook installs
 # with uv on first use (set TRUTHSTONE_NO_BOOTSTRAP=1 to prevent that).
 #
+# It does nothing at all outside a git work tree, and when TRUTHSTONE_DISABLE is set.
 # It always exits 0. Codex reads exit code 2 as "block this", and a launcher problem must
 # never block the developer's work.
 
@@ -23,6 +24,16 @@
 event="${1:-}"
 case "${TRUTHSTONE_DISABLE:-}" in 1|true|TRUE|True|yes|on) exit 0 ;; esac
 
+# The project gate. Truthstone guards work in git repositories only: unless the session's
+# directory is inside a git work tree (it, or a folder above it, has a .git entry), do
+# nothing: no runtime, no install, no output.
+d="$PWD"
+case "$d" in /*) ;; *) exit 0 ;; esac
+until [ -e "$d/.git" ]; do
+  [ -n "$d" ] || exit 0
+  d="${d%/*}"
+done
+
 runtime_source="${TRUTHSTONE_SOURCE:-git+https://github.com/tohin003/Truthstone@v0.1.0-dev.0}"
 private="${PLUGIN_DATA:-}/runtime"
 runner=""
@@ -35,7 +46,7 @@ elif [ -n "${PLUGIN_DATA:-}" ] && [ -x "$private/bin/truthstone-codex-hook" ]; t
 fi
 
 if [ "$event" = "session-start" ] && [ -n "${PLUGIN_DATA:-}" ] && [ -z "${TRUTHSTONE_NO_BOOTSTRAP:-}" ] \
-  && [ "$runner" = "$private/bin/truthstone-codex-hook" -o -z "$runner" ] \
+  && { [ "$runner" = "$private/bin/truthstone-codex-hook" ] || [ -z "$runner" ]; } \
   && [ "$(cat "$private/source" 2>/dev/null)" != "$runtime_source" ] && command -v uv >/dev/null 2>&1; then
   # Install (or re-install, when the source changed) a private runtime. Never onto PATH,
   # never inside the plugin root. Output goes to a log, not to Codex.

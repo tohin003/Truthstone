@@ -1,11 +1,10 @@
 # Truthstone (previously named AgentGuard)
 
-**A reliability and reasoning control layer for AI coding agents.**
+**A local, deterministic reliability layer for AI coding agents.**
 
-Truthstone attaches to an existing coding agent — Claude Code today, with an adapter path for
-Cursor, Codex, and custom agents —
-and makes that agent's mistakes hard to execute. It does not replace the agent, and it does
-not contain an LLM of its own.
+Truthstone attaches to the coding agent you already use, Claude Code or Codex, through that
+agent's own hooks, and makes the agent's mistakes hard to carry out. It does not replace
+the agent, and it contains no LLM of its own. Everything runs on your machine.
 
 > The host provides intelligence. Truthstone provides discipline.
 
@@ -31,136 +30,168 @@ working:
 
 | | |
 |---|---|
-| **Grounds claims in evidence** | The agent says it will call `UserRepository.get_active_users()`. Truthstone asks the repository whether that exists. If it doesn't, the agent is challenged with the file as evidence. |
-| **Sizes planning to the task** | "Rename `getUser`" stays three steps. "Introduce distributed session caching" is *allowed* to become a deep architectural investigation. Truthstone is a proportionality system, not an anti-complexity system. |
-| **Watches scope** | "Fix login validation" that starts editing 17 unrelated files gets challenged. |
-| **Refuses to rubber-stamp "Done"** | Completion is a claim like any other, and has to be backed by tests that actually ran. |
-| **Stays quiet** | Deterministic checks on the hot path, sub-100ms, no output. Like ABS: invisible until it isn't. |
+| **Grounds claims in evidence** | The agent says it will call `UserRepository.get_active_users()`. Truthstone asks the repository whether that exists. If it doesn't, the agent is challenged, with the file as evidence. |
+| **Sizes planning to the task** | "Rename `getUser`" stays a small change. "Introduce distributed session caching" is *allowed* to become a deep investigation. Truthstone is a proportionality system, not an anti-complexity system. |
+| **Watches scope** | "Fix login validation" that starts editing many unrelated files gets challenged. |
+| **Holds risky commands for you** | A force push, `git reset --hard`, a recursive delete of a variable path or a download piped into a shell is sent back to you for sign-off, with the reason. |
+| **Refuses to rubber-stamp "done"** | Completion is a claim like any other, and has to be backed by tests that actually ran. |
+| **Stays quiet** | Ordinary work produces no output. It speaks only when its checks find evidence of a problem. |
 
 ## What it is not
 
-It has no LLM. When a judgement needs real reasoning, Truthstone doesn't think — it hands
+It has no LLM. When a judgement needs real reasoning, Truthstone doesn't think: it hands
 the problem back to the host agent as a challenge, and the host's own intelligence resolves
-it. That is the entire architecture: **bring your own brain**.
+it. That is the whole architecture: **bring your own brain**.
 
-It also never grants permissions. It can stay silent, object, or escalate to you — but it
-will not approve something on your behalf.
+It never grants permissions. It can stay silent, object, or escalate to you, but it will
+not approve anything on your behalf. And it fails open: if Truthstone is missing or broken,
+your agent works as if it were not installed, and you are told once that the session is
+unguarded.
 
-## Status
+## Where it runs
 
-The Claude Code integration is usable today, with deterministic evidence checks, proportional
-planning, scope validation, verified completion, local telemetry, and hardened fail-open daemon
-lifecycle. Current measured performance and detector coverage are in
-[`docs/BENCH-final.md`](docs/BENCH-final.md). See [`PROGRESS.md`](PROGRESS.md) for phase detail.
+| Host | How | Notes |
+|---|---|---|
+| **Claude Code**: terminal, IDE extensions, the desktop app's Code tab (local sessions) | The Claude Code plugin (recommended), or settings hooks (legacy) | Plugins do not run in cloud sessions |
+| **Codex**: the Codex CLI, and local threads of the ChatGPT desktop app | The Codex plugin | You trust its hooks once in `/hooks` |
+| Any agent that loads skills | **Truthstone Practices**, a skills-only companion | Guidance only: no code, no hooks |
 
-## Install (development)
+It does **not** run in ChatGPT on the web or on mobile, in the Codex IDE extension, or in
+cloud tasks: those hosts do not run local hooks. It works only inside git repositories;
+elsewhere the plugins' hooks do nothing at all. macOS and Linux are supported; Windows is
+not yet.
+
+## Install
+
+### Codex
+
+```bash
+codex plugin marketplace add tohin003/Truthstone
+codex plugin add truthstone@truthstone
+```
+
+Then trust the hooks: open `/hooks` in the Codex CLI, or use **Review hooks** in the
+ChatGPT desktop app. Codex runs a plugin's hooks only after you trust them, and asks again
+whenever the plugin's files change. Details: [`docs/CODEX.md`](docs/CODEX.md) and the
+plugin's own [`README`](plugins/truthstone/README.md).
+
+### Claude Code
+
+```text
+/plugin marketplace add tohin003/Truthstone
+/plugin install truthstone@truthstone
+```
+
+Then start a new session inside a git repository. `/truthstone:doctor` tells you whether
+the session is guarded. Details: [`docs/CLAUDE-PLUGIN.md`](docs/CLAUDE-PLUGIN.md) and the
+plugin's own [`README`](plugins/truthstone-claude/README.md).
+
+### The skills-only companion
+
+Truthstone Practices adds six instruction-only skills (evidence before "done", grounding
+claims, scope discipline, proportional planning, safe shell, diff review). It has no code
+and collects nothing.
+
+```text
+/plugin install truthstone-practices@truthstone          # Claude Code
+codex plugin add truthstone-practices@truthstone         # Codex
+```
+
+See [`plugins/truthstone-practices/README.md`](plugins/truthstone-practices/README.md).
 
 ### Requirements
 
-- Python 3.12 or newer
-- Git (used for repository evidence when the project is a Git checkout)
-- Claude Code with hooks enabled
-- `uv` is recommended for installation, but the package can also be installed with any
-  Python packaging workflow that supports editable installs
+- A git repository to work in.
+- `uv` and `git`: on the first session the plugins install the Truthstone runtime with `uv`
+  from the release tag that matches the plugin version, `v<version>` of
+  https://github.com/tohin003/Truthstone, with its dependencies from the Python Package
+  Index. Once Truthstone is published on PyPI, the runtime will come from there.
+- Python 3.12 or later. `uv` uses one you already have, or downloads one.
 
-Put `truthstone` on your PATH. `--editable` means it tracks this source tree, so changes
-take effect without reinstalling:
+**To skip the download**, set `TRUTHSTONE_NO_BOOTSTRAP=1` and install the runtime yourself:
 
 ```bash
-uv tool install --editable /path/to/Truthstone
+uv tool install git+https://github.com/tohin003/Truthstone@v0.1.0   # or: pipx install …
 ```
 
-Then, **from the repository you want guarded**:
+### Legacy: Claude Code settings hooks
+
+For setups that cannot use plugins, the runtime can write hooks into Claude Code's settings
+files instead. Install the runtime as above, then, from the repository you want guarded:
 
 ```bash
-cd /path/to/your-project
-truthstone install claude --project   # -> ./.claude/settings.local.json (gitignored)
-truthstone daemon start               # optional: SessionStart does this too
+truthstone install claude --project   # ./.claude/settings.local.json (gitignored)
+truthstone install claude --global    # or: ~/.claude/settings.json, every project
 truthstone doctor                     # confirm everything is wired
 ```
 
-`--project` attaches Truthstone to that repository only. Use `--global` instead to attach
-to every project, which writes to `~/.claude/settings.json`.
+`truthstone install codex --global` (or `--project`) does the same for Codex's `hooks.json`.
+These hooks reach the daemon directly and do not have the plugins' git-repository gate. In
+Claude Code, if both the plugin and settings hooks are installed, the plugin stands by and
+says so, so nothing runs twice. `truthstone uninstall claude --project` (or `--global`) removes only
+what Truthstone added.
 
-Running it as `uv run truthstone …` only works from inside this repository, because that
-form uses the project's own virtualenv.
+## What it runs, sends and stores
 
-### First Use
+- **Runs:** hooks that hand each event to a local daemon, which listens only on
+  `127.0.0.1` and accepts a request only with a random bearer token kept owner-only in
+  `~/.truthstone/daemon.json`. The plugins' hook scripts first check that the session is in
+  a git work tree, and do nothing if it is not.
+- **Fetches:** the one-time runtime install above, and nothing else. Truthstone has no
+  server, no telemetry and no analytics, and nothing about your work is sent anywhere.
+- **Stores:** a local SQLite database in `~/.truthstone` (or `TRUTHSTONE_HOME`): repository
+  paths, task records with up to 2,000 characters of the prompt that started each task,
+  shortened tool-call inputs, decisions and findings, test outcomes and timings. Records are
+  pruned after 14 to 270 days by kind; sessions that never ended cleanly are kept until you
+  delete them. Delete `~/.truthstone` to erase everything. The full account is in the
+  [privacy policy](docs/legal/PRIVACY.md).
 
-1. Install the hooks from the repository you want to protect.
-2. Run `truthstone doctor` and fix any reported configuration or port conflict.
-3. Start Claude Code in that repository. `SessionStart` starts the local daemon when needed;
-   `truthstone daemon start` is useful when you want to start it before opening Claude.
-4. Work normally. Truthstone is silent for ordinary safe events and returns a challenge,
-   review request, narrowed input, or completion-gate hold only when its deterministic checks
-   find something worth surfacing.
+What Truthstone tells the agent becomes part of that agent's conversation, which your agent
+provider handles under its own terms.
 
-For a global installation, replace `--project` with `--global`. Project installation writes
-`.claude/settings.local.json`; global installation writes `~/.claude/settings.json`. The
-installer is idempotent and removes only hooks marked as Truthstone-owned.
+## Using it
 
-Truthstone's daemon is deliberately bound to IPv4 loopback (`127.0.0.1`) and authenticates
-each hook with a local bearer token. Its database, token, handshake, lifecycle markers and
-logs are kept under `TRUTHSTONE_HOME` (default `~/.truthstone`) with owner-only permissions.
-The daemon does not accept remote connections. If the config file is malformed or contains
-an unsafe value, hooks use safe defaults and `truthstone doctor` reports the configuration
-problem so it can be corrected rather than silently running with an unexpected setup.
+In Claude Code, with the plugin:
 
-### Turning it off
+| Command | What it does |
+|---|---|
+| `/truthstone:doctor` | Is this session guarded? Runtime, daemon and hook checks, with fixes |
+| `/truthstone:log [n]` | Recent decisions in this project |
+| `/truthstone:why <id>` | The findings and evidence behind one decision |
+| `/truthstone:report [days]` | What Truthstone did in this project |
+| `/truthstone:off`, `/truthstone:on` | Stop or resume guarding on this machine |
 
-```bash
-truthstone off                  # stays installed, decides nothing
-truthstone on
-TRUTHSTONE_DISABLE=1 claude     # off for one session
-truthstone uninstall claude --project   # remove the hooks entirely
-```
-
-`uninstall` removes only what Truthstone added; any hooks you wrote yourself are left
-alone.
-
-`off` and `on` change the persisted setting and take effect after the daemon is restarted.
-For a one-session switch, use `TRUTHSTONE_DISABLE=1 claude`. To remove the integration
-entirely, run `truthstone uninstall claude --project` (or `--global`).
-
-### Daily Commands
+With the `truthstone` command line (it comes with the runtime):
 
 ```bash
-truthstone doctor                 # installation, daemon, storage, and port checks
-truthstone daemon status          # whether the authenticated daemon is answering
-truthstone daemon start           # start it in the background
-truthstone daemon stop            # stop it safely
-truthstone log -n 20              # recent decisions and latency
+truthstone doctor                 # installation, daemon, storage, plugin and port checks
+truthstone log -n 20              # recent decisions
 truthstone why <decision-id>      # findings and evidence behind one decision
-truthstone report -d 7            # project observations over the last week
-truthstone db stats               # database size, retention, and disk state
-```
-
-Repository inspection is available without starting Claude:
-
-```bash
+truthstone report -d 7            # observations over the last week
+truthstone db stats               # database size, retention and disk state
+truthstone daemon status|start|stop
 truthstone index                  # build and summarize the repository index
 truthstone find-symbol UserRepository
 truthstone explain src/app.py
 ```
 
-`truthstone doctor` is the first diagnostic to run. It checks Python/Git, safe daemon
-configuration, private storage, hook installation, and whether the loopback port is occupied
-by another process. The daemon listens only on `127.0.0.1` and authenticates hook requests
-with a local bearer token.
-
-### Seeing what it did
+### Turning it off
 
 ```bash
-truthstone log            # recent decisions
-truthstone why <id>       # the evidence behind one decision
-truthstone db stats       # what is stored, and how much room is left
+TRUTHSTONE_DISABLE=1 claude       # off for one session (also: TRUTHSTONE_DISABLE=1 codex)
+truthstone off                    # stays installed, decides nothing; `truthstone on` resumes
 ```
+
+`truthstone off` and `on` change the persisted setting and take effect when the daemon
+restarts. To remove Truthstone, uninstall the plugin (`/plugin uninstall
+truthstone@truthstone`, or `codex plugin remove truthstone@truthstone`), then delete
+`~/.truthstone` if you want its records gone.
 
 ### Observe-only, and the failure-mode census
 
 Truthstone can run as a pure sensor: every check still runs and every finding is still
-recorded, but nothing reaches the agent — no challenges, no completion gate, not even the
-injected planning budget.
+recorded, but nothing reaches the agent: no challenges, no completion gate, not even the
+planning note.
 
 ```bash
 truthstone observe on     # record everything, say nothing
@@ -169,153 +200,84 @@ truthstone census         # which of SPEC §3's 17 failure modes actually occurr
 truthstone observe off
 ```
 
-This exists because the benchmark found that the failure Truthstone was best at detecting —
-hallucinated references — is one current models essentially no longer commit. Rather than
-guess again at which failure to target, the census counts. **While observe-only is on,
-Truthstone guards nothing**; that is the price of measuring an unguarded agent. Method and
-caveats: [`docs/CENSUS.md`](docs/CENSUS.md). The historical detector study is
-[`docs/BENCH-mutation.md`](docs/BENCH-mutation.md); the current release snapshot is
-[`docs/BENCH-final.md`](docs/BENCH-final.md).
+**While observe-only is on, Truthstone guards nothing**; that is the price of measuring an
+unguarded agent. Method and caveats: [`docs/CENSUS.md`](docs/CENSUS.md).
 
-### Configuration And Data
+### Try it on a sample project
 
-Truthstone stores its shared SQLite database, token, handshake, logs, and lifecycle files
-under `TRUTHSTONE_HOME` (default `~/.truthstone`). Files are created with owner-only
-permissions. Set `TRUTHSTONE_HOME` to an isolated directory for tests or a separate local
-profile. `TRUTHSTONE_DISABLE=1` disables all decisions for one process; `TRUTHSTONE_OBSERVE=1`
-runs the engines but suppresses everything sent back to the agent.
+[`examples/reviewer-demo/`](examples/reviewer-demo/) is a tiny Python project with three
+prompts that show ordinary work staying silent, a risky command held for sign-off, and a
+false "done" held until tests run.
 
-The daemon defaults to `127.0.0.1:8787`, which is embedded in the installed hook URL. If that
-port is occupied, set a different loopback port in `~/.truthstone/config.toml` and reinstall
-the hooks so the URL and daemon agree:
+## Evidence: paired benchmark pending
 
-```toml
-[daemon]
-host = "127.0.0.1"
-port = 8790
-```
+> **Not yet measured.** Whether Truthstone improves the outcome of real agent sessions has
+> not been established. A paired benchmark (the same tasks run with and without Truthstone)
+> is pending, and this section will link its raw report once it has been run and reviewed.
+> Until then this README makes no claims of effect. The dated reports in `docs/BENCH-*.md`
+> are historical detector and latency measurements, kept as records; they are not evidence
+> of improved outcomes, and an earlier headline precision figure from them was found not to
+> be meaningful.
 
-Do not bind the daemon to a network interface. Truthstone is designed as a local control
-layer, not a remotely exposed service.
+## Honest limits
 
-### What It Can And Cannot Prove
+- **It can miss problems, and it can raise concerns that turn out to be unfounded.** It
+  checks what deterministic rules can check. Unknown or unsupported evidence is treated as
+  unknown, not as proof of failure.
+- **It is an aid, not an authority.** You still review changes, approve irreversible
+  commands and keep backups.
+- **Hosts limit what it can do.** Codex has no permission prompt that a hook can raise, so an
+  irreversible action there is denied until you confirm it, rather than asked about.
+  Non-interactive runs (`claude -p`, `codex exec`) cannot ask anyone, so sign-off requests
+  become denials.
+- **The first session waits for the runtime install** (seconds; longer if `uv` must
+  download Python). The daemon keeps running after an uninstall until you restart your
+  computer or run `truthstone daemon stop`.
+- **Windows is not supported yet**, and hooks do not run in the hosts listed under
+  [Where it runs](#where-it-runs).
 
-Truthstone can ground repository claims, challenge risky or out-of-scope actions, and stop a
-false completion claim when the available evidence is insufficient. It does not contain an
-LLM and does not replace the host agent's reasoning. Unknown or unsupported evidence is
-treated conservatively as unknown, not as proof of failure.
+## Frequently asked questions
 
-The current final measurements are in [`docs/BENCH-final.md`](docs/BENCH-final.md): the
-installed HTTP hook measured 1.60 ms p95, and the repository mutation benchmark reached
-98.0% recall with 100% precision on 400 seeded nonexistent references. These are detector and
-latency measurements, not a causal guarantee for every real agent session. A paired live
-control/guarded run is required to measure outcome improvement.
+**Does it work with Codex, or only Claude Code?** Both, through their plugins. The core is
+agent-agnostic; only a thin adapter per host knows that host's event and response format.
 
-## Frequently Asked Questions
+**Can I build an adapter for another agent?** Yes. An adapter translates the host's
+lifecycle, prompt, tool-call, tool-result, stop and session-end payloads into
+`truthstone.core.events.AgentEvent`, and translates `truthstone.core.models.Decision` back
+into the host's allow, deny, ask, block or context format. The Claude Code and Codex
+adapters (`src/truthstone/adapters/`) are the references, and `Guard.handle(event)` is the
+entry point. A host that exposes no tool or lifecycle hooks, such as a chat-only UI, cannot
+be guarded this way.
 
-### When is Truthstone useful in everyday agent work?
+**Does customization require an LLM?** No. Truthstone deliberately has none. Settings live
+in `~/.truthstone/config.toml` (daemon, latency, retention, disk and challenge limits).
+Keep the core invariants intact: unknown evidence stays unknown, path checks stay confined
+to the workspace, persistence is never required for a decision, and hooks fail open.
 
-Truthstone is most useful when an agent can move quickly but its assumptions or “done” claims
-need an independent check. Typical examples include:
-
-- refactors and renames where a stale symbol, import, or call site can be missed;
-- bug fixes where the agent starts changing files outside the requested scope;
-- migrations and dependency changes where manifests, configuration, and tests must agree;
-- shell commands that are destructive, irreversible, unusually broad, or risky;
-- multi-file changes where the agent should run relevant tests before finishing;
-- unfamiliar repositories where the agent needs repository-grounded context instead of guesses;
-- long sessions or concurrent sessions where task history and touched-file state must stay
-  separate.
-
-For a simple read or a routine safe edit, Truthstone normally stays silent. It adds discipline
-around the edges of an agent's workflow rather than interrupting every action.
-
-### Does it work with Claude Code today?
-
-Yes. Claude Code is the supported built-in adapter today:
+## Development
 
 ```bash
-truthstone install claude --project
-truthstone doctor
-```
-
-The adapter uses Claude Code hook events, a local authenticated HTTP daemon for the hot path,
-and a small command shim for session startup and health checks.
-
-### Does it support Codex, Cursor, or my own coding agent?
-
-Not as prebuilt adapters yet. The reliability engine itself is agent-agnostic; only the edge
-adapter knows a host's event and response format. Built-in adapters for other hosts can be
-added without rewriting the repository index, evidence engine, scope checks, or completion
-gate.
-
-### Can I build a custom adapter?
-
-Yes. A custom adapter should:
-
-1. Translate the host's lifecycle, prompt, tool-call, tool-result, stop, and session-end
-   payloads into `truthstone.core.events.AgentEvent`.
-2. Translate `truthstone.core.models.Decision` back into the host's native allow/deny/ask/
-   block/context format.
-
-The Claude implementation is the reference at
-[`src/truthstone/adapters/claude_code/translate.py`](src/truthstone/adapters/claude_code/translate.py).
-The normalized core is exposed through `Guard.handle(event)`, so an adapter can be a hook,
-MCP server, CLI wrapper, IDE extension, or another local transport.
-
-### Can it protect agents powered by any LLM?
-
-Potentially, yes, if the host exposes a way to observe tool calls and return a decision or
-context before or after execution. Truthstone does not call an LLM or depend on a provider
-SDK; the same deterministic core can sit beside Claude, OpenAI-compatible agents, local
-models, or a custom orchestration loop. Per host, you must implement the transport, event
-translation, and response semantics.
-
-It cannot add protection to a black-box chat UI that exposes no tool or lifecycle hooks. In
-that case, integrate at the tool executor, MCP, CLI, or gateway boundary.
-
-### Can I customize Truthstone for my workflow?
-
-Yes. Common customization points are:
-
-- `Settings` and `config.toml` for daemon, latency, retention, disk, and challenge limits;
-- repository exclusion and language/index settings;
-- validator and evidence rules for project-specific commands or conventions;
-- adapter code for custom tools, event names, and response formats;
-- telemetry and census detectors for organization-specific failure modes.
-
-Keep the core safety invariants intact: unknown evidence should remain unknown, path checks
-must stay confined to the workspace, persistence must never be required for a decision, and
-hooks should fail open if the guard is unavailable. Run the full test suite after changing an
-adapter or validator.
-
-### Does customization require adding an LLM?
-
-No. Truthstone deliberately has no internal LLM. You can add a separate policy engine or
-model outside the core if desired, but the default system remains deterministic, local,
-inspectable, and independent of any model provider.
-
-### Can it run in CI or outside an interactive coding session?
-
-The core `Guard` and repository index can be used from Python or a wrapper process, and the
-CLI includes repository inspection and benchmark commands. The polished installation path is
-Claude Code hooks; a CI, IDE, MCP, or Codex integration should provide a corresponding
-adapter and choose whether findings block, request review, or are only recorded.
-
-### Development
-
-From this repository:
-
-```bash
-uv sync
-.venv/bin/pytest -q
+uv sync --all-extras
+TRUTHSTONE_HOME="$(mktemp -d)" .venv/bin/pytest -q
 .venv/bin/ruff check src tests
-.venv/bin/python -m compileall -q src tests
+claude plugin validate --strict .                              # marketplace
+claude plugin validate --strict plugins/truthstone-claude
+python -m truthstone.adapters.codex.plugin                     # Codex plugin files are current
+python3 scripts/companion_package.py check
 ```
 
-The project intentionally has no LLM/provider SDK dependency. Claude Code is the current
-built-in adapter; Cursor and Codex adapters are not shipped yet, but the normalized adapter
-interface is ready for them.
+The project has no LLM or provider SDK dependency. Design and contracts:
+[`docs/CLAUDE-PLUGIN.md`](docs/CLAUDE-PLUGIN.md), [`docs/CODEX.md`](docs/CODEX.md),
+[`docs/LISTING.md`](docs/LISTING.md) (directory submissions) and
+[`docs/RENAME.md`](docs/RENAME.md). History: [`PROGRESS.md`](PROGRESS.md).
+
+## Support, security and policies
+
+- Publisher: Tohin Majumder. Questions and bugs:
+  https://github.com/tohin003/Truthstone/issues, or tohin1400@gmail.com.
+- Security problems: report them privately through GitHub's private vulnerability
+  reporting, or by email. See [`docs/legal/SUPPORT.md`](docs/legal/SUPPORT.md).
+- [Privacy policy](docs/legal/PRIVACY.md) and [terms of use](docs/legal/TERMS.md).
 
 ## License
 

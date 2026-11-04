@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+
+# the local inventory file the CLI reads and writes
+stockroom.json
+
+# local working data (snapshots, demo inventories)
+var/

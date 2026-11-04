@@ -57,7 +57,7 @@ A real run does this, in order:
    "Truthstone (previously named AgentGuard)", and the README gains a "Renamed from AgentGuard"
    section (see below).
 6. **Special files.** `.gitignore` keeps `.agentguard/` beside the new `.truthstone/`. Hand-written
-   shell scripts (`plugins/truthstone-claude/scripts/hook.sh`) get fallback lines for each
+   shell scripts (`plugins/truthstone-claude/scripts/*.sh`) get fallback lines for each
    `TRUTHSTONE_*` setting they read.
 7. **Generators and checks.** Every module whose source documents
    `python -m <module> --write` is run (today: `truthstone.adapters.codex.plugin`, which writes
@@ -193,12 +193,12 @@ These need accounts or approval, so the tool leaves them:
 1. **Rename the GitHub repository** `tohin003/AgentGuard` to `tohin003/Truthstone`. GitHub
    redirects the old URL, but the plugins' runtime sources
    (`git+https://github.com/tohin003/Truthstone@v<version>` in the Codex launcher and in the
-   Claude plugin's `hook.sh`) only work once the new name exists, and the `v<version>` release
+   Claude plugin's `session-start.sh`) only work once the new name exists, and the `v<version>` release
    tags must be pushed there before any plugin version is published.
 2. **Claim the package names**: `truthstone` on PyPI (and on npm, if a package is ever
    published there). Check availability before announcing. Once on PyPI, the runtime sources
    switch to a requirement (`truthstone==<version>`), as the comments beside `RUNTIME_SOURCE`
-   in `adapters/codex/plugin.py` and `SOURCE_TEMPLATE` in `hook.sh` say.
+   in `adapters/codex/plugin.py` and `SOURCE_TEMPLATE` in `session-start.sh` say.
 3. **Rename the local folder** `/Users/xyx/Projects/AgentGuard`, and update anything that names
    it (the Claude project directory, CLAUDE.md notes, scripts).
 4. **Move existing installs** (yours first: `~/.local/share/uv/tools/agentguard`):

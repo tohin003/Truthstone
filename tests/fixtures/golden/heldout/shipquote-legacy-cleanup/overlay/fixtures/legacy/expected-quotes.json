@@ -1,0 +1,6 @@
+[
+  { "zone": 1, "weightKg": 0.5, "year": 2025, "cents": 470 },
+  { "zone": 2, "weightKg": 2.3, "year": 2025, "cents": 670 },
+  { "zone": 3, "weightKg": 1, "year": 2024, "cents": 550 },
+  { "zone": 4, "weightKg": 10, "year": 2024, "cents": 2450 }
+]

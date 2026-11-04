@@ -64,7 +64,12 @@ class TestManifest:
         assert data["name"] == plugin.PLUGIN_NAME
         assert data["license"] == "Apache-2.0"
         assert data["homepage"] == data["repository"] == "https://github.com/tohin003/Truthstone"
-        assert data["author"]["name"]
+        assert data["author"] == {
+            "name": "Tohin Majumder",
+            "email": "tohin1400@gmail.com",
+            "url": "https://github.com/tohin003",
+        }
+        assert data["interface"]["developerName"] == "Tohin Majumder"
         assert data["skills"] == "./skills/"
         assert data["hooks"] == "./hooks/hooks.json"
         assert data["requires_local_executor"] is True
@@ -80,9 +85,14 @@ class TestManifest:
         prompts = ui["defaultPrompt"]
         assert 1 <= len(prompts) <= 3 and len(set(prompts)) == len(prompts)
         assert all(len(p) <= 128 and "@" not in p for p in prompts)
-        for key in ("websiteURL", "privacyPolicyURL", "termsOfServiceURL"):
+        for key in ("websiteURL", "supportURL", "privacyPolicyURL", "termsOfServiceURL"):
             assert ui[key].startswith("https://")
-        assert "placeholder" in ui["privacyPolicyURL"] and "placeholder" in ui["termsOfServiceURL"]
+        # The real legal pages, as GitHub file URLs to files that exist here.
+        blob = "https://github.com/tohin003/Truthstone/blob/master/"
+        pages = (("supportURL", "SUPPORT"), ("privacyPolicyURL", "PRIVACY"), ("termsOfServiceURL", "TERMS"))
+        for key, page in pages:
+            assert ui[key] == f"{blob}docs/legal/{page}.md"
+            assert (REPO / ui[key][len(blob) :]).is_file()
 
     def test_brand_color_has_enough_contrast_against_white(self):
         color = manifest()["interface"]["brandColor"]
@@ -119,6 +129,9 @@ class TestPackage:
         assert files == sorted(
             [
                 ".codex-plugin/plugin.json",
+                "LICENSE",
+                "README.md",
+                "SECURITY.md",
                 "assets/truthstone-icon.svg",
                 "assets/truthstone-logo-dark.svg",
                 "assets/truthstone-logo.svg",
@@ -153,7 +166,8 @@ class TestPackage:
 # The re-trust tripwire. Updating these values means every user re-reviews the hooks.
 # These are the exact `currentHash` values Codex 0.166.0 reported for this plugin through
 # `hooks/list` (declaration/content), so the reimplementation itself is pinned to Codex.
-# rename-tool: re-pinned for Truthstone by scripts/rename_product.py; confirm via Codex hooks/list.
+# Re-pinned 2026-11-04 for README.md, LICENSE, SECURITY.md, the git-work-tree gate and the
+# publisher details (declarations unchanged); confirm via Codex hooks/list before release.
 EXPECTED_DECLARATIONS = {
     "session_start:0:0": "sha256:16dff026e1a8d1e64802603624e8b79a31721cd548267e454c61785e61eb44f1",
     "user_prompt_submit:0:0": "sha256:84136a898ae55a7db4af13318f1a7d1cb886b9887902badeb965c2cee8c56aea",
@@ -162,7 +176,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:0481d4a52bd4d2d32865cbf9a12a45707d49d14d3cf365570cc112bbbfd73b2b"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:7e4b7dc8b328e23d6c7a7c097e080e0a094b465966fb66ae2f455b6b1339a346"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
@@ -189,14 +203,19 @@ def write_exe(path: Path, body: str) -> Path:
 
 
 def launch(
-    event: str, tmp: Path, stdin: str = '{"hook_event_name":"PreToolUse"}', **env
+    event: str, tmp: Path, stdin: str = '{"hook_event_name":"PreToolUse"}', cwd: Path | None = None, **env
 ) -> subprocess.CompletedProcess:
+    """Run the launcher as Codex does, by default in a git work tree (the project gate)."""
     base = {"PATH": f"{tmp / 'bin'}:/usr/bin:/bin", "HOME": str(tmp), "PLUGIN_DATA": str(tmp / "data")}
     base.update({k: v for k, v in env.items() if v is not None})
     for key in [k for k, v in env.items() if v is None]:
         base.pop(key, None)
+    if cwd is None:
+        cwd = tmp / "work"
+        (cwd / ".git").mkdir(parents=True, exist_ok=True)
     return subprocess.run(
-        ["/bin/sh", str(LAUNCHER), event], input=stdin.encode(), capture_output=True, env=base, timeout=30
+        ["/bin/sh", str(LAUNCHER), event],
+        input=stdin.encode(), capture_output=True, env=base, cwd=cwd, timeout=30,
     )
 
 
@@ -278,3 +297,60 @@ class TestLauncher:
         write_exe(tmp_path / "bin" / "uv", 'echo called > "$HOME/uv-called"\n')
         assert launch("session-start", tmp_path).stdout == b"installed"
         assert not (tmp_path / "uv-called").exists()
+
+    def test_outside_a_git_work_tree_it_does_nothing(self, tmp_path):
+        """The project gate: no runtime call, no install, not even the missing-runtime
+        notice, for every event."""
+        elsewhere = tmp_path / "not-a-repository"
+        elsewhere.mkdir()
+        if any((parent / ".git").exists() for parent in [elsewhere, *elsewhere.parents]):
+            pytest.skip("the temporary directory is itself inside a git work tree")
+        write_exe(tmp_path / "bin" / "uv", 'echo called > "$HOME/uv-called"\n')
+        for event in sorted(spec.arg for spec in HOOK_SPECS):
+            result = launch(event, tmp_path, cwd=elsewhere)
+            assert (result.returncode, result.stdout, result.stderr) == (0, b"", b""), event
+        write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, 'printf "ran"\n')
+        assert launch("pre-tool-use", tmp_path, cwd=elsewhere).stdout == b""
+        assert not (tmp_path / "uv-called").exists()
+
+    def test_a_subdirectory_of_a_work_tree_is_inside_the_gate(self, tmp_path):
+        write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, FAKE_RUNTIME)
+        nested = tmp_path / "work" / "src" / "pkg"
+        nested.mkdir(parents=True)
+        (tmp_path / "work" / ".git").write_text("gitdir: /elsewhere/worktrees/work\n")  # a linked worktree
+        result = launch("stop", tmp_path, stdin="{}", cwd=nested)
+        assert result.stdout == b"stop|{}"
+
+
+class TestDocuments:
+    """README.md, SECURITY.md and LICENSE: generated, so they say what the launcher does."""
+
+    def test_readme_discloses_what_the_plugin_does(self):
+        text = (PLUGIN / "README.md").read_text()
+        for disclosure in (
+            "codex plugin marketplace add tohin003/Truthstone",
+            f"codex plugin add {plugin.PLUGIN_NAME}@{plugin.MARKETPLACE_NAME}",
+            "/hooks",
+            "Review hooks",
+            plugin.RUNTIME_SOURCE,
+            plugin.INSTALL_HINT,
+            "Python Package Index",
+            "TRUTHSTONE_NO_BOOTSTRAP=1",
+            "TRUTHSTONE_DISABLE=1",
+            "git work tree",
+            "127.0.0.1",
+            "bearer token",
+            "~/.truthstone",
+            "270 days",
+            f"codex plugin remove {plugin.PLUGIN_NAME}@{plugin.MARKETPLACE_NAME}",
+            "IDE extension",
+            plugin.DEVELOPER_NAME,
+            plugin.SUPPORT_EMAIL,
+            plugin.PRIVACY_POLICY_URL,
+        ):
+            assert disclosure in text, disclosure
+
+    def test_security_policy_and_license(self):
+        security = (PLUGIN / "SECURITY.md").read_text()
+        assert plugin.SUPPORT_EMAIL in security and "Report a vulnerability" in security
+        assert (PLUGIN / "LICENSE").read_text() == (REPO / "LICENSE").read_text()

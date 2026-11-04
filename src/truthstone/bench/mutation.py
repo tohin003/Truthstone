@@ -19,18 +19,31 @@ something that genuinely does not exist in the repository. That is a real limit 
 this measures: it reports how well the detector finds what it was designed to find, not
 how often agents hallucinate in ways it was never built for. Stated here rather than
 discovered by a reader.
+
+Two corrections from the Stage 1 audit (IMPROVEMENTS.md M4):
+
+* **Precision was vacuous.** It re-wrote each clean file with its own content, and the
+  engine only checks claims an edit *introduces*, so 0 claims were checked and a false
+  positive was impossible. Precision is now measured by a *fresh-file replay*: each clean
+  file's content is written as a new module beside it, so every claim in it is new and
+  checked. The number of claims checked is reported, and precision is refused when it is 0.
+* **The sample was self-selected**: the first 400 sites in index order (one file supplied
+  63). Sites are now drawn at random with a fixed seed, at most ``per_file`` per file, and
+  recall is reported per kind, including instance-attribute sites (``self.x``) — the
+  SPEC §14 case the old sample never contained.
 """
 
 from __future__ import annotations
 
 import ast
 import random
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, field
+from pathlib import Path, PurePosixPath
 
 from truthstone.core.enums import EventType
 from truthstone.core.events import AgentEvent
 from truthstone.evidence import check as evidence_check
+from truthstone.evidence import extractors
 from truthstone.repo.index import RepoIndex
 
 
@@ -48,15 +61,24 @@ class Result:
     total: int = 0
     caught: int = 0
     missed: list[Mutation] = None  # type: ignore[assignment]
-    false_positives: int = 0
+    # Fresh-file replay of the unmutated files (precision).
+    false_positives: int = 0  # findings raised on real, working code
+    false_positive_files: int = 0
     clean_files: int = 0
+    clean_claims: int = 0  # claims the replay actually checked; 0 means precision is unmeasured
+    by_kind: dict[str, list[int]] = field(default_factory=dict)  # kind -> [total, caught]
+    files_sampled: int = 0
+    false_positive_examples: list[str] = field(default_factory=list)
 
     @property
     def recall(self) -> float:
         return self.caught / self.total if self.total else 0.0
 
     @property
-    def precision(self) -> float:
+    def precision(self) -> float | None:
+        """None when no clean claim was checked: a precision over nothing is not 100%."""
+        if not self.clean_claims:
+            return None
         flags = self.caught + self.false_positives
         return self.caught / flags if flags else 1.0
 
@@ -73,25 +95,50 @@ def _known_types(index: RepoIndex) -> dict[str, set[str]]:
     return out
 
 
-def generate(index: RepoIndex, limit: int = 400, seed: int = 7) -> list[Mutation]:
-    """Introduce references that genuinely do not exist, at call sites that do."""
-    rng = random.Random(seed)
+#: Benchmark fixtures and task material are not the code under measurement.
+DEFAULT_EXCLUDE = ("bench/", "tests/fixtures/")
+
+
+def _candidates(
+    index: RepoIndex, rng: random.Random, exclude: tuple[str, ...] = DEFAULT_EXCLUDE
+) -> dict[str, list[Mutation]]:
+    """Every mutation site in the repository, grouped by file."""
     types = _known_types(index)
-    mutations: list[Mutation] = []
+    by_file: dict[str, list[Mutation]] = {}
 
     for path, record in index.files.items():
         if record.lang != "python" or record.is_test or not index.is_parsed(path):
+            continue
+        if path.startswith(exclude):
             continue
         try:
             source = (index.root / path).read_text(encoding="utf-8")
             tree = ast.parse(source)
         except (OSError, SyntaxError, ValueError):
             continue
+        sites = by_file.setdefault(path, [])
+        lines = source.splitlines(keepends=True)
+
+        # `self.attr` inside a class whose members are fully known: the instance case.
+        for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name in types):
+            for node in ast.walk(cls):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "self"
+                    and node.attr in types[cls.name]
+                    and not node.attr.startswith("__")
+                ):
+                    line = lines[node.lineno - 1]
+                    needle = f"self.{node.attr}"
+                    if needle not in line:
+                        continue
+                    invented = f"{node.attr}_{rng.randint(1000, 9999)}_missing"
+                    mutated_line = line.replace(needle, f"self.{invented}", 1)
+                    mutated = "".join([*lines[: node.lineno - 1], mutated_line, *lines[node.lineno:]])
+                    sites.append(Mutation(path, "attribute_on_self", source, mutated, f"self.{invented}"))
 
         for node in ast.walk(tree):
-            if len(mutations) >= limit:
-                return mutations
-
             # `X.attr` where X is a class we fully understand -> rename attr to something
             # that exists nowhere. A real call site, a genuinely absent member.
             if (
@@ -106,7 +153,7 @@ def generate(index: RepoIndex, limit: int = 400, seed: int = 7) -> list[Mutation
                 line = source.splitlines()[node.lineno - 1]
                 if f"{owner}.{node.attr}" not in line:
                     continue
-                mutations.append(
+                sites.append(
                     Mutation(
                         path=path,
                         kind="attribute_on_type",
@@ -122,7 +169,7 @@ def generate(index: RepoIndex, limit: int = 400, seed: int = 7) -> list[Mutation
                     continue
                 real = node.names[0].name
                 invented = f"{real}_{rng.randint(1000, 9999)}_missing"
-                mutations.append(
+                sites.append(
                     Mutation(
                         path=path,
                         kind="symbol_exists",
@@ -134,7 +181,46 @@ def generate(index: RepoIndex, limit: int = 400, seed: int = 7) -> list[Mutation
                     )
                 )
 
-    return mutations
+    return {path: sites for path, sites in by_file.items() if sites}
+
+
+def generate(
+    index: RepoIndex,
+    limit: int = 400,
+    seed: int = 7,
+    per_file: int = 5,
+    kinds: tuple[str, ...] = ("attribute_on_type", "symbol_exists", "attribute_on_self"),
+) -> list[Mutation]:
+    """A seeded, stratified sample of mutation sites: at most ``per_file`` per file.
+
+    Files are visited in a shuffled order, one site per file per round, so no single
+    module can dominate the sample the way the old index-order prefix let one file supply
+    63 of 400 sites.
+    """
+    rng = random.Random(seed)
+    by_file = {
+        path: [m for m in sites if m.kind in kinds]
+        for path, sites in _candidates(index, rng).items()
+    }
+    by_file = {path: sites for path, sites in by_file.items() if sites}
+    for sites in by_file.values():
+        rng.shuffle(sites)
+    order = sorted(by_file)
+    rng.shuffle(order)
+    sample: list[Mutation] = []
+    for round_index in range(per_file):
+        for path in order:
+            if len(sample) >= limit:
+                return sample
+            if round_index < len(by_file[path]):
+                sample.append(by_file[path][round_index])
+    return sample
+
+
+def replay_path(path: str) -> str:
+    """Where a clean file is replayed as a brand-new module: beside it, same package."""
+    original = PurePosixPath(path)
+    return str(original.with_name(f"_agb_replay_{original.stem}{original.suffix}"))
 
 
 def _event(index: RepoIndex, path: str, content: str) -> AgentEvent:
@@ -155,49 +241,66 @@ def evaluate(index: RepoIndex, mutations: list[Mutation]) -> Result:
 
     for mutation in mutations:
         result.total += 1
+        tally = result.by_kind.setdefault(mutation.kind, [0, 0])
+        tally[0] += 1
         findings = evidence_check(_event(index, mutation.path, mutation.mutated), index)
         subjects = {f.subject for f in findings}
         bare = mutation.subject.rsplit(".", 1)[-1]
         if any(bare in s or s == mutation.subject for s in subjects):
             result.caught += 1
+            tally[1] += 1
         else:
             result.missed.append(mutation)
 
-        # The unmutated file must produce nothing. Counted once per file.
+        # Precision: replay the unmutated file as a *new* module, so every claim in it is
+        # new and checked. Re-writing it in place checks nothing (0 new claims), which
+        # is how the old benchmark arrived at a vacuous 100%. Counted once per file.
         if mutation.path not in seen_clean:
             seen_clean.add(mutation.path)
             result.clean_files += 1
-            if evidence_check(_event(index, mutation.path, mutation.original), index):
-                result.false_positives += 1
+            event = _event(index, replay_path(mutation.path), mutation.original)
+            claims, _ = extractors.claims_for_event(event, index.root)
+            result.clean_claims += len(claims)
+            flags = evidence_check(event, index)
+            if flags:
+                result.false_positives += len(flags)
+                result.false_positive_files += 1
+                result.false_positive_examples.extend(f"{mutation.path}: {f.subject}" for f in flags[:3])
 
+    result.files_sampled = len(seen_clean)
     return result
 
 
 def render(result: Result) -> str:
+    precision = result.precision
     lines = [
-        f"Mutation benchmark · {result.total} seeded hallucinations · "
-        f"{result.clean_files} clean files",
+        f"Mutation benchmark · {result.total} seeded hallucinations across {result.files_sampled} files "
+        "(seeded, stratified sample)",
         "",
         f"  recall     {result.recall * 100:5.1f}%   ({result.caught}/{result.total} caught)",
-        f"  precision  {result.precision * 100:5.1f}%   "
-        f"({result.false_positives} false positive(s) on unmutated code)",
-        "",
     ]
-    by_kind: dict[str, list[int]] = {}
-    for mutation in result.missed:
-        by_kind.setdefault(mutation.kind, []).append(1)
-    if result.missed:
-        lines.append("misses by kind:")
-        for kind, hits in sorted(by_kind.items(), key=lambda kv: -len(kv[1])):
-            lines.append(f"  {kind:<22}{len(hits)}")
+    for kind, (total, caught) in sorted(result.by_kind.items()):
+        lines.append(f"    {kind:<20}{caught}/{total}  ({caught / total * 100:5.1f}%)")
+    if precision is None:
+        lines.append("  precision  not measured: the clean replay checked 0 claims")
+    else:
+        lines.append(
+            f"  precision  {precision * 100:5.1f}%   ({result.false_positives} false positive(s) over "
+            f"{result.clean_claims} claims in {result.clean_files} clean files, fresh-file replay)"
+        )
+    lines.append("")
+    if result.false_positive_examples:
+        lines.append("false positives on real code:")
+        lines.extend(f"  {example}" for example in result.false_positive_examples[:5])
         lines.append("")
+    if result.missed:
         lines.append("examples of what it missed:")
         for mutation in result.missed[:5]:
-            lines.append(f"  {mutation.path}: {mutation.subject}")
+            lines.append(f"  {mutation.path}: {mutation.subject} ({mutation.kind})")
     return "\n".join(lines)
 
 
-def run(repo: Path, limit: int = 400) -> Result:
+def run(repo: Path, limit: int = 400, seed: int = 7, per_file: int = 5) -> Result:
     index = RepoIndex(repo).build()
-    mutations = generate(index, limit=limit)
+    mutations = generate(index, limit=limit, seed=seed, per_file=per_file)
     return evaluate(index, mutations)

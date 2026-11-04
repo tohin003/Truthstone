@@ -1,8 +1,14 @@
 # Historical mutation benchmark — does the evidence engine actually work?
 
-> This document records an earlier benchmark run. For the current implementation's latest
-> numbers, see [`BENCH-final.md`](BENCH-final.md): **98.0% recall and 100% precision** on
-> 400 seeded mutations in the current repository.
+> This document records an earlier benchmark run. For the current numbers, see
+> [`BENCH-final.md`](BENCH-final.md).
+>
+> **Correction (2026-11-04, Stage 1 audit M4):** the "100% precision" figures in this
+> document and the earlier snapshot were **vacuous**. The clean check re-wrote each file
+> with its own content, which introduces no claims, so nothing was checked. Precision is
+> now measured by a fresh-file replay: 0 false positives over 3,264 real claims. The recall
+> samples were the first sites in index order and contained no `self.attr` sites. A
+> seeded, stratified sample finds that kind entirely unchecked (0/114).
 
 **Method:** take working code from real repositories, programmatically introduce a
 reference that genuinely does not exist, ask AgentGuard whether it notices. Ground truth is

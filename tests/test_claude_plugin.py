@@ -53,6 +53,48 @@ class TestManifest:
         assert (harness.PLUGIN_ROOT / "LICENSE").read_text() == (harness.REPO_ROOT / "LICENSE").read_text()
         assert (harness.PLUGIN_ROOT / "SECURITY.md").exists()
 
+    def test_directory_listing_fields(self):
+        """What Anthropic's directory reads from plugin.json: the publisher, an icon inside
+        the plugin, and four https links, each to a file that exists in this repository."""
+        manifest = json.loads(harness.MANIFEST.read_text())
+        assert manifest["author"]["name"] == "Tohin Majumder"
+        assert manifest["author"]["email"] == "tohin1400@gmail.com"
+        icon = (harness.PLUGIN_ROOT / manifest["icon"]).resolve()
+        assert icon.is_relative_to(harness.PLUGIN_ROOT) and icon.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+        blob = "https://github.com/tohin003/Truthstone/blob/master/"
+        for key in ("documentationUrl", "supportUrl", "privacyPolicyUrl", "termsOfServiceUrl", "homepage"):
+            assert manifest[key].startswith(blob), key
+            assert (harness.REPO_ROOT / manifest[key][len(blob) :]).is_file(), key
+
+    def test_readme_discloses_what_the_plugin_does(self):
+        """The directory requires a README of 40+ words outside code blocks, and its scan
+        expects it to describe everything the plugin runs, sends and fetches."""
+        text = (harness.PLUGIN_ROOT / "README.md").read_text()
+        prose = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+        prose = "\n".join(line for line in prose.splitlines() if not line.startswith("    "))
+        assert len(prose.split()) >= 40
+        version = json.loads(harness.MANIFEST.read_text())["version"]
+        for disclosure in (
+            "/plugin install truthstone@truthstone",
+            "scripts/session-start.sh",
+            "scripts/hook.sh",
+            f"v{version}",
+            "https://github.com/tohin003/Truthstone",
+            "Python Package Index",
+            "127.0.0.1",
+            "bearer token",
+            "~/.truthstone",
+            "270 days",
+            "git work tree",
+            "TRUTHSTONE_NO_BOOTSTRAP=1",
+            "TRUTHSTONE_DISABLE=1",
+            "/plugin uninstall truthstone@truthstone",
+            "tohin1400@gmail.com",
+        ):
+            assert disclosure in text, disclosure
+        # The directory holds a plugin whose README names a bundled image in backticks.
+        assert not re.search(r"`[^`]*assets/[^`]*`", text)
+
     def test_no_codex_manifest_and_no_bin(self):
         """Claude-only. `bin/` would also stop claude.ai and Cowork installing it."""
         assert not (harness.PLUGIN_ROOT / ".codex-plugin").exists()
@@ -114,18 +156,75 @@ class TestHooksConfig:
                     for var in re.findall(r"\$\{CLAUDE_PLUGIN_\w+\}[^\s;]*", hook["command"]):
                         assert f'"{var}' in hook["command"] or var.endswith('"'), hook["command"]
 
-    def test_per_tool_hooks_exec_the_forwarder_and_give_up_before_claude_does(self):
+    def test_commands_meet_the_directory_rule_for_a_plugin_in_a_subfolder(self):
+        """Anthropic's directory blocks a plugin in a repository subfolder unless each hook
+        command writes every path in full from ${CLAUDE_PLUGIN_ROOT}, with no other
+        variable, command substitution, wildcard or inline program. So every hook is
+        `sh "${CLAUDE_PLUGIN_ROOT}/scripts/<script>.sh" [<word>]`, and the logic lives in
+        those scripts."""
+        form = re.compile(r'sh "\$\{CLAUDE_PLUGIN_ROOT\}/(scripts/[a-z-]+\.sh)"(?: [a-z-]+)?')
+        for event, groups in harness.load_hooks().items():
+            for group in groups:
+                for hook in group["hooks"]:
+                    match = form.fullmatch(hook["command"])
+                    assert match, f"{event}: {hook['command']}"
+                    assert (harness.PLUGIN_ROOT / match.group(1)).is_file()
+                    rest = hook["command"].replace("${CLAUDE_PLUGIN_ROOT}", "")
+                    assert not re.search(r"[$`*?\[\];&|<>]", rest), hook["command"]
+
+    def test_only_session_start_installs_anything(self):
+        """The one install step (and so the directory's "package install" hold) is
+        confined to the SessionStart script. The per-event and command scripts never
+        install, download or fetch."""
+        fetchers = re.compile(
+            r"\buv\s+(venv|pip|tool|run|add|sync)\b|\bpipx?\s+(install|run)\b|\bnpm\s+(install|i|ci)\b"
+            r"|\bgit\s+(clone|fetch|pull)\b|\b(curl|wget|uvx|npx|eval)\b"
+        )
+
+        def code(path: Path) -> str:
+            """The script without comments, and with quoted text (messages) emptied."""
+            lines = path.read_text().splitlines()
+            text = "\n".join(line.split(" #")[0] for line in lines if not line.lstrip().startswith("#"))
+            return re.sub(r"'[^']*'|\"[^\"]*\"", "''", text)
+
+        for script in (harness.HOOK_SCRIPT, harness.COMMAND_SCRIPT):
+            assert not fetchers.search(code(script)), script.name
+        installer = harness.SESSION_SCRIPT.read_text()
+        assert '"$uv" venv' in installer and '"$uv" pip install' in installer
         hooks = harness.load_hooks()
+        session = [h["command"] for g in hooks["SessionStart"] for h in g["hooks"]]
+        assert session == ['sh "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh"']
+        for event, groups in hooks.items():
+            if event != "SessionStart":
+                assert all("scripts/hook.sh" in h["command"] for g in groups for h in g["hooks"])
+
+    def test_per_tool_hooks_exec_the_forwarder_and_give_up_before_claude_does(self, tmp_path):
+        """Run each per-tool hook against a stand-in runtime that records how it was
+        called: the lean forwarder, isolated (-I -S), with a budget below the hook's own
+        timeout."""
+        data, project = tmp_path / "data", tmp_path / "project"
+        (data / "runtime" / "bin").mkdir(parents=True)
+        (project / ".git").mkdir(parents=True)
+        record = tmp_path / "argv"
+        python = data / "runtime" / "bin" / "python"
+        python.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{record}"\n')
+        python.chmod(0o755)
+        (data / "forward.py").write_text("")
+        (data / "runtime.ready").write_text("test-runtime\n")
+        env = harness.plugin_env(data, project, tmp_path / "home")
+        hooks = harness.load_hooks()
+        payload = {"session_id": "s", "cwd": str(project), "tool_name": "Bash", "tool_input": {}}
         for event in ("PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "SessionEnd"):
-            hook = hooks[event][0]["hooks"][0]
-            assert '[ -x "$p" ] || exit 0' in hook["command"], "no runtime yet: stay silent"
-            assert "-I -S" in hook["command"]
-            assert "forward.py" in hook["command"]
-            budget = float(re.search(r"--timeout (\S+)", hook["command"]).group(1))
-            assert budget < hook["timeout"], event
-        # Claude Code gives SessionEnd hooks 1.5 s in total, and a plugin cannot raise it.
-        end = hooks["SessionEnd"][0]["hooks"][0]
-        assert float(re.search(r"--timeout (\S+)", end["command"]).group(1)) < 1.5
+            record.unlink(missing_ok=True)
+            (run,) = harness.run_event(event, payload, env)
+            assert (run.returncode, run.stdout, run.stderr) == (0, "", ""), event
+            argv = record.read_text().splitlines()
+            assert argv[:3] == ["-I", "-S", str(data / "forward.py")], event
+            budget = float(argv[argv.index("--timeout") + 1])
+            assert budget < hooks[event][0]["hooks"][0]["timeout"], event
+            if event == "SessionEnd":
+                # Claude Code gives SessionEnd hooks 1.5 s in total; a plugin cannot raise it.
+                assert budget < 1.5
 
     def test_hooks_never_name_the_product_version(self):
         """Upgrades change plugin.json's version, never hooks.json."""
@@ -153,7 +252,7 @@ class TestSkills:
     def test_commands_are_user_invoked_and_pre_approved(self, name):
         meta, _ = frontmatter(SKILLS / name / "SKILL.md")
         assert meta["disable-model-invocation"] is True
-        assert meta["allowed-tools"] == 'Bash(sh "${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh" *)'
+        assert meta["allowed-tools"] == 'Bash(sh "${CLAUDE_PLUGIN_ROOT}/scripts/command.sh" *)'
 
     @pytest.mark.parametrize("name", ["doctor", "log", "why", "report", "on", "off"])
     def test_user_arguments_never_reach_an_injected_command(self, name):
@@ -162,7 +261,7 @@ class TestSkills:
         _, body = frontmatter(SKILLS / name / "SKILL.md")
         for command in re.findall(r"!`([^`]*)`", body):
             assert "$ARGUMENTS" not in command and not re.search(r"\$\d", command)
-            assert command.startswith('sh "${CLAUDE_PLUGIN_ROOT}/scripts/hook.sh" ')
+            assert command.startswith('sh "${CLAUDE_PLUGIN_ROOT}/scripts/command.sh" ')
 
 
 # -- the launcher --------------------------------------------------------------------------
@@ -170,9 +269,12 @@ class TestSkills:
 
 @pytest.fixture
 def plugin_dirs(tmp_path, isolated_home):
+    """A plugin data directory, and a project that is a git work tree: outside one, the
+    plugin's hooks do nothing at all (the project gate, tested on its own below)."""
     data = tmp_path / "plugin-data"
     project = tmp_path / "project"
     project.mkdir()
+    subprocess.run(["git", "init", "-q", str(project)], check=True)
     yield data, project, isolated_home
     stop_daemon(isolated_home)
 
@@ -197,8 +299,13 @@ def fake_runtime(data: Path, spec: str = "test-runtime") -> str:
 
 
 def launcher(kind: str, env: dict, payload: dict | None = None, *args: str) -> subprocess.CompletedProcess:
+    """`session-start` runs the SessionStart script; `cli` and `plugin` the command script."""
+    if kind == "session-start":
+        argv = ["/bin/sh", str(harness.SESSION_SCRIPT), *args]
+    else:
+        argv = ["/bin/sh", str(harness.COMMAND_SCRIPT), kind, *args]
     return subprocess.run(
-        ["/bin/sh", str(harness.HOOK_SCRIPT), kind, *args],
+        argv,
         input=json.dumps(payload or {}).encode(),
         capture_output=True,
         env=env,
@@ -224,7 +331,9 @@ class TestLauncher:
         result = launcher("session-start", env, session_payload(project))
         assert result.returncode == 0
         message = json.loads(result.stdout)["systemMessage"]
-        assert "uv" in message and "astral.sh/uv/install.sh" in message
+        # uv's own installation page, never a download piped into a shell.
+        assert "uv" in message and "https://docs.astral.sh/uv/getting-started/installation/" in message
+        assert "| sh" not in message
         assert "unguarded" in message
         assert not (data / "runtime.ready").exists()
 
@@ -302,7 +411,141 @@ class TestLauncher:
         result = launcher("cli", env, None, str(data), "doctor")
         assert result.returncode == 0
         assert b"not installed yet" in result.stdout
-        assert b"astral.sh/uv/install.sh" in result.stdout
+        assert b"https://docs.astral.sh/uv/getting-started/installation/" in result.stdout
+
+    def test_commands_explain_the_opt_out(self, plugin_dirs):
+        data, project, home = plugin_dirs
+        env = harness.plugin_env(data, project, home, TRUTHSTONE_NO_BOOTSTRAP="1")
+        result = launcher("plugin", env, None, str(data), "status")
+        version = json.loads(harness.MANIFEST.read_text())["version"]
+        assert result.returncode == 0
+        install = f"uv tool install git+https://github.com/tohin003/Truthstone@v{version}"
+        assert b"TRUTHSTONE_NO_BOOTSTRAP is set" in result.stdout
+        assert install.encode() in result.stdout
+
+
+def recording_uv(tmp_path: Path) -> tuple[Path, Path]:
+    """A `uv` that records each call and fails, so nothing is ever installed."""
+    record = tmp_path / "uv-calls"
+    fake_uv = tmp_path / "uv"
+    fake_uv.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{record}"\nexit 1\n')
+    fake_uv.chmod(0o755)
+    return fake_uv, record
+
+
+class TestProjectGate:
+    """Truthstone guards work in git repositories only. Outside a git work tree every hook,
+    SessionStart included, exits 0 with no output: no install, no daemon, no decision."""
+
+    @pytest.fixture
+    def outside(self, plugin_dirs, tmp_path):
+        data, _, home = plugin_dirs
+        elsewhere = tmp_path / "not-a-repository"
+        elsewhere.mkdir()
+        if any((parent / ".git").exists() for parent in [elsewhere, *elsewhere.parents]):
+            pytest.skip("the temporary directory is itself inside a git work tree")
+        (home / "config.toml").write_text(f"[daemon]\nport = {free_port()}\n")
+        spec = fake_runtime(data)
+        fake_uv, record = recording_uv(tmp_path)
+        env = harness.plugin_env(
+            data, elsewhere, home,
+            TRUTHSTONE_RUNTIME_SPEC=spec + "-upgrade",  # a pending upgrade: still no install
+            TRUTHSTONE_UV=str(fake_uv),
+            CLAUDE_CONFIG_DIR=str(tmp_path / "claude-config"),
+        )
+        return elsewhere, home, env, record
+
+    def test_every_hook_does_nothing_outside_a_git_work_tree(self, outside):
+        elsewhere, home, env, record = outside
+        base = {"session_id": "gate-1", "cwd": str(elsewhere), "permission_mode": "default"}
+        push = {"tool_name": "Bash", "tool_input": {"command": "git push --force origin main"}}
+        events = [
+            ("SessionStart", {"source": "startup"}),
+            ("UserPromptSubmit", {"prompt": "Force-push this branch to main"}),
+            ("PreToolUse", push),
+            ("PostToolUse", {**push, "tool_response": {}}),
+            ("PostToolUseFailure", {**push, "error": "Exit code 1"}),
+            ("Stop", {"stop_hook_active": False, "last_assistant_message": "Done, tests pass."}),
+            ("SessionEnd", {"reason": "other"}),
+        ]
+        for event, fields in events:
+            runs = harness.run_event(event, {**base, **fields}, env)
+            assert runs, event
+            for run in runs:
+                assert (run.returncode, run.stdout, run.stderr) == (0, "", ""), event
+        assert not (home / "daemon.json").exists(), "no daemon was started"
+        assert not record.exists(), "nothing was installed"
+
+    def test_the_project_directory_alone_opens_the_gate(self, plugin_dirs, outside):
+        """A session started in a repository stays guarded after Claude changes directory."""
+        _, project, _ = plugin_dirs
+        elsewhere, home, env, _ = outside
+        env = {**env, "CLAUDE_PROJECT_DIR": str(project), "TRUTHSTONE_RUNTIME_SPEC": "test-runtime"}
+        payload = {"session_id": "gate-2", "cwd": str(elsewhere), "source": "startup"}
+        (run,) = harness.run_event("SessionStart", payload, env, cwd=str(elsewhere))
+        assert run.returncode == 0, run.stderr
+        assert (home / "daemon.json").exists()
+
+
+class TestNoBootstrap:
+    """TRUTHSTONE_NO_BOOTSTRAP: the plugin downloads and installs nothing, and uses a runtime
+    the developer installed (uv tool install / pipx install), found as `truthstone` on PATH."""
+
+    @pytest.mark.parametrize("variable", ["TRUTHSTONE_NO_BOOTSTRAP", "AGENTGUARD_NO_BOOTSTRAP"])
+    def test_without_an_installed_runtime_it_downloads_nothing_and_says_how(
+        self, plugin_dirs, tmp_path, variable
+    ):
+        data, project, home = plugin_dirs
+        fake_uv, record = recording_uv(tmp_path)
+        env = harness.plugin_env(
+            data, project, home, TRUTHSTONE_UV=str(fake_uv), HOME=str(tmp_path / "empty-home"),
+            PATH="/usr/bin:/bin", **{variable: "1"},
+        )
+        result = launcher("session-start", env, session_payload(project))
+        assert result.returncode == 0
+        message = json.loads(result.stdout)["systemMessage"]
+        version = json.loads(harness.MANIFEST.read_text())["version"]
+        assert "TRUTHSTONE_NO_BOOTSTRAP is set" in message and "unguarded" in message
+        assert f"uv tool install git+https://github.com/tohin003/Truthstone@v{version}" in message
+        assert not record.exists(), "uv was never called"
+        assert not (data / "runtime").exists()
+
+    def test_it_uses_the_runtime_you_installed_and_hands_back_cleanly(self, plugin_dirs, tmp_path):
+        if sys.prefix == sys.base_prefix:
+            pytest.skip("needs to run inside a virtualenv")
+        data, project, home = plugin_dirs
+        (home / "config.toml").write_text(f"[daemon]\nport = {free_port()}\n")
+        # What `uv tool install` leaves on PATH: an entry point whose first line names the
+        # interpreter of the tool's own virtualenv (here, this test's).
+        tools = tmp_path / "bin"
+        tools.mkdir()
+        entry = tools / "truthstone"
+        entry.write_text(f"#!{sys.prefix}/bin/python\nimport sys\n")
+        entry.chmod(0o755)
+        fake_uv, record = recording_uv(tmp_path)
+        env = harness.plugin_env(
+            data, project, home, TRUTHSTONE_UV=str(fake_uv), TRUTHSTONE_NO_BOOTSTRAP="1",
+            PATH=f"{tools}:/usr/bin:/bin", CLAUDE_CONFIG_DIR=str(tmp_path / "claude-config"),
+        )
+        base = {"session_id": "manual-1", "cwd": str(project), "permission_mode": "default"}
+        assert one(harness.run_event("SessionStart", {**base, "source": "startup"}, env)) == {}
+        assert (data / "runtime").is_symlink()
+        assert Path(os.path.realpath(data / "runtime")) == Path(sys.prefix).resolve()
+        assert (data / "runtime.ready").read_text().strip() == f"manual:{sys.prefix}"
+        assert json.loads((home / "daemon.json").read_text())["port"]
+        one(harness.run_event("UserPromptSubmit", {**base, "prompt": "Push this branch"}, env))
+        push = {"command": "git push --force origin main"}
+        review = one(harness.run_event("PreToolUse", {**base, "tool_name": "Bash", "tool_input": push}, env))
+        assert review["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert not record.exists(), "uv was never called"
+
+        # Opting back in drops the link and never touches the runtime it pointed to.
+        del env["TRUTHSTONE_NO_BOOTSTRAP"]
+        again = launcher("session-start", env, session_payload(project, "manual-2"))
+        assert "could not install" in json.loads(again.stdout)["systemMessage"]
+        assert not os.path.lexists(data / "runtime")
+        assert (Path(sys.prefix) / "pyvenv.cfg").exists()
+        assert "venv" in record.read_text()
 
 
 # -- the plugin entry points ---------------------------------------------------------------
@@ -434,7 +677,8 @@ class TestWholeSession:
         assert hook("SessionEnd", reason="other") == {}
 
     def test_per_tool_hooks_are_fast(self, guarded_project):
-        """The plugin's hot path: one shell plus a Python with no site and no imports."""
+        """The plugin's hot path: Claude Code's shell, scripts/hook.sh, and a Python with no
+        site and no imports."""
         _, project, _, env = guarded_project
         base = {"session_id": "fast-1", "cwd": str(project)}
         one(harness.run_event("SessionStart", {**base, "source": "startup"}, env))
@@ -442,7 +686,7 @@ class TestWholeSession:
         times = sorted(
             run.ms for _ in range(20) for run in harness.run_event("PreToolUse", payload, env)
         )
-        assert times[len(times) // 2] < 150, times  # generous: CI machines vary; measured ~18 ms
+        assert times[len(times) // 2] < 150, times  # generous: CI machines vary; measured ~21 ms
 
     def test_commands_run_the_runtime(self, guarded_project):
         data, project, _, env = guarded_project

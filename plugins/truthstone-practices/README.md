@@ -30,8 +30,8 @@ Each skill works on its own. Your instructions, and your repository's agent inst
 
 Install from this repository's plugin marketplace:
 
-- **Codex CLI.** Run `codex plugin marketplace add tohin003/Truthstone`, then `codex plugin add truthstone-practices@<marketplace>`. The first command prints the marketplace name.
-- **Claude Code.** Inside a session, run `/plugin install truthstone-practices --marketplace tohin003/Truthstone` (Claude Code 2.1.275 or later). On older versions, run `claude plugin marketplace add tohin003/Truthstone`, then `claude plugin install truthstone-practices@<marketplace>`.
+- **Codex CLI.** Run `codex plugin marketplace add tohin003/Truthstone`, then `codex plugin add truthstone-practices@truthstone`.
+- **Claude Code.** Inside a session, run `/plugin install truthstone-practices --marketplace tohin003/Truthstone` (Claude Code 2.1.275 or later). On older versions, run `claude plugin marketplace add tohin003/Truthstone`, then `claude plugin install truthstone-practices@truthstone`.
 - **One session, without installing.** From a clone of this repository, run `claude --plugin-dir ./plugins/truthstone-practices`.
 
 ## What this plugin does not do
