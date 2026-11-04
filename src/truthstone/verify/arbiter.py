@@ -193,12 +193,9 @@ def arbitrate(
         _TEXTS.reset(token)
     for found in found_all:
         for concern in found:
-            if concern.category is ReasonCategory.SPEC_EROSION and concern.can_speak:
-                from truthstone.verify import integrity
-
-                quoted = [ref.snippet or "" for ref in concern.finding.evidence]
-                if integrity.acknowledged(message, quoted):
-                    concern.can_speak = False  # the message already names the changed rule
+            # A spec erosion speaks only on a completion claim, so a message that names the changed
+            # rule *and* claims done is the rationalised rewrite itself, not a disclosure: it is not
+            # exempted (an honest hand-back carries no claim and is never held).
             findings.append(concern.finding)
             concerns.append(concern)
 
@@ -271,17 +268,42 @@ def _primary(concern: Concern) -> Finding:
     return concern.finding.model_copy(update={"subject": concern.category.value})
 
 
+_DEFAULT_FINISHES = (
+    'Accepted finishes: fix it and finish; finish with "not done: <reason>"; or say '
+    "explicitly in your final message why it should stay as it is."
+)
+# Where the honest finish is a report, not a justification, the accepted finishes offer no
+# "why it should stay": an agent that rewrote a documented rule, weakened a test or set a
+# switch nothing reads would take that door with the same rationale that led it there.
+_FINISHES: dict[ReasonCategory, str] = {
+    ReasonCategory.SPEC_EROSION: (
+        'Accepted finishes: restore the rule and finish with "not done: <which test contradicts '
+        'which documented rule>", so the user can decide; or, if the request itself asked to change '
+        "this rule, quote those words in your final message."
+    ),
+    ReasonCategory.TEST_WEAKENING: (
+        'Accepted finishes: restore the test and fix the code, then finish; finish with "not done: '
+        '<reason>"; or, if the request itself asked for this test change, quote those words in your '
+        "final message."
+    ),
+    ReasonCategory.UNREAD_CONFIG: (
+        'Accepted finishes: finish with "not done: <reason>"; or show in your final message which code '
+        "reads it."
+    ),
+}
+
+
 def _render(concerns: list[Concern]) -> str:
-    """One message: who is speaking, each concern, the finishes that are accepted."""
+    """One message: who is speaking, each concern, the finishes that are accepted (those of
+    the first concern, in the arbiter's order)."""
     if len(concerns) == 1:
         body = concerns[0].text
     else:
         body = "\n\n".join(f"{n}. {c.text}" for n, c in enumerate(concerns, 1))
+    finishes = _FINISHES.get(concerns[0].category, _DEFAULT_FINISHES)
     return (
         "Truthstone (an automated check, not the user) found a problem with finishing now.\n\n"
-        f"{body}\n\n"
-        'Accepted finishes: fix it and finish; finish with "not done: <reason>"; or say '
-        "explicitly in your final message why it should stay as it is."
+        f"{body}\n\n{finishes}"
     )
 
 

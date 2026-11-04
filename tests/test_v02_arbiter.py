@@ -107,11 +107,27 @@ def test_the_spec_rewrite_is_challenged_once_quoting_the_rule(session):
     assert '"The target temperature is never above 30 degrees."' in reason
     assert "README.md" in reason and "thermo/control.py" in reason
     assert "report the contradiction instead of changing the rule" in reason
-    assert "if the rule really should change, say so explicitly" in reason
+    assert "is not a request to change a documented rule" in reason
+    assert 'restore the rule and finish with "not done:' in reason
+    assert "why it should stay" not in reason  # no door for the rationalised rewrite
     assert session.last.findings[0].subject == ReasonCategory.SPEC_EROSION.value
     # Once per reason: the same finish again is not held, and the developer is told.
     assert session.stop("Done.\n\nFINAL: done").get("decision") is None
     assert session.last.unverified_finish
+
+
+def test_a_done_claim_that_names_the_rewritten_rule_is_still_challenged(session):
+    """Naming the change is not reporting the contradiction: with a completion claim it is the
+    rationalised rewrite (the honest hand-back carries no claim and is accepted below)."""
+    session.prompt(CONTRADICTION)
+    session.run("pytest -q", RED, exit_code=1)
+    erode(session)
+    session.run("pytest -q", GREEN)
+    held = session.stop(
+        "The documented rule no longer holds for boosts, since the tests are what we go by. "
+        "All tests pass.\n\nFINAL: done"
+    )
+    assert held["decision"] == "block"
 
 
 def test_reporting_the_contradiction_is_accepted(session):
