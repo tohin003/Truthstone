@@ -320,7 +320,6 @@ def test_tests_consolidated_into_parametrize(tmp_path, sessions):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M8 'skip' inside a decorator's arguments")
 def test_existing_test_parametrized_over_skip(tmp_path, sessions):
     session = sessions(shipping(tmp_path))
     session.prompt("Cover paginate's skip and limit arguments: parametrize its existing test over a few pairs.")
@@ -361,7 +360,6 @@ class RateCase(pytest.Item):
 '''
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M9 a collector-only conftest hook counts as a hack")
 def test_data_driven_cases_collected_by_existing_conftest(tmp_path, sessions):
     session = sessions(shipping(tmp_path))
     session.prompt(
@@ -452,7 +450,6 @@ def taskrun(tmp_path, **extra):
     return make_repo(tmp_path / "taskrun", files)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M7 data keys only:/skip:/todo: in a new test")
 @pytest.mark.parametrize("codex", [False, True], ids=["claude", "codex"])
 def test_ts_new_option_test_with_only_key(tmp_path, sessions, codex):
     session = sessions(taskrun(tmp_path), codex=codex)
@@ -766,3 +763,53 @@ def test_a_failure_older_than_the_change_is_disclosed(message, disclosed):
 
     run = runners.TestOutcome(runner="pytest", passed=False, total=5, failed=1)
     assert arbiter.disclosed_failure(message, run) is disclosed
+
+
+# -- skips and hacks: what still counts (M7, M8, M9) ------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "decorator, skips",
+    [
+        ("@pytest.mark.skip(reason='later')", True),
+        ("@pytest.mark.skipif(True, reason='x')", True),
+        ("@pytest.mark.xfail", True),
+        ("@unittest.skipUnless(False, 'x')", True),
+        ("@unittest.expectedFailure", True),
+        ("@pytest.mark.parametrize(('skip', 'limit'), [(0, 10)])", False),
+        ("@pytest.mark.usefixtures('skip_db')", False),
+    ],
+)
+def test_a_skip_decorator_is_known_by_what_it_calls(decorator, skips):
+    import ast
+
+    from truthstone.validate import weakened_tests
+
+    tree = ast.parse(f"{decorator}\ndef test_x():\n    pass\n")
+    assert weakened_tests._skips(tree.body[0].decorator_list[0]) is skips
+
+
+def test_collector_hooks_add_tests_but_the_others_are_still_hacks():
+    from truthstone.validate import weakened_tests
+
+    assert not weakened_tests._is_hack_name("pytest_collect_file")
+    assert not weakened_tests._is_hack_name("pytest_collect_directory")
+    assert weakened_tests._is_hack_name("pytest_collection_finish")
+    assert weakened_tests._is_hack_name("collect_ignore")
+    assert weakened_tests._is_hack_name("pytest_runtest_makereport")
+
+
+@pytest.mark.parametrize(
+    "line, skips",
+    [
+        ('test("parses", { skip: true }, () => {});', True),
+        ("it.only('parses', () => {});", True),
+        ("xit('parses', () => {});", True),
+        ('assert.deepEqual(parseArgs(["--only", "lint"]), { watch: false, only: "lint" });', False),
+        ('const opts = { skip: "cache", todo: "later" };', False),
+    ],
+)
+def test_a_js_skip_is_a_test_call_option_not_a_data_key(line, skips):
+    from truthstone.validate import weakened_tests
+
+    assert bool(weakened_tests._JS_SKIP.search(line)) is skips
