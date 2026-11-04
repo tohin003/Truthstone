@@ -37,6 +37,7 @@ severity, so nothing surfaces it — it exists to be counted.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,7 +52,7 @@ from agentguard.core.enums import (
 from agentguard.core.models import EvidenceRef, Finding
 from agentguard.core.taskstate import TaskState
 from agentguard.repo.index import RepoIndex
-from agentguard.verify import claims, commands, runners, static
+from agentguard.verify import baseline, claims, commands, runners, static
 
 log = logging.getLogger(__name__)
 
@@ -124,13 +125,18 @@ def _muted_reason(state: TaskState, stop_hook_active: bool, max_blocks: int) -> 
 
 def _assess(state: TaskState, index: RepoIndex, pending_tasks: list[dict] | None = None) -> GateVerdict:
     """What the evidence says, before any question of whether to say it."""
-    changed = {path for path in state.changed_files if _is_source(path, index)}
+    # A file whose bytes are back to how the task found it is no change (G2b): an edit
+    # and its revert, or a file created and removed again.
+    reverted = baseline.reverted(state, index.root)
+    touched = state.touched_files - reverted
+    written = touched - state.deleted_files
+    changed = {path for path in touched | state.deleted_files if _is_source(path, index)} - reverted
     if not changed:
         return GateVerdict(GateResult.PASS, "no source changes to verify")
 
     # Independent of the blocking assessment: an agent can run the suite, watch it pass,
     # and still have left new code untested (SPEC §3, "write insufficient tests").
-    observations = _insufficient_tests(state, index, changed)
+    observations = _insufficient_tests(state, index, changed, written)
 
     # 1. Does it parse? The cheapest and least arguable failure there is — for files the
     #    task broke (G15). A file that never parsed (a template) is not the task's doing,
@@ -138,7 +144,7 @@ def _assess(state: TaskState, index: RepoIndex, pending_tasks: list[dict] | None
     #    interpreter parses it, even where the daemon's older one cannot.
     problems = [
         problem
-        for problem in static.check_files(index.root, state.touched_files)
+        for problem in static.check_files(index.root, touched)
         if _task_broke(problem.path, state)
     ]
     if problems:
@@ -176,13 +182,21 @@ def _assess(state: TaskState, index: RepoIndex, pending_tasks: list[dict] | None
 
     # 3. What do the agent's own test runs say, read in order (G2a)? The latest run of
     #    each suite decides; a failure it fixed is history, and a pass the agent edited
-    #    past is stale.
+    #    past is stale. A run with test paths verifies only what those paths cover, and a
+    #    comment-only edit does not make a pass stale (G2b).
     verification = state.verification
     rerun = {path for path in changed if _needs_rerun(path, index, state)}
-    timeline = runners.assess_timeline(verification, state.last_change_seq, rerun)
+    timeline = runners.assess_timeline(
+        verification,
+        state.last_change_seq,
+        rerun,
+        reaches=_reaches(index, state),
+        unchanged_since=lambda path, run: baseline.code_unchanged(state, index.root, path, run.seq),
+    )
     if timeline.failing is not None:
         return _failing(timeline, observations)
-    if (timeline.open_failure is not None or timeline.stale) and state.spec.tests_waived:
+    unverified = timeline.open_failure is not None or timeline.stale or timeline.unreached
+    if unverified and state.spec.tests_waived:
         return GateVerdict(
             GateResult.PASS, "the request explicitly waived running tests", findings=observations
         )
@@ -190,10 +204,12 @@ def _assess(state: TaskState, index: RepoIndex, pending_tasks: list[dict] | None
         return _narrower(timeline, observations)
     if timeline.stale:
         return _stale(timeline, observations)
+    if timeline.unreached:
+        return _off_target(timeline, index, state, observations)
 
     # 4. The developer asked for tests (G6). Not writing any is not done, whatever ran:
     #    "…has no tests; fix it and add tests" used to waive the gate instead (probe G).
-    if state.spec.tests_requested and not _wrote_tests(state, index):
+    if state.spec.tests_requested and not _wrote_tests(state, index, written):
         return _requested_tests_missing(observations)
 
     if timeline.latest_pass is not None:
@@ -320,8 +336,9 @@ def _narrower(timeline: runners.Timeline, observations: list[Finding]) -> GateVe
         reason=(
             f"Re-run `{failure.command}`: it reported failures"
             + (f" ({failure.summary})" if failure.summary else "")
-            + f", and the latest green run, `{green.command}`, was narrower, so it does not show "
-            "that those failures are fixed. Run it before finishing and report what it said."
+            + f", and the latest green run, `{green.command}`, was narrower or ran other tests, so "
+            "it does not show that those failures are fixed. Run it before finishing and report "
+            "what it said."
         ),
         evidence=evidence,
         findings=[
@@ -339,7 +356,7 @@ def _narrower(timeline: runners.Timeline, observations: list[Finding]) -> GateVe
 
 
 def _stale(timeline: runners.Timeline, observations: list[Finding]) -> GateVerdict:
-    green, stale = timeline.latest_pass, timeline.stale
+    green, stale = timeline.stale_against or timeline.latest_pass, timeline.stale
     evidence = [EvidenceRef(source="filesystem", path=path) for path in stale[:5]]
     return GateVerdict(
         GateResult.INCOMPLETE,
@@ -361,6 +378,115 @@ def _stale(timeline: runners.Timeline, observations: list[Finding]) -> GateVerdi
             *observations,
         ],
     )
+
+
+def _off_target(
+    timeline: runners.Timeline, index: RepoIndex, state: TaskState, observations: list[Finding]
+) -> GateVerdict:
+    """Every passing run named test paths, and none of them covers these changes (G2b)."""
+    files, green = timeline.unreached, timeline.latest_pass
+    tests = _tests_to_run(files, index, state)
+    command = runners.suggested_command(runners.detect_runners(index), tests) if tests else ""
+    them = "it" if len(files) == 1 else "them"
+    run = f"Run `{command}`" if command else f"Run the tests that cover {them}"
+    reason = (
+        f"{_listing(files)} changed, and the passing test run (`{green.command}`) did not include "
+        f"the tests that cover {them}"
+        + (f" ({', '.join(tests[:4])})" if tests else "")
+        + f". {run} before finishing and report what it said."
+    )
+    evidence = [EvidenceRef(source="tests", path=path) for path in tests[:5]]
+    return GateVerdict(
+        GateResult.INCOMPLETE,
+        reason=reason,
+        evidence=evidence,
+        findings=[
+            _finding(
+                FailureMode.UNVERIFIED_CHANGE,
+                Severity.MEDIUM,
+                subject="off-target-verification",
+                summary=f"{len(files)} changed file(s) were not covered by any passing test run",
+                detail=f"passed: {green.command}; covering: {', '.join(tests[:4])}",
+                evidence=evidence,
+            ),
+            *observations,
+        ],
+    )
+
+
+def _tests_to_run(files: list[str], index: RepoIndex, state: TaskState) -> list[str]:
+    """The tests to suggest for ``files``: those covering them, and any that are tests."""
+    tests = set(runners.affected_tests(index, set(files), deleted_coverage=state.deleted_coverage))
+    tests |= {path for path in files if _looks_like_test(path, index)}
+    return sorted(tests)
+
+
+def _reaches(index: RepoIndex, state: TaskState) -> Callable[[runners.TestOutcome, str], bool]:
+    """`runners.run_reaches` bound to the index, with each file's covering tests worked
+    out only when a run with test paths needs them."""
+    covering: dict[str, frozenset[str]] = {}
+    known = _known_selectors(index)
+
+    def reaches(run: runners.TestOutcome, path: str) -> bool:
+        if not run.scope:
+            return True  # the whole suite reaches everything
+        if path not in covering:
+            covering[path] = _covering_targets(path, index, state)
+        return runners.run_reaches(run, path, covering[path], known)
+
+    return reaches
+
+
+def _covering_targets(path: str, index: RepoIndex, state: TaskState) -> frozenset[str]:
+    """Test files a run must include to verify a change to ``path`` (G2b). Generous on
+    purpose — a run is accepted when it reaches the file through any of them: tests of the
+    file and of code that imports it, a few hops out; tests importing it (a test helper);
+    for a ``conftest.py``, every test below it."""
+    tests = set(index.tests_for(path))
+    for dependent in index.blast_radius(path, depth=3):
+        tests |= index.tests_for(dependent)
+        record = index.files.get(dependent)
+        if record is not None and record.is_test:
+            tests.add(dependent)
+    tests |= {test for test in state.deleted_coverage.get(path, ()) if test in index.files}
+    folder, _, name = path.rpartition("/")
+    if name == "conftest.py":
+        tests |= {
+            test
+            for test, record in index.files.items()
+            if record.is_test and (not folder or test.startswith(folder + "/"))
+        }
+    return frozenset(tests)
+
+
+def _known_selectors(index: RepoIndex) -> Callable[[str, str], bool]:
+    """``known(target, style)`` for `runners.run_reaches`: whether a command-line selector
+    names something in the index. An unknown one could reach anything, so it never counts
+    against a run. Cached per target: a task names few."""
+    cache: dict[tuple[str, str], bool] = {}
+
+    def known(target: str, style: str) -> bool:
+        if (target, style) not in cache:
+            cache[(target, style)] = _names_indexed(index, target, style)
+        return cache[(target, style)]
+
+    return known
+
+
+def _names_indexed(index: RepoIndex, target: str, style: str) -> bool:
+    if not target or target == "." or target.startswith(("/", "..")):
+        return False
+    if style == "pattern":
+        return any(target in path for path, record in index.files.items() if record.is_test)
+    for path in index.files:
+        name = path.removesuffix(".py") if style == "module" else path
+        if name == target or name.endswith("/" + target):
+            return True
+        if path.startswith(target + "/") or ("/" + target + "/") in ("/" + path):
+            return True
+        if style == "module" and target.startswith(name + "/"):
+            return True
+    return False
 
 
 # -- runs still in flight (G7) -----------------------------------------------------------
@@ -487,10 +613,10 @@ def _requested_tests_missing(observations: list[Finding]) -> GateVerdict:
     )
 
 
-def _wrote_tests(state: TaskState, index: RepoIndex) -> bool:
+def _wrote_tests(state: TaskState, index: RepoIndex, written: set[str]) -> bool:
     """A test file was added or changed during the task: through an edit tool, or by a
     command (a test file in the index modified since the task began)."""
-    if any(_looks_like_test(path, index) for path in state.touched_files - state.deleted_files):
+    if any(_looks_like_test(path, index) for path in written):
         return True
     since = int(state.started_at * 1_000_000_000)
     return any(record.is_test and record.mtime_ns >= since for record in index.files.values())
@@ -511,7 +637,9 @@ def _needs_rerun(path: str, index: RepoIndex, state: TaskState) -> bool:
 # -- §3.15 "write insufficient tests" ---------------------------------------------
 
 
-def _insufficient_tests(state: TaskState, index: RepoIndex, changed: set[str]) -> list[Finding]:
+def _insufficient_tests(
+    state: TaskState, index: RepoIndex, changed: set[str], written: set[str]
+) -> list[Finding]:
     """Changed code that nothing tests, in a project that does test its code.
 
     Recorded, never raised — hence INFO. Three conditions, and all three are needed to
@@ -533,7 +661,7 @@ def _insufficient_tests(state: TaskState, index: RepoIndex, changed: set[str]) -
         return []
     if not runners.detect_runners(index):
         return []
-    if any(_looks_like_test(path, index) for path in state.touched_files - state.deleted_files):
+    if any(_looks_like_test(path, index) for path in written):
         return []
 
     uncovered = sorted(

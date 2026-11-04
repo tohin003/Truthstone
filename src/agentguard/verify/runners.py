@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,9 @@ class TestOutcome:
     scope: tuple[str, ...] = ()  # what narrowed it (paths, -k, --lf, ...); () = everything
     failing_files: tuple[str, ...] = ()  # test files the output names as failing (G4a)
     background: bool = False  # launched to run on after the command returned (G7)
+    # The failing tests the output names, as node ids (G2b): a failure whose tests a later
+    # passing run covers, one by one, is fixed even when that run was narrower.
+    failing_tests: tuple[str, ...] = ()
 
     @property
     def is_failure(self) -> bool:
@@ -305,6 +309,7 @@ def parse_output(command: str, output: str) -> TestOutcome:
     outcome.summary = summary.line
     if outcome.passed is False:
         outcome.failing_files = parsers.failing_files(output or "")
+        outcome.failing_tests = parsers.failing_tests(output or "")
     return outcome
 
 
@@ -394,6 +399,7 @@ def outcome_from_result(command: str, result: Any) -> TestOutcome | None:
         outcome.failed = max(outcome.failed, 1)
         outcome.summary = f"exit status {exit_code}" + (f"; {outcome.summary}" if outcome.summary else "")
         outcome.failing_files = outcome.failing_files or parsers.failing_files(text)
+        outcome.failing_tests = outcome.failing_tests or parsers.failing_tests(text)
     elif outcome.passed is True:
         outcome.passed = None
         outcome.summary = f"exit status {exit_code} after: {outcome.summary}"
@@ -413,12 +419,16 @@ def outcome_from_result(command: str, result: Any) -> TestOutcome | None:
 
 @dataclass(slots=True)
 class Timeline:
-    """What the task's test runs say, read in order. At most one field is set."""
+    """What the task's test runs say, read in order. At most one verdict is set."""
 
     failing: TestOutcome | None = None  # the latest conclusive run of a suite failed
     open_failure: TestOutcome | None = None  # a failure no later passing run covered...
     narrower_pass: TestOutcome | None = None  # ...because the latest pass was narrower
-    stale: list[str] = field(default_factory=list)  # changed after the latest pass
+    stale: list[str] = field(default_factory=list)  # changed after the last pass that checked them
+    stale_against: TestOutcome | None = None  # the latest pass the stale files were checked by
+    # Changed files that no passing run reached: every pass named test paths that do not
+    # include a test covering them (G2b).
+    unreached: list[str] = field(default_factory=list)
     latest_pass: TestOutcome | None = None
     changed_after_failure: list[str] = field(default_factory=list)
 
@@ -432,7 +442,8 @@ def covers(later: TestOutcome, earlier: TestOutcome) -> bool:
 
     The whole suite covers anything; the same command covers itself; otherwise the later
     run may not add a filter the earlier one lacked (``-k``, ``--lf``, ``-run``), and
-    every path the earlier run named must lie inside a path the later one named.
+    every path the earlier run named must lie inside a path the later one named. So a
+    filtered or ``::id`` run supersedes only the identical command or a narrower one.
     """
     if not later.scope or (later.key and later.key == earlier.key):
         return True
@@ -460,21 +471,165 @@ _OPTION_LIKE = re.compile(r"^[\w.-]+=")
 
 def _inside(path: str, outer: str) -> bool:
     outer = outer.removesuffix("/...")
-    return path == outer or path.startswith((outer + "/", outer + "::", outer + "."))
+    return path == outer or path.startswith((outer + "/", outer + "::", outer + ".", outer + "["))
+
+
+# -- failing test ids (G2b) ------------------------------------------------------------------
+
+
+def _same_file(file: str, selector: str) -> bool:
+    """A test file and a command-line path naming it, either possibly relative to a
+    different folder (``cd backend && pytest tests/x.py`` against ``backend/tests/x.py``)."""
+    if not file or not selector:
+        return False
+    return file == selector or file.endswith("/" + selector) or selector.endswith("/" + file)
+
+
+def _id_within(test_id: str, selector: str) -> bool:
+    """Whether a run naming ``selector`` (a folder, file or node id) ran ``test_id``."""
+    selector = selector.removesuffix("/...")
+    test_file, _, test_rest = test_id.partition("::")
+    selector_file, _, selector_rest = selector.partition("::")
+    in_folder = test_file.startswith(selector_file + "/") or ("/" + selector_file + "/") in ("/" + test_file)
+    if not (_same_file(test_file, selector_file) or (in_folder and not selector_rest)):
+        return False
+    if not selector_rest or in_folder:
+        return True
+    return test_rest == selector_rest or test_rest.startswith((selector_rest + "::", selector_rest + "["))
+
+
+def _ids_cleared(failure: TestOutcome, later: list[TestOutcome]) -> bool:
+    """Every test a failing run named was re-run by a later passing run (G2b).
+
+    Only when the output named all of its failures (as many ids as the summary counted),
+    and only by runs whose paths name them: a ``-k``/``-m``/``--lf`` run says nothing
+    about which tests it ran.
+    """
+    ids = set(failure.failing_tests)
+    if not ids or failure.failed <= 0 or len(ids) < failure.failed:
+        return False
+
+    def ran(run: TestOutcome, test_id: str) -> bool:
+        if not run.scope:
+            return True
+        paths, filters = _split_scope(run.scope)
+        return not filters and any(_id_within(test_id, path) for path in paths)
+
+    return all(any(run.passed and ran(run, test_id) for run in later) for test_id in ids)
+
+
+# -- what a narrowed run verifies (G2b) ------------------------------------------------------
+#
+# A run with path arguments verifies only what those paths reach: AgentGuard itself
+# suggests `pytest tests/test_x.py`, and that must verify the files test_x covers, while
+# `pytest tests/test_unrelated.py` must not (D1 scenario C; Pebble guard.py:121-155, where
+# a narrowed pass is no evidence at all). Only runners whose positional arguments are test
+# paths, path patterns or packages are judged; anything the gate cannot read — a `-k`/
+# `-m`/`--lf` filter alone, a glob, a path the index does not know, another runner's
+# arguments — counts as reaching the file: could not tell is never a block.
+
+SELECTOR_STYLE: dict[str, str] = {
+    "pytest": "path",
+    "unittest": "module",
+    "mocha": "path",
+    "node": "path",
+    "deno": "path",
+    "rspec": "path",
+    "minitest": "path",
+    "phpunit": "path",
+    "mix": "path",
+    "jest": "pattern",
+    "vitest": "pattern",
+    "bun": "pattern",
+    "npm": "pattern",
+    "playwright": "pattern",
+    "go": "package",
+}
+_GLOB = re.compile(r"[*?{]")
+_LINE = re.compile(r":\d+(?::\d+)?$")
+
+
+def selector_target(selector: str, style: str) -> str:
+    """The file or folder a command-line selector names: ``tests/x.py::t`` -> ``tests/x.py``,
+    ``spec/x_spec.rb:12`` -> ``spec/x_spec.rb``, ``tests.test_x.T`` -> ``tests/test_x/T``."""
+    target = selector.partition("::")[0]
+    if style == "path":
+        target = _LINE.sub("", target)
+    elif style == "module" and "/" not in target and not target.endswith(".py"):
+        target = target.replace(".", "/")
+    elif style == "package":
+        target = target.removesuffix("/...")
+    return target
+
+
+def selects(selector: str, test: str, style: str) -> bool:
+    """Whether a run naming ``selector`` runs the test file ``test`` (or the changed file
+    itself: a doctest module, ``vitest related src/x.ts``)."""
+    target = selector_target(selector, style)
+    if not target or target == ".":
+        return False
+    if style == "pattern":
+        return target in test
+    if style == "package":
+        folder = test.rpartition("/")[0]
+        return _same_file(folder, target) or folder.startswith(target + "/")
+    if style == "module" and not test.endswith(".py"):
+        return False
+    stem = test.removesuffix(".py") if style == "module" else test
+    if _same_file(stem, target) or _same_file(test, target):
+        return True
+    if style == "module" and target.startswith(stem + "/"):
+        return True  # a class or method inside the module
+    return test.startswith(target + "/") or ("/" + target + "/") in ("/" + test)
+
+
+def run_reaches(
+    run: TestOutcome,
+    path: str,
+    tests: set[str] | frozenset[str],
+    known: Callable[[str, str], bool],
+) -> bool:
+    """Whether a run verifies a change to ``path``, given the test files that cover it.
+
+    ``known(target, style)`` says whether a selector names something the index knows (a
+    file, a folder of files, a pattern matching a test file). Only when every selector is
+    known and none reaches a covering test (or the file itself) is the answer False.
+    """
+    if not run.scope:
+        return True
+    paths, _ = _split_scope(run.scope)
+    style = SELECTOR_STYLE.get(run.runner)
+    if not paths or style is None or any(_GLOB.search(item) for item in paths):
+        return True
+    targets = {path, *tests}
+    if any(selects(selector, test, style) for selector in paths for test in targets):
+        return True
+    return not all(known(selector_target(selector, style), style) for selector in paths)
 
 
 def assess_timeline(
-    verification: VerificationState, last_change_seq: dict[str, int], candidates: set[str]
+    verification: VerificationState,
+    last_change_seq: dict[str, int],
+    candidates: set[str],
+    reaches: Callable[[TestOutcome, str], bool] | None = None,
+    unchanged_since: Callable[[str, TestOutcome], bool] | None = None,
 ) -> Timeline:
     """Read the runs per suite, in order; ``candidates`` are the changed files a re-run
     would check (the gate filters out files no test reaches).
 
     1. A suite's latest conclusive run failed → ``failing`` (the most recent such run).
     2. The latest runs passed, but an earlier failure was never re-run by a pass that
-       covers it (the green run was narrower) → ``open_failure``/``narrower_pass``.
-    3. Otherwise a candidate changed after the latest run on record → ``stale``. Any
-       recognised run counts as "a run after the change", even one whose result could
-       not be read: could not tell is never a failure.
+       covers it (the green run was narrower) → ``open_failure``/``narrower_pass``. A
+       failure whose output named every failing test is also closed when later passes
+       re-ran each of those tests (G2b).
+    3. Otherwise, per candidate (G2b): a run after its last change that ``reaches`` it
+       verifies it — any recognised run, even one whose result could not be read: could
+       not tell is never a failure. Failing that, if a pass before the change reached it,
+       it is ``stale`` — unless ``unchanged_since`` says its code is what that pass ran
+       on (a comment-only edit). If no pass ever reached it, it is ``unreached``.
+
+    ``reaches`` defaults to "every run reaches every file" and ``unchanged_since`` to
+    "never": G2a's behaviour.
     """
     runs = [outcome for outcome in verification.outcomes if outcome.passed is not None]
     if not runs:
@@ -494,9 +649,10 @@ def assess_timeline(
             continue
         passes.append(latest)
         for index, run in enumerate(suite_runs):
-            if run.passed is False and not any(
-                later.passed and covers(later, run) for later in suite_runs[index + 1 :]
-            ):
+            if run.passed is not False:
+                continue
+            later = [other for other in suite_runs[index + 1 :] if other.passed]
+            if not any(covers(other, run) for other in later) and not _ids_cleared(run, later):
                 open_failures.append((run, latest))
 
     if failing:
@@ -513,14 +669,34 @@ def assess_timeline(
         return Timeline(open_failure=failure, narrower_pass=narrower, latest_pass=latest_pass)
     if any(outcome.seq is None for outcome in runs):
         return Timeline(latest_pass=latest_pass)  # runs recorded without a position
-    seen = [
-        outcome.seq
+
+    reach = reaches or (lambda run, path: True)
+    unchanged = unchanged_since or (lambda path, run: False)
+    passing = [outcome for outcome in runs if outcome.passed]
+    unread = [
+        outcome
         for outcome in (*verification.inconclusive, *verification.background)
         if outcome.seq is not None
     ]
-    last_run = max([*(outcome.seq for outcome in passes if outcome.seq is not None), *seen])
-    stale = sorted(path for path in candidates if last_change_seq.get(path, 0) > last_run)
-    return Timeline(stale=stale, latest_pass=latest_pass)
+    stale: list[str] = []
+    against: list[TestOutcome] = []
+    unreached: list[str] = []
+    for path in sorted(candidates):
+        changed_at = last_change_seq.get(path, 0)
+        if any(run.seq > changed_at and reach(run, path) for run in (*passing, *unread)):
+            continue
+        before = [run for run in passing if run.seq <= changed_at and reach(run, path)]
+        if not before:
+            unreached.append(path)
+        elif not unchanged(path, before[-1]):
+            stale.append(path)
+            against.append(before[-1])
+    return Timeline(
+        stale=stale,
+        stale_against=max(against, key=lambda run: run.seq) if against else None,
+        unreached=unreached,
+        latest_pass=latest_pass,
+    )
 
 
 def affected_tests(

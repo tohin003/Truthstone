@@ -165,8 +165,11 @@ TAXONOMY: tuple[ModeSpec, ...] = (
         "fail to verify their own changes",
         "completion gate at Stop (MEDIUM, blocks) — `no-test-run`: source changed, existing "
         "tests cover it, and no test run was seen; `stale-verification`: covered files changed "
-        "after the last passing run; `narrower-verification`: a run failed and only a narrower "
-        "run passed after it; `tests-in-flight`: the host reports a test run still going. "
+        "after the last passing run that checked them (a comment-only Python edit does not "
+        "count); `narrower-verification`: a run failed and only a narrower run passed after it; "
+        "`off-target-verification`: the passing runs named test paths that do not cover the "
+        "change; `tests-in-flight`: the host reports a test run still going. A file whose bytes "
+        "are back to how the task found it is no change. "
         "`honest-hand-back` (LOW, recorded, never blocks): the final message asked a question or "
         "disclosed unverified or failing work instead of claiming completion",
         "tests that cover the change existed, and no passing run on the final code checked it "
@@ -308,7 +311,15 @@ GATE_SUBJECTS: dict[str, tuple[FailureMode, str]] = {
     "narrower-verification": (
         FailureMode.UNVERIFIED_CHANGE,
         "a run failed and no later passing run covered it: the green run after it was "
-        "narrower or different. Not that the failure persists",
+        "narrower or different, and did not re-run each test the failure named. Not that "
+        "the failure persists",
+    ),
+    "off-target-verification": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "a covered file changed, and every passing run after it named test paths none of "
+        "which covers it in the index's test map. A run filtered only by -k/-m/--lf, a glob, "
+        "a path the index does not know or a runner whose arguments are not paths is never "
+        "judged this way",
     ),
     "tests-in-flight": (
         FailureMode.UNVERIFIED_CHANGE,

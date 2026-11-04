@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 
 from agentguard.intent.models import TaskSpec
+from agentguard.verify.baseline import FileBaseline
 from agentguard.verify.runners import VerificationState
 
 # A task that has been running long enough to have touched this many files without any
@@ -55,6 +56,14 @@ class TaskState:
     # Whether each file parsed before this task first changed it (G15). The syntax gate
     # blames only files the task broke: a template that never parsed is not its doing.
     parse_baseline: dict[str, bool] = field(default_factory=dict)
+    # Each file as the task found it, taken just before its first change (G2b): a file
+    # whose bytes are back to this is no change, and a Python file first changed after a
+    # passing run is compared with it for a comment-only edit.
+    file_baselines: dict[str, FileBaseline] = field(default_factory=dict)
+    # The code of each touched Python file at each passing run, by the run's sequence
+    # number (G2b, bounded): a file edited after the pass whose code is unchanged — a
+    # comment, formatting — keeps the pass.
+    pass_fingerprints: dict[str, dict[int, str]] = field(default_factory=dict)
 
     def next_seq(self) -> int:
         self.seq += 1

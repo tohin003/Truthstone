@@ -732,6 +732,34 @@ def failing_files(text: str) -> tuple[str, ...]:
     return tuple(found)
 
 
+# -- which tests failed (G2b: a failing test id clears only when a later run covers it) --
+
+_FAILING_TEST = re.compile(
+    r"^(?:FAILED|ERROR) (?P<py>[^\s:]+\.py(?:::\S+)?)(?:\s+-\s.*)?$"  # pytest short summary
+    r"|^(?P<pyv>[^\s:]+\.py::\S+) (?:FAILED|ERROR)\b",  # pytest -v
+    re.M,
+)
+MAX_FAILING_TESTS = 50
+
+
+def failing_tests(text: str) -> tuple[str, ...]:
+    """The failing tests the output names, as pytest node ids (``path::name[param]``), in
+    order. A collection error names its file. Empty when the output names none.
+
+    Only pytest's own lines are read: its default ``-rfE`` short summary lists every
+    failure and error, so the list can be checked against the summary's counts.
+    """
+    found: dict[str, None] = {}
+    for match in _FAILING_TEST.finditer(clean(text)):
+        node = match.group("py") or match.group("pyv")
+        while node.startswith("./"):
+            node = node[2:]
+        found[node] = None
+        if len(found) >= MAX_FAILING_TESTS:
+            break
+    return tuple(found)
+
+
 # `turbo run test` and similar monorepo runners prefix every line with `<package>:<task>: `.
 _TASK_PREFIX = re.compile(r"^[\w@./-]+:[\w:.-]+: ?", re.M)
 

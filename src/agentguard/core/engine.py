@@ -685,11 +685,16 @@ class Guard:
 
     @staticmethod
     def _record_parse_baseline(event: AgentEvent, ws: Workspace) -> None:
-        """At a file's first change in a task, note whether it parses today (G15).
+        """At a file's first change in a task, note what it is today.
 
-        Read from the index when its entry is current (no extra parse on the hot path),
-        otherwise parsed once. A file that does not exist yet counts as parsing.
+        Whether it parses (G15), read from the index when its entry is current (no extra
+        parse on the hot path), otherwise parsed once — a file that does not exist yet
+        counts as parsing. And the file as the task found it (G2b, `verify/baseline.py`):
+        a digest of its bytes, so a revert is no change, and a Python file's code
+        fingerprint, so a comment-only edit keeps a pass.
         """
+        from agentguard.verify import baseline  # this body only: the rest of the module is engine-b's
+
         if not event.is_mutating or event.is_delete:
             return
         state = ws.event_task_state(event)
@@ -697,7 +702,17 @@ class Guard:
         if state is None or not isinstance(raw, str) or not raw:
             return
         path = ws.index.normalize(raw)
-        if not path or path in state.parse_baseline:
+        if not path:
+            return
+        if path not in state.file_baselines:
+            state.file_baselines[path] = baseline.capture(
+                ws.index.root, path, state.seq, changed_before=path in state.last_change_seq
+            )
+        if path in state.parse_baseline:
+            return
+        parsed = state.file_baselines[path].parses
+        if parsed is not None:  # read for the fingerprint just now: no second parse
+            state.parse_baseline[path] = parsed
             return
         record = ws.index.files.get(path) if ws.index.is_built else None
         try:
@@ -809,6 +824,12 @@ class Guard:
                 "passed" if outcome.passed else "failed",
                 runners.outcome_detail(outcome),
             )
+            if outcome.passed:
+                from agentguard.verify import baseline
+
+                # The code each touched Python file had when it passed (G2b): a later
+                # comment-only edit does not make this run stale.
+                baseline.remember_pass(state, ws.index.root, outcome.seq)
 
     def _on_stop(self, event: AgentEvent, ws: Workspace) -> Decision:
         """Completion Gate (SPEC §19).

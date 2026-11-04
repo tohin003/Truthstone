@@ -943,6 +943,9 @@ class TestTheCensusReport:
             guard.handle(event(repo, EventType.SESSION_START))
             guard.handle(prompt_event(repo, "Add an active-users report."))
             guard.handle(write_event(repo, "src/shop/api/report.py", HALLUCINATING_FILE))
+            # The write itself, as the host performs it between the two hooks: a file the
+            # task created and that is absent again at Stop is no change (G2b).
+            (repo / "src/shop/api/report.py").write_text(HALLUCINATING_FILE)
             guard.handle(
                 event(repo, EventType.POST_TOOL_USE, "Write", file_path="src/shop/api/report.py")
             )
