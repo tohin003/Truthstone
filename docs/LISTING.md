@@ -48,7 +48,7 @@ The validator enforces every one of these absences.
 
 ```bash
 python3 scripts/companion_package.py check            # validate the plugin directory
-python3 scripts/companion_package.py check --final    # also: no {{PLACEHOLDERS}} left in docs/legal
+python3 scripts/companion_package.py check --final    # also: no unfilled placeholders left in docs/legal
 python3 scripts/companion_package.py check --online   # also: every listing URL answers 200 (after you push)
 python3 scripts/companion_package.py build            # write dist/companion/<name>-<version>.zip, then validate the ZIP
 python3 scripts/companion_package.py validate-zip PATH.zip
@@ -57,7 +57,7 @@ python3 scripts/companion_package.py rules            # every rule ID with its s
 python3 scripts/companion_package.py selftest         # 85 cases: each rule shown rejecting a bad package
 ```
 
-The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,231 bytes, sha256 `b55613cfe8c7bb250d29aeb724aab2a6d1472c365b88a89adaa4158e98ded8c4`. The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
+The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,303 bytes, sha256 `91bcd12cba5abef1416e51dc360a533a0d2173ed29c264f83bf2ee43de58f7c9` (rebuilt 2026-11-04 after the publisher details were filled in). The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
 
 ---
 
@@ -73,7 +73,7 @@ The listing copy is final and within every limit. It comes from `.codex-plugin/p
 | `shortDescription` | Verify work before saying done | 30 / 30 |
 | `longDescription` | below | 2,727 / 4,000 |
 | `description` (package) | Six instruction-only skills that guide a coding agent to show evidence before saying a task is done: a requirement ledger, file:line grounding, scope checks, proportional planning, a pre-flight for irreversible shell commands, and a review of the diff against the request. | 272 / 1,024 |
-| `developerName` | Truthstone project. The portal replaces it with your verified identity's name (`developer_name_defaulted`) | 18 / 80 |
+| `developerName` | Tohin Majumder, the publisher. The portal replaces it with your verified identity's name if they differ (`developer_name_defaulted`) | 14 / 80 |
 | `category` | Developer Tools | allowed value |
 | `brandColor` | `#0F766E` | 5.47:1 against white (needs 2:1) |
 | `brandColorDark` | `#2DD4BF` | 8.65:1 against `#212121` (needs 2:1) |
@@ -239,7 +239,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 | Restricted data (payment-card data, PHI, government IDs, credentials) | None collected. The skills tell the agent to keep secrets out of the transcript |
 | "No ads… Every plugin must deliver clear, legitimate functionality that provides standalone value" | No ads; standalone |
 | "All plugin submissions must come from verified individuals or organizations." | Your step (§5) |
-| "You must provide customer support contact details" | `docs/legal/SUPPORT.md` gives GitHub issues and `{{SUPPORT_EMAIL}}` |
+| "You must provide customer support contact details" | `docs/legal/SUPPORT.md` gives GitHub issues and tohin1400@gmail.com |
 
 ### 4.5 Process
 
@@ -261,7 +261,7 @@ Only you can do these: they involve your identity, legal attestations and your a
 **Before uploading**
 
 1. **Settle the final name** and run the rename (§10). A published name must not change: OpenAI rejects updates whose name differs (`plugin_name_mismatch`), and Claude Code installs break on a rename.
-2. **Fill the placeholders** in `docs/legal/*.md`: `{{PUBLISHER_NAME}}` (the exact name you will verify as) and `{{SUPPORT_EMAIL}}` (an address you will monitor). Review the drafts, ideally with someone qualified. The one policy choice in them is a 12-month retention period for support email.
+2. **Review the legal pages** in `docs/legal/*.md`. They name the publisher, Tohin Majumder (verify under exactly this name), and the support address tohin1400@gmail.com (monitor it). Review them, ideally with someone qualified. One policy choice is yours: support emails are kept as long as a request needs and deleted on request, with no fixed schedule. The earlier draft promised deletion after 12 months, which nothing enforces; restore a fixed period only if you will keep to it.
 3. **Merge and push to `master`**, so that the four listing URLs resolve. On GitHub, also:
    - enable **Private vulnerability reporting** (Settings → Code security). It is currently off, and `SECURITY.md` points to it.
    - add the topics `codex-plugin`, `codex-skills`, `agent-plugins`, `claude-code-plugin` and `agent-skills`.
@@ -298,10 +298,11 @@ The drafts are `docs/legal/PRIVACY.md`, `docs/legal/TERMS.md` and `docs/legal/SU
 - loopback-only daemon: `core/config.py`, the `loopback_only` validator
 - no outbound HTTP client
 - the SQLite schema: `core/store.py`
-- default retention tiers: `core/config.py`, `RetentionSettings`
-- the `TRUTHSTONE_DISABLE` kill switch
+- default retention tiers: `core/config.py`, `RetentionSettings`; what pruning really deletes: `core/store.py`, `prune` (sessions that never ended are kept, so their task text is too)
+- the stored prompt text, at most 2,000 characters per task: `core/store.py`, `create_task`
+- the `TRUTHSTONE_DISABLE` kill switch, the `TRUTHSTONE_NO_BOOTSTRAP` opt-out and the git-work-tree gate: the plugins' hook scripts
 
-**Placeholders.** `{{PUBLISHER_NAME}}` and `{{SUPPORT_EMAIL}}` are deliberate. No personal email is filled in. `check --final` fails until both are filled.
+**Publisher details.** The pages name Tohin Majumder and tohin1400@gmail.com, which the publisher provided for listings. `check --final` verifies that no placeholder is left.
 
 **Hosting.** The guidelines require a "published" HTTPS policy and a support contact. The URLs must be at most 1,024 characters, without credentials, accessible, and identify the same publisher. No hosting provider is prescribed.
 
@@ -311,7 +312,7 @@ The drafts are `docs/legal/PRIVACY.md`, `docs/legal/TERMS.md` and `docs/legal/SU
 | **B. GitHub Pages** | `https://tohin003.github.io/Truthstone/legal/PRIVACY.html` | Settings → Pages → deploy from `master` `/docs`. GitHub Pages renders Markdown without front matter | Cleaner and clearly yours. It publishes all of `docs/`, so move the legal pages to a dedicated folder if that matters. After switching, update the four URLs in the Codex manifest and run `sync` |
 | C. `raw.githubusercontent.com` | plain text | — | Not recommended: it serves unformatted text |
 
-Whichever option you choose, the page text names `{{PUBLISHER_NAME}}`, which must match the identity the directory displays.
+Whichever option you choose, the page text names Tohin Majumder, which must match the identity the directory displays.
 
 ---
 
@@ -415,7 +416,7 @@ Notes:
 | Display Name | Truthstone |
 | Category | Testing |
 | Link | https://github.com/tohin003/Truthstone |
-| Author Name | `{{PUBLISHER_NAME}}` |
+| Author Name | Tohin Majumder |
 | Author Link | https://github.com/tohin003 |
 | Description | Local, deterministic Claude Code hooks that check an agent's claims and edits against the repository, flag out-of-scope edits and risky shell commands, and check for test evidence before the agent stops. Ships with a skills-only companion plugin. |
 | Checklist | Only you can tick these attestations. One box is a deliberate trap: leave "Do not check the following box" unchecked |
