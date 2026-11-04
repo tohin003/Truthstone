@@ -35,9 +35,13 @@ like this:
 Reads are not writes
 --------------------
 Codex has no separate read tools: ``cat``, ``rg``, ``ls`` and ``git status`` all arrive as
-``Bash``. A command that is unambiguously read-only (``is_read_only_command``) is not sent
-through the core's pre-tool checks, so scope and evidence checks never fire on a read. Its
-PostToolUse is still recorded. Anything the classifier is not sure about is validated.
+``Bash``, and every one of them goes to the core, exactly as Claude Code's Bash calls do.
+The core has the one shell classifier (``validate.shell`` + ``validate.checks.read_only``):
+after its Level-0 checks (risk, self-protection, verification bypass), a command that only
+reads or only runs the tests skips evidence and scope (``IMPROVEMENTS.md`` A4). This
+adapter used to keep a second classifier and drop "read-only" commands before the core saw
+them, which skipped the Level-0 checks too — and the two classifiers disagreed: it read
+``cat f;rm -rf /`` as a read, since ``shlex`` does not split a ``;`` glued to a word.
 
 Unknown tools (MCP tools, ``update_plan``, ...) are never validated as writes either: their
 PreToolUse is ignored, their PostToolUse is recorded under the tool's own name with the
@@ -58,6 +62,7 @@ from agentguard.core.enums import DecisionAction, EventType
 from agentguard.core.events import AgentEvent
 from agentguard.core.models import Decision
 from agentguard.repo.paths import relative_path
+from agentguard.validate import checks, shell
 
 AGENT_NAME = "codex"
 
@@ -134,67 +139,17 @@ def shell_result(tool_response: Any) -> Any:
     return {"stdout": tool_response, "exit_code": None, "interrupted": False}
 
 
-# Commands that only read. Deliberately short: a command missing from here is simply
-# validated, which costs a little latency and nothing else.
-_READ_ONLY = frozenset(
-    {
-        "cat", "head", "tail", "wc", "ls", "pwd", "echo", "printf", "grep", "egrep", "fgrep",
-        "rg", "ag", "tree", "stat", "du", "df", "which", "type", "whereis", "uname", "whoami",
-        "id", "basename", "dirname", "realpath", "readlink", "cut", "nl", "od", "hexdump",
-        "diff", "cmp", "comm", "jq", "true", "test", "[",
-    }
-)
-_GIT_READ_ONLY = frozenset(
-    {"status", "log", "diff", "show", "rev-parse", "ls-files", "blame", "describe", "grep", "shortlog"}
-)
-_FIND_WRITES = frozenset(
-    {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"}
-)
-_SED_PRINT = re.compile(r"\d+(,(\d+|\$))?p|\$p")
-# Anything that can write, substitute, background or redirect. `&&` and `||` are fine.
-_UNSAFE_SHELL = re.compile(r"[<>`]|\$\(|(?<!&)&(?!&)|\btee\b")
-
-
 def is_read_only_command(command: str) -> bool:
-    """Whether a shell command certainly cannot change anything. Unsure means False."""
-    if not isinstance(command, str) or not command.strip() or "\n" in command.strip():
-        return False
-    if _UNSAFE_SHELL.search(command):
-        return False
-    try:
-        tokens = shlex.split(command.replace("&&", " ; ").replace("||", " ; ").replace("|", " ; "))
-    except ValueError:
-        return False
-    segments: list[list[str]] = [[]]
-    for token in tokens:
-        if token == ";":
-            segments.append([])
-        else:
-            segments[-1].append(token)
-    segments = [segment for segment in segments if segment]
-    return bool(segments) and all(_segment_is_read_only(segment) for segment in segments)
+    """Whether the core counts a shell command as read-only: the core's own classifier
+    (``validate.checks.read_only`` over ``validate.shell.parse``), never a second one.
 
-
-def _segment_is_read_only(argv: list[str]) -> bool:
-    name = argv[0]
-    if "=" in name:  # VAR=value prefixes change the environment of what follows
+    The adapter does not act on it: every Bash call goes to the core, which applies this
+    same classifier itself, after its Level-0 checks (module docstring). It stays here for
+    callers and tests that ask the question directly. Unsure means False.
+    """
+    if not isinstance(command, str) or not command.strip():
         return False
-    if name in _READ_ONLY:
-        return True
-    if name == "find":
-        return not any(arg in _FIND_WRITES for arg in argv[1:])
-    if name == "sed":
-        flags = [arg for arg in argv[1:] if arg.startswith("-")]
-        scripts = [arg for arg in argv[1:] if not arg.startswith("-")]
-        return flags == ["-n"] and bool(scripts) and _SED_PRINT.fullmatch(scripts[0]) is not None
-    if name == "git":
-        rest = argv[1:]
-        while rest and rest[0] in ("-C", "--no-pager", "-P"):
-            rest = rest[2:] if rest[0] == "-C" else rest[1:]
-        if any(arg.startswith("--output") for arg in rest):
-            return False  # `git diff --output=FILE` writes
-        return bool(rest) and rest[0] in _GIT_READ_ONLY
-    return False
+    return checks.read_only(shell.parse(command))
 
 
 # -- payload -> events --------------------------------------------------------------
@@ -231,9 +186,8 @@ def to_events(payload: dict[str, Any], root: Path | None = None) -> list[AgentEv
     tool_input = payload.get("tool_input")
     response = payload.get("tool_response")
     if tool == SHELL_TOOL:
+        # Every command, reads included: the core classifies it (module docstring).
         command = shell_command(tool_input)
-        if pre and command is not None and is_read_only_command(command):
-            return []  # a read: nothing for the write-path checks to judge
         return [
             AgentEvent(
                 **base,
