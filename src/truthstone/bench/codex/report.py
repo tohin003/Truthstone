@@ -239,7 +239,7 @@ def calibration(pairs: Pairs, screened: list[dict] | None = None) -> dict[str, A
     return result
 
 
-def pooled_calibration(run_dirs: list[Path]) -> dict[str, Any]:
+def pooled_calibration(run_dirs: list[Path], regraded: bool = False) -> dict[str, Any]:
     """The dev review over several runs of one suite (the extended screen, and any later dev
     run of the same arm): every run's observe cells, pooled, through the same calibration
     rule. Runs must share suite, suite digest, model, effort, host and the observe arm's
@@ -257,7 +257,26 @@ def pooled_calibration(run_dirs: list[Path]) -> dict[str, Any]:
     for run_dir, plan in zip(run_dirs, plans, strict=True):
         records = load_records(run_dir / "cells.jsonl")
         cells = screened_cells(records) if plan.screening else [obs for _on, obs in complete_pairs(records)]
-        runs.append({"run": run_dir.name, "plan": plan.digest(), "observe_cells": len(cells)})
+        dropped = 0
+        if regraded:
+            # Today's grader (regrade.py); a cell it could not re-grade is left out, not mixed in.
+            from truthstone.bench.codex.regrade import overrides
+
+            new = overrides(run_dir)
+            dropped = sum(1 for c in cells if c["cell_id"] not in new)
+            cells = [
+                {
+                    **c,
+                    "outcome": new[c["cell_id"]]["outcome"],
+                    "success": new[c["cell_id"]]["success"],
+                    "grade": {**(c.get("grade") or {}), "codes": new[c["cell_id"]]["codes"]},
+                }
+                for c in cells
+                if c["cell_id"] in new
+            ]
+        runs.append(
+            {"run": run_dir.name, "plan": plan.digest(), "observe_cells": len(cells), "not_regraded": dropped}
+        )
         observed += cells
     result = calibration([], observed)
     result["runs"] = runs

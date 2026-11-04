@@ -906,13 +906,31 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
 def _cmd_calibrate(args: argparse.Namespace) -> int:
     """The dev review's calibration table pooled over several runs (pilot + extended screen)."""
     try:
-        cal = report.pooled_calibration([Path(d) for d in args.run_dir])
-    except ValueError as exc:
+        cal = report.pooled_calibration([Path(d) for d in args.run_dir], regraded=args.regraded)
+    except (ValueError, FileNotFoundError) as exc:
         print(f"refusing to pool: {exc}")
         return 2
     if args.json:
         Path(args.json).write_text(json.dumps(cal, indent=2, default=str), encoding="utf-8")
     print(report.render_pooled_calibration(cal))
+    return 0
+
+
+def _cmd_regrade(args: argparse.Namespace) -> int:
+    """Re-grade a finished run under today's grader from each cell's pristine tree and diff."""
+    from truthstone.bench.codex import regrade
+
+    rows = regrade.regrade_run(Path(args.run_dir), python=args.python)
+    changed = [r for r in rows if "outcome" in r and r["outcome"] != r["stored_outcome"]]
+    problems = [r for r in rows if "problem" in r]
+    for r in changed:
+        print(f"{r['cell_id']:<64} {r['stored_outcome']:<18} -> {r['outcome']}")
+    print(
+        f"{len(rows)} valid cells re-graded: {len(changed)} changed outcome, {len(problems)} could not be "
+        f"re-graded; details in {Path(args.run_dir) / regrade.OUT}"
+    )
+    for r in problems:
+        print(f"  {r['cell_id']}: {r['problem']}")
     return 0
 
 
@@ -1133,8 +1151,16 @@ def build_parser() -> argparse.ArgumentParser:
         "calibrate", help="Dev review: observe-arm base rates pooled over runs of one suite (blind)."
     )
     p.add_argument("--run-dir", action="append", required=True, help="Repeat for each run to pool.")
+    p.add_argument(
+        "--regraded", action="store_true", help="Use each run's regrade.json (today's grader) for outcomes."
+    )
     p.add_argument("--json")
     p.set_defaults(func=_cmd_calibrate)
+
+    p = sub.add_parser("regrade", help="Re-grade a finished run under today's grader (no model).")
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--python", help="Interpreter with pytest for the task code.")
+    p.set_defaults(func=_cmd_regrade)
 
     p = sub.add_parser("analyze", help="Pre-registered analysis of a run directory.")
     p.add_argument("--run-dir", required=True, action="append")
