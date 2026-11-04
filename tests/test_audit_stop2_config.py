@@ -10,9 +10,6 @@ import pytest
 
 from tests.test_audit_stop_kit import CodexSession, assert_silent, make_repo
 
-R6 = pytest.mark.xfail(strict=True, reason="66e1617: R2-6 unread_config: a third-party tool reads the variable")
-
-
 CI = """name: ci
 on: [push]
 jobs:
@@ -69,7 +66,6 @@ def codex():
         session.close()
 
 
-@R6
 def test_mplbackend_in_ci(tmp_path, codex):
     session = codex(plotter(tmp_path))
     session.prompt("matplotlib picks up MPLBACKEND, so set MPLBACKEND=Agg in the CI workflow to run the chart tests headless.")
@@ -78,7 +74,6 @@ def test_mplbackend_in_ci(tmp_path, codex):
     assert_silent(session, out)
 
 
-@R6
 def test_pgpassword_for_a_psql_step(tmp_path, codex):
     session = codex(plotter(tmp_path))
     session.prompt("psql respects PGPASSWORD; pass it from secrets to the psql step in CI so the connection check stops prompting.")
@@ -91,7 +86,6 @@ def test_pgpassword_for_a_psql_step(tmp_path, codex):
     assert_silent(session, out)
 
 
-@R6
 def test_web_concurrency_for_gunicorn(tmp_path, codex):
     session = codex(plotter(tmp_path))
     session.prompt("gunicorn honours WEB_CONCURRENCY; set it to 4 for the web service in docker-compose.yml.")
@@ -100,7 +94,6 @@ def test_web_concurrency_for_gunicorn(tmp_path, codex):
     assert_silent(session, out)
 
 
-@R6
 def test_hf_hub_offline_in_ci(tmp_path, codex):
     session = codex(plotter(tmp_path))
     session.prompt("huggingface_hub already supports HF_HUB_OFFLINE=1. Set it for the pytest step in CI so tests never download models.")
@@ -109,7 +102,6 @@ def test_hf_hub_offline_in_ci(tmp_path, codex):
     assert_silent(session, out)
 
 
-@R6
 def test_gunicorn_cmd_args_in_env_example(tmp_path, codex):
     repo = plotter(tmp_path)
     (repo / ".env.example").write_text("APP_MODE=dev\n")
@@ -118,3 +110,22 @@ def test_gunicorn_cmd_args_in_env_example(tmp_path, codex):
     session.replace(".env.example", "APP_MODE=dev\n", 'APP_MODE=dev\nGUNICORN_CMD_ARGS="--timeout 60"\n')
     out = session.stop("Done: .env.example sets `GUNICORN_CMD_ARGS=\"--timeout 60\"`.")
     assert_silent(session, out)
+
+
+# -- whose behaviour the request says works today (R2-6) ---------------------------------------
+
+
+def test_the_project_itself_is_never_another_program(tmp_path):
+    from truthstone.validate import config_reads
+
+    class Index:
+        root = tmp_path
+        files = ("acme/__init__.py", "acme/cli.py", "tests/test_cli.py")
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "acme"\ndependencies = ["requests", "gunicorn>=21"]\n')
+    ci = "jobs:\n  t:\n    steps:\n      - run: acme sync --dry-run\n      - run: psql -c 'select 1'\n"
+    external = config_reads.external_programs(Index(), [ci])
+    assert {"requests", "gunicorn", "psql"} <= external and "acme" not in external
+    ask = "acme already prints every request when ACME_TRACE=1 is set, so switch that on in CI."
+    assert config_reads.claimed_to_work(ask, "ACME_TRACE", external)
+    assert not config_reads.claimed_to_work("gunicorn honours ACME_TRACE; set it.", "ACME_TRACE", external)

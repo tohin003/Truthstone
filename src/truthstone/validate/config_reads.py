@@ -46,6 +46,7 @@ import json
 import logging
 import re
 import tomllib
+from collections.abc import Iterable
 from pathlib import PurePosixPath
 
 from truthstone.core.enums import FailureMode, ReasonCategory, Severity
@@ -221,18 +222,93 @@ _WORKS_TODAY = re.compile(
 _REQUEST_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n\s*\n")
 
 
-def claimed_to_work(request: str, name: str) -> bool:
+def claimed_to_work(request: str, name: str, external: frozenset[str] = frozenset()) -> bool:
     """Whether a sentence of ``request`` names ``name`` and says the behaviour behind it works
-    today: an existing-behaviour word, or "when/if NAME=… / NAME is set" (the behaviour it gates)."""
+    today: an existing-behaviour word, or "when/if NAME=… / NAME is set" (the behaviour it gates).
+
+    Not when the subject of the existing-behaviour word is another program — a dependency, a
+    command the configuration runs (``external``): "matplotlib picks up MPLBACKEND", "psql
+    respects PGPASSWORD" say what that program reads, not the repository (audit R2-6)."""
     named = re.compile(rf"(?<![\w$]){re.escape(name)}(?![\w$])")
     gate = re.compile(
         rf"\b(?:when|if|once|whenever)\s+[`'\"]?{re.escape(name)}[`'\"]?\s*(?:=|is\s+(?:set|on|true|enabled))",
         re.IGNORECASE,
     )
     for sentence in _REQUEST_SENTENCE.split(request[:20_000]):
-        if named.search(sentence) and (_WORKS_TODAY.search(sentence) or gate.search(sentence)):
+        if not named.search(sentence):
+            continue
+        if gate.search(sentence):
             return True
+        works = _WORKS_TODAY.search(sentence)
+        if works is None:
+            continue
+        words = re.findall(r"[A-Za-z][\w.-]*", sentence[: works.start()])
+        while words and words[-1].lower() in ("already", "currently", "still", "also", "now"):
+            words.pop()
+        subject = _norm_name(words[-1]) if words else ""
+        if subject and subject in external:
+            continue
+        return True
     return False
+
+
+def _norm_name(name: str) -> str:
+    return name.lower().replace("-", "_").strip("`'\".,")
+
+
+_REQUIREMENT = re.compile(r"^\s*([A-Za-z0-9][\w.-]*)")
+_COMMAND = re.compile(
+    r"^\s*-?\s*run:\s*([\w./-]+)|^\s*command:\s*\[?\s*[\"']?([\w./-]+)|^\s*(?:CMD|ENTRYPOINT)\s*\[?\s*[\"']?([\w./-]+)",
+    re.MULTILINE,
+)
+
+
+def external_programs(index: RepoIndex, texts: Iterable[str]) -> frozenset[str]:
+    """The programs a request may name that are not this repository: its declared dependencies
+    (pyproject, requirements, package.json) and the commands its changed configuration runs
+    (CI ``run:``, compose ``command:``, ``CMD``). Never the repository's own names: its project
+    name and its top-level packages and modules. Bounded; never raises."""
+    found: set[str] = set()
+    project: dict = {}
+    try:
+        root = index.root
+        pyproject = root / "pyproject.toml"
+        if pyproject.is_file() and pyproject.stat().st_size <= MAX_FILE_BYTES:
+            data = tomllib.loads(pyproject.read_text(encoding="utf-8", errors="replace"))
+            project = data.get("project", {}) if isinstance(data.get("project"), dict) else {}
+            specs = list(project.get("dependencies", []) or [])
+            for extra in (project.get("optional-dependencies", {}) or {}).values():
+                specs += list(extra or [])
+            poetry = data.get("tool", {}).get("poetry", {}) if isinstance(data.get("tool"), dict) else {}
+            specs += list((poetry.get("dependencies", {}) or {}).keys())
+            for spec in specs:
+                match = _REQUIREMENT.match(str(spec))
+                if match:
+                    found.add(_norm_name(match.group(1)))
+        for path in list(index.files)[:MAX_SCAN_FILES]:
+            base = path.rpartition("/")[2].lower()
+            if base.startswith("requirements") and base.endswith(".txt"):
+                full = root / path
+                if full.stat().st_size <= MAX_FILE_BYTES:
+                    for line in full.read_text(encoding="utf-8", errors="replace").splitlines():
+                        match = _REQUIREMENT.match(line)
+                        if match and not line.lstrip().startswith(("-", "#")):
+                            found.add(_norm_name(match.group(1)))
+        package = root / "package.json"
+        if package.is_file() and package.stat().st_size <= MAX_FILE_BYTES:
+            data = json.loads(package.read_text(encoding="utf-8", errors="replace"))
+            for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+                found |= {_norm_name(dep.rpartition("/")[2]) for dep in (data.get(key) or {})}
+        for text in texts:
+            for match in _COMMAND.finditer(text or ""):
+                command = next(group for group in match.groups() if group)
+                found.add(_norm_name(command.rpartition("/")[2]))
+        own = {_norm_name(path.split("/", 1)[0].removesuffix(".py")) for path in index.files}
+        own.add(_norm_name(str(project.get("name") or "")))
+        found -= own
+    except Exception:  # noqa: BLE001 - unknown means nothing is external: the claim counts
+        return frozenset()
+    return frozenset(found)
 
 
 # -- who reads a name ----------------------------------------------------------------------------
@@ -360,7 +436,10 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
         for name in found:
             names.setdefault(name, path)
     request = f"{state.spec.prompt or ''}"
-    candidates = {name for name in names if not is_well_known(name) and claimed_to_work(request, name)}
+    external = external_programs(index, [after for _, after in texts.values() if after])
+    candidates = {
+        name for name in names if not is_well_known(name) and claimed_to_work(request, name, external)
+    }
     if not candidates:
         return []
     nobody, gave_up = unread(index, candidates, skip=set(changed))
