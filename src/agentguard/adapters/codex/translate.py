@@ -386,6 +386,14 @@ def _label(event: AgentEvent) -> str:
     return rel or path
 
 
+def _strictness(pair: tuple[AgentEvent, Decision]) -> tuple[int, int]:
+    """Rank by action, then by what observe mode says the action would have been (every
+    observe-mode decision is an ALLOW, so the would-have is what tells them apart)."""
+    decision = pair[1]
+    would_have = decision.would_have
+    return _STRICTNESS[decision.action], _STRICTNESS[would_have] if would_have is not None else -1
+
+
 def combine(results: list[tuple[AgentEvent, Decision]]) -> tuple[AgentEvent, Decision]:
     """One decision for a multi-file patch: the strictest wins, every concern is kept.
 
@@ -393,10 +401,25 @@ def combine(results: list[tuple[AgentEvent, Decision]]) -> tuple[AgentEvent, Dec
     single answer, so it takes the strictest action of any file, and its reason lists the
     concern for each file that had one — so the agent can address all of them at once
     rather than discovering them one retry at a time.
+
+    The answer *is* the strictest file's decision, copied, with only these fields merged:
+    the reason (every concern, labelled), findings, level, latency, context, and
+
+    * ``signoff_required`` — true if any file needs the developer's sign-off, together
+      with that file's ``signoff_code`` where decisions carry one. A sign-off must never
+      be lost on the way to a heuristic (``render.is_irreversible``) that may not
+      recognise it;
+    * ``would_have`` — the strictest of the files' would-haves (observe mode);
+    * ``updated_arguments`` — always dropped. A rewrite belongs to one action, and a
+      multi-file answer must never apply one file's rewrite to another.
+
+    Every other field — ``unverified_finish``, and any field added to ``Decision`` later —
+    rides along from the strictest decision unchanged.
     """
     if len(results) == 1:
         return results[0]
-    strictest_event, strictest = max(results, key=lambda pair: _STRICTNESS[pair[1].action])
+    ranked = sorted(results, key=_strictness, reverse=True)  # stable: file order breaks ties
+    strictest_event, strictest = ranked[0]
     concerns = [
         (event, decision)
         for event, decision in results
@@ -412,16 +435,26 @@ def combine(results: list[tuple[AgentEvent, Decision]]) -> tuple[AgentEvent, Dec
     else:
         reason = strictest.reason
     contexts = [d.additional_context for _, d in results if d.additional_context]
-    merged = Decision(
-        action=strictest.action,
-        reason=reason,
-        findings=[finding for _, decision in results for finding in decision.findings],
-        level=max(decision.level for _, decision in results),
-        latency_ms=sum(decision.latency_ms for _, decision in results),
-        additional_context="\n\n".join(dict.fromkeys(contexts)) or None,
-        decision_id=strictest.decision_id,
-    )
-    return strictest_event, merged
+    would_haves = [d.would_have for _, d in results if d.would_have is not None]
+    would_have = max(would_haves, key=_STRICTNESS.__getitem__) if would_haves else None
+    update: dict[str, Any] = {
+        "reason": reason,
+        "findings": [finding for _, decision in results for finding in decision.findings],
+        "level": max(decision.level for _, decision in results),
+        "latency_ms": sum(decision.latency_ms for _, decision in results),
+        "additional_context": "\n\n".join(dict.fromkeys(contexts)) or None,
+        "updated_arguments": None,
+        "would_have": would_have,
+    }
+    signoff = next((d for _, d in ranked if d.signoff_required), None)
+    if signoff is not None:
+        update["signoff_required"] = True
+        # The one-shot sign-off code travels with the file that needs it. Read through
+        # getattr: the field is newer than this adapter, and a decision type without it
+        # simply has nothing to carry.
+        if "signoff_code" in type(strictest).model_fields:
+            update["signoff_code"] = getattr(signoff, "signoff_code", None)
+    return strictest_event, strictest.model_copy(update=update, deep=True)
 
 
 def handle_payload(guard: Any, payload: dict[str, Any]) -> dict[str, Any]:
