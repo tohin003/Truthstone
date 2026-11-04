@@ -37,6 +37,8 @@ from agentguard.core.config import (
     DaemonSettings,
     Settings,
     agentguard_home,
+    configure_logging,
+    daemon_config_error,
     daemon_handshake_path,
     ensure_private_dir,
     get_or_create_token,
@@ -407,12 +409,26 @@ def run(host: str | None = None, port: int | None = None, log_level: str = "warn
 
     Defaults come from settings (fixed port, so the installed hook URL stays valid).
     Pass ``port=0`` to grab an ephemeral port — used by tests running daemons in parallel.
+
+    Without an explicit ``port``, an invalid ``[daemon]`` section is refused (exit 2)
+    rather than replaced by the default endpoint: the installed hooks post to the port the
+    developer configured, so a daemon on 8787 would leave every hook failing open in
+    silence (R11). The shim and the CLI spawn ``python -m agentguard.daemon run`` with no
+    port, so this is where that path is checked.
     """
     import socket
 
     import uvicorn
 
     settings = Settings.load()
+    if port is None:
+        problem = daemon_config_error(settings)
+        if problem:
+            sys.stderr.write(f"agentguard: {problem}\n")
+            raise SystemExit(2)
+    # `log_level` in config.toml governs AgentGuard's own loggers; before any other work,
+    # so the store and the index log at the configured level from the start.
+    configure_logging(settings)
     host = host if host is not None else settings.daemon.host
     port = port if port is not None else settings.daemon.port
     try:
