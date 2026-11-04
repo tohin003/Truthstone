@@ -238,6 +238,11 @@ grader on three scripted variants:
 
 ## 5. Model and effort: `gpt-6-luna`, medium
 
+> **Superseded by amendment A5 (2026-11-04).** The user decided the plan: first a golden
+> benchmark set, then the Codex study on `gpt-6.1-sol`, then the Claude Code study on
+> `claude-opus-5-5`. This section and §6 are kept unchanged as the registered history of
+> the luna design. The Sol design is in §15.
+
 **Chosen for budget.**
 - On the official rate card, GPT-6.1 Sol costs 20x GPT-6 Luna per uncached input and
   output token (50/2.5/250 vs 2.5/0.25/12.5 credits per 1M input, cached and output tokens).
@@ -260,6 +265,8 @@ grader on three scripted variants:
 later week.
 
 ## 6. Budget and N
+
+> **Superseded by amendment A5** (the luna budget; kept as history). See §15 for Sol.
 
 ### 6.1 What the Plus plan allows (sources)
 
@@ -578,3 +585,72 @@ uv sync --all-extras
 | A1 | 2026-11-04 | The suite moved, unchanged, from `bench/codex/` to `tests/fixtures/codex_bench/`. The digest is unchanged (paths are hashed relative to their own parents). | The bases contain test files, which gave AgentGuard's own repository a second test root and broke a census spec test that indexes the repository itself. |
 | A2 | 2026-11-04 | Inventory frozen: 32 tasks (20 headroom, 4 impossible, 8 control), digest `54f7eaa8…3628`. All 32 pass `validate` (96 graded variants). The task-level details (designs refined by the authors, mechanisms read in the source) are in each `task.toml`. | The suite was complete; §4.1 replaces the as-designed table. |
 | A3 | 2026-11-04 | (a) Smoke calibration recorded in §6.2. N unchanged. (b) The allowance pre-check and `allowance` command (§6.4), with a 0.1%-per-cell placeholder until the pilot measures it. (c) Leak detector: only untagged developer messages in AgentGuard's voice count as injected context (§3.4). (d) Pilot and smoke analyses are blind: no arm differences (§8). (e) `smoke` hard-caps live agent calls. | (a) Two live cells measured the cost. (b) The lead's requirement: refuse a study the allowance cannot finish. (c) Smoke run 1 halted on a false alarm, the skills listing present in both arms; re-attested offline, both cells pass. (d) Integrity of §8. (e) The day's limit of two live calls. |
+| A4 | 2026-11-04 | (a) The product is renamed Truthstone (previously named AgentGuard), by `scripts/rename_product.py`. The suite digest moves from `54f7eaa8…3628` to `1002d24e…9e0e`; reverting the name in the task files reproduces `54f7eaa8…3628` exactly: only `[opportunity].prediction` prose in 12 `task.toml` files changed, no prompt, fixture, grader or solution. Plans registered before the rename still load, their digests verified under the former spelling of the build-ref field. (b) A Claude Code host is added (`docs/BENCH-claude-plan.md`). (c) Instrument fix found by the preflight: the arm database name no longer follows the harness process's own (former-name) home. | (a) The user's decision. (b) The user approved a Claude Code study. (c) Without it every arm's evidence read came back empty after the rename. |
+| A5 | 2026-11-04 | The user decided the plan: **first a golden benchmark set, then the Codex study on `gpt-6.1-sol`, then the Claude Code study on `claude-opus-5-5`.** §5 and §6 (the luna design) are superseded and kept as history; the Sol design starts in §15. No Sol or Opus cell has run. | The user's decision, relayed by the lead. |
+
+## 15. Amendment A5: golden set, then `gpt-6.1-sol`, then `claude-opus-5-5`
+
+Draft until the golden set is frozen. Everything in §3, §7, §8 and the void rules carries
+over; what changes is the suite, the model, and therefore the budget and N.
+
+### 15.1 What a Sol cell costs (estimate; the dev split measures it)
+
+- **Rate card** (credits per 1M input / cached input / output tokens): `gpt-6.1-sol`
+  50 / 2.5 / 250, `gpt-6-luna` 2.5 / 0.25 / 12.5. Output includes reasoning.
+- **The two luna smoke cells, re-priced at Sol rates:** 207.5k input (195.7k cached) and
+  1.24k output cost 0.094 credits on luna and would cost **1.39** on Sol; 97.7k input
+  (86.1k cached) and 0.70k output cost 0.059 and would cost **0.97**. The same tokens cost
+  about 15x (cached input is 10x, the rest 20x).
+- **Suite average, medium effort:** ledger-tax-rounding is among the smallest tasks;
+  multi-file tasks read and test more. Working estimate **1.5-3 credits per cell**.
+- **`xhigh` effort** (the user's own `~/.codex/config.toml`): mostly more reasoning output
+  at 250 credits per 1M, plus more exploration. Working estimate **2-4x medium, about
+  3-10 credits per cell** (central 5).
+
+### 15.2 What a Plus week buys (estimate)
+
+- OpenAI publishes neither the 5-hour nor the weekly allowance in credits; it publishes
+  15-160 local messages per 5 hours for Sol on Plus (350-3,000 for luna). One cell is one
+  local message. Bounding the 5-hour allowance with those ranges and the measured cells
+  gives roughly 26-160 credits, central about 65 (the two luna cells moved the 5-hour
+  reading by less than its 1% resolution, consistent with this).
+- **Cells per 5-hour window:** medium about 20-45 (central 30, i.e. 15 pairs); `xhigh`
+  about 6-20 (central 13).
+- **Weekly ceiling:** unknown. Working assumption, to be measured: about 5 five-hour
+  windows' worth, central about 325 credits. With the 80% weekly stop line and about 10% of
+  cells void and re-run: **medium about 50 pairs a week (plausible range 20-130); `xhigh`
+  about 20-25 pairs (range 9-60).**
+- The windows reset on use: read at 12:18 IST on 2026-11-04, both were at 0%, the weekly
+  resetting 2026-11-11 12:18 IST. `allowance` reads them with no model call, and the runner
+  refuses a study the measured per-cell cost says the week cannot finish.
+
+### 15.3 What N detects
+
+Pairs needed for 80% power (exact McNemar, two-sided α = 0.05; the range runs from
+strongly correlated pairs, ρ = 0.6, to independent arms):
+
+| observe-arm false completions → guarded | opportunity pairs |
+|---|---|
+| 40% → 20% | 40-96 |
+| 30% → 15% | 56-132 |
+| 20% → 10% | 80-208 |
+
+Pebble's held-out Sol runs had 2 false completions in 75 coding-family runs (about 3%).
+At that base rate no affordable study detects anything. The golden set must create
+headroom on Sol deliberately, and a dev split must show it before the held-out split runs.
+
+### 15.4 Golden-set structure (recommendation to the lead)
+
+- **Two disjoint splits from the same families.** A dev (calibration) split is run, both
+  arms, to measure the observe-arm base rate per family, per-cell cost, window percent per
+  cell and false blocks, and to fix the instrument. Tasks and families are kept or reworked
+  on the observe arm's base rate and the instrument's behaviour, never on the guard effect.
+  The held-out (confirmatory) split is frozen, digested and registered before any of it
+  runs, and only it is analysed confirmatorily.
+- **Held-out on Sol at medium, one Plus week:** about 24 tasks (16 headroom, 4 impossible,
+  4-6 control) x 2 phrasings x 1 replicate = 48 pairs (96 cells). A second week adds
+  replicate 2 as a pre-registered extension. More distinct tasks beat more replicates: the
+  confirmatory interval is a task-cluster bootstrap.
+- **Dev:** about 16 tasks x 1 phrasing x 1 replicate, both arms: about 32 cells, one to two
+  days of windows.
+- At `xhigh` the same held-out split takes about two Plus weeks.
