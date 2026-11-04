@@ -8,8 +8,12 @@ Shared database:  ~/.agentguard/agentguard.db
 from __future__ import annotations
 
 import contextlib
+import copy
+import difflib
 import ipaddress
+import logging
 import os
+import re
 import secrets
 import stat
 import tomllib
@@ -27,18 +31,76 @@ _TRUSTED_SYSTEM_ALIASES = {
     Path("/tmp"): Path("/private/tmp"),
     Path("/var"): Path("/private/var"),
 }
+# The account that owns the operating system's own layout. A module constant so tests
+# can stand in for root without being root.
+_ROOT_UID = 0
 
 
 def _trusted_system_alias(path: Path, mode: int) -> bool:
-    """Allow macOS's root-owned /tmp and /var aliases, but no user symlink."""
+    """A symlink only the system could have placed — never a user's.
+
+    macOS's /tmp and /var aliases (by exact target), and any root-owned link inside a
+    root-owned directory nobody else can write: Fedora Silverblue's `/home -> var/home`,
+    FreeBSD's `/home -> usr/home`. Root can redirect anything anyway, so trusting root's
+    own links costs nothing, and refusing them made AgentGuard refuse to run on those
+    systems (R11).
+    """
     target = _TRUSTED_SYSTEM_ALIASES.get(path)
-    if target is None:
+    try:
+        info = os.lstat(path)
+        if target is not None:
+            return info.st_uid == 0 and mode & 0o022 == 0 and path.resolve(strict=False) == target
+        if info.st_uid != _ROOT_UID:
+            return False
+        parent = os.stat(path.parent)
+        return parent.st_uid == _ROOT_UID and not parent.st_mode & 0o022
+    except OSError:
+        return False
+
+
+def _trusted_home_link(path: Path) -> bool:
+    """For the configured home only: a link that root or this user placed, where nobody
+    else can swap it (an owner-only directory, or a sticky one such as /tmp)."""
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:  # pragma: no cover - Windows: no POSIX ownership to reason about
         return False
     try:
         info = os.lstat(path)
-        return info.st_uid == 0 and mode & 0o022 == 0 and path.resolve(strict=False) == target
+        if _trusted_system_alias(path, info.st_mode):
+            return True
+        parent = os.stat(path.parent)
     except OSError:
         return False
+    owners = (_ROOT_UID, getuid())
+    if info.st_uid not in owners or parent.st_uid not in owners:
+        return False
+    return not parent.st_mode & 0o022 or bool(parent.st_mode & stat.S_ISVTX)
+
+
+def _canonical_home(home: Path) -> Path:
+    """Resolve, then compare: a home reached through trusted symlinks becomes canonical.
+
+    A symlinked ancestor of the home — `/home -> var/home` on Silverblue, a dotfiles
+    manager's link — used to make AgentGuard refuse to run, because every private path
+    is checked for symlink components (they could redirect credentials). Resolve the
+    configured home once, here, when each link on the way is one root or this user
+    placed in a directory nobody else can change; everything downstream then uses the
+    canonical path and keeps refusing symlinks. Any other link leaves the path as it
+    was, so the private-path checks still refuse it with their usual error.
+    """
+    absolute = home if home.is_absolute() else Path.cwd() / home
+    links = []
+    current = absolute
+    while True:
+        with contextlib.suppress(OSError):
+            if stat.S_ISLNK(os.lstat(current).st_mode) and current not in _TRUSTED_SYSTEM_ALIASES:
+                links.append(current)
+        if current.parent == current:
+            break
+        current = current.parent
+    if links and all(_trusted_home_link(link) for link in links):
+        return Path(os.path.realpath(absolute))
+    return home
 
 
 def _assert_no_symlink_components(path: Path) -> None:
@@ -69,7 +131,15 @@ def _assert_no_symlink_components(path: Path) -> None:
 
 
 def agentguard_home() -> Path:
-    return Path(os.environ.get(ENV_HOME, Path.home() / ".agentguard")).expanduser()
+    """``AGENTGUARD_HOME``, or ``~/.agentguard``.
+
+    An empty value means unset, exactly as the shim and the Codex hook read it
+    (``environ.get(...) or default``): ``Path("")`` is the current directory, which put
+    the token in the project, chmod-ed it 0700, and disagreed with the shim's home.
+    """
+    raw = os.environ.get(ENV_HOME, "")
+    home = Path(raw).expanduser() if raw else Path.home() / ".agentguard"
+    return _canonical_home(home)
 
 
 def ensure_private_dir(path: Path | None = None) -> Path:
@@ -252,16 +322,6 @@ class DaemonSettings(BaseModel):
         return f"http://{host}:{self.port}"
 
 
-class LatencyBudget(BaseModel):
-    """SPEC §8 targets, expressed as enforceable numbers rather than aspirations."""
-
-    deterministic_ms: float = Field(100.0, ge=0)
-    repository_ms: float = Field(500.0, ge=0)
-    # Hard ceiling for a hook round trip. Past this the client fails open so the
-    # developer never waits on AgentGuard.
-    hook_timeout_ms: float = Field(2000.0, gt=0)
-
-
 class IndexSettings(BaseModel):
     max_file_bytes: int = Field(1_500_000, gt=0)
     max_files: int = Field(200_000, gt=0)
@@ -334,49 +394,248 @@ class ChallengeSettings(BaseModel):
         return normalized
 
 
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+# Keys that used to exist. Reported like any unknown key, with the reason it is ignored.
+_RETIRED_KEYS = {
+    "latency": "removed: nothing ever enforced it (hook timeouts are written into the hook "
+    "configuration by `agentguard install`)",
+}
+
+
 class Settings(BaseModel):
     enabled: bool = True
     # Phase 7's census switch. Every engine still runs and every finding is still
     # recorded; the agent hears none of it (see `core/observe.py`). Off by default —
     # while it is on, AgentGuard provides no protection at all.
     observe_only: bool = False
-    log_level: str = "INFO"
+    # Level for AgentGuard's own loggers ("agentguard.*"), applied by `configure_logging`
+    # in the daemon, whose stderr is daemon.log. WARNING is what was effectively
+    # printed before the setting did anything; DEBUG adds e.g. missing-grammar notes.
+    log_level: str = "WARNING"
     daemon: DaemonSettings = Field(default_factory=DaemonSettings)
-    latency: LatencyBudget = Field(default_factory=LatencyBudget)
     index: IndexSettings = Field(default_factory=IndexSettings)
     challenge: ChallengeSettings = Field(default_factory=ChallengeSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     disk: DiskSettings = Field(default_factory=DiskSettings)
-    _config_warning: str | None = PrivateAttr(default=None)
+    _config_warnings: list[str] = PrivateAttr(default_factory=list)
+    _unknown_keys: list[str] = PrivateAttr(default_factory=list)
+    _daemon_config_error: str | None = PrivateAttr(default=None)
+
+    @field_validator("log_level")
+    @classmethod
+    def valid_log_level(cls, value: str) -> str:
+        level = value.strip().upper()
+        level = "WARNING" if level == "WARN" else level
+        if level not in _LOG_LEVELS:
+            raise ValueError(f"log_level must be one of {', '.join(_LOG_LEVELS)}")
+        return level
 
     @property
     def config_warning(self) -> str | None:
         """A non-fatal config load problem, for diagnostics such as ``doctor``."""
-        return self._config_warning
+        if not self._config_warnings:
+            return None
+        more = len(self._config_warnings) - 1
+        return self._config_warnings[0] + (f" (and {more} more)" if more else "")
+
+    @property
+    def config_warnings(self) -> list[str]:
+        """One entry per rejected value or unreadable file; each says what was used instead."""
+        return list(self._config_warnings)
+
+    @property
+    def unknown_keys(self) -> list[str]:
+        """Dotted keys in config.toml that no setting reads (typos, retired settings)."""
+        return list(self._unknown_keys)
 
     @classmethod
     def load(cls, path: Path | None = None) -> Settings:
+        """Read config.toml. Never raises, and never discards more than it must.
+
+        A rejected value falls back to its own default and is reported; every other
+        value in the file still applies. (One bad value used to discard the whole file,
+        so `max_per_task = -1` silently moved a configured port back to 8787, away from
+        the port the installed hooks point at.)
+        """
         path = path or (agentguard_home() / "config.toml")
         data: dict[str, Any] = {}
-        warning: str | None = None
+        warnings: list[str] = []
+        unreadable_daemon = False
         if path.exists():
             try:
-                data = tomllib.loads(path.read_text(encoding="utf-8"))
-            except (tomllib.TOMLDecodeError, OSError, UnicodeError) as exc:
-                # A broken config must never stop the agent from working.
-                data = {}
-                warning = f"could not read {path}: {exc}"
-        try:
-            settings = cls.model_validate(data)
-        except ValidationError as exc:
-            # A malformed config must not crash the hook process. Fall back to safe
-            # defaults, notably the loopback daemon host, rather than accepting an
-            # unsafe/ambiguous network binding.
-            settings = cls()
-            warning = f"invalid configuration in {path}: {exc.errors()[0].get('msg', 'validation failed')}"
-        settings._config_warning = warning
+                raw = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                warnings.append(f"could not read {path}: {exc}; using built-in defaults")
+                raw = None
+            if raw is not None:
+                try:
+                    data = tomllib.loads(raw)
+                except tomllib.TOMLDecodeError as exc:
+                    # A broken config must never stop the agent from working.
+                    warnings.append(f"could not parse {path}: {exc}; using built-in defaults")
+                    unreadable_daemon = bool(_DAEMON_MENTION.search(raw))
+        settings, invalid, rejections = cls._validate_leniently(data, path)
+        settings._config_warnings = warnings + rejections
+        settings._unknown_keys = _unknown_keys(cls, data)
+        daemon_invalid = [key for key in invalid if key == "daemon" or key.startswith("daemon.")]
+        if daemon_invalid:
+            settings._daemon_config_error = (
+                f"{', '.join(daemon_invalid)} in {path} is invalid; refusing to start the daemon on a "
+                f"default endpoint the installed hooks may not point at. Fix [daemon] in {path}, "
+                "then re-run `agentguard install claude` if the port changed."
+            )
+        elif unreadable_daemon:
+            settings._daemon_config_error = (
+                f"{path} cannot be parsed and it configures [daemon]; refusing to start the daemon on "
+                f"a guessed endpoint. Fix {path} first."
+            )
         if is_globally_disabled():
             settings.enabled = False
         if is_observe_only():
             settings.observe_only = True
         return settings
+
+    @classmethod
+    def _validate_leniently(cls, data: dict[str, Any], path: Path) -> tuple[Settings, list[str], list[str]]:
+        """Validate, dropping each rejected value so its default applies. Returns
+        (settings, rejected dotted keys, one warning per rejected key)."""
+        data = copy.deepcopy(data)
+        defaults = cls()
+        invalid: list[str] = []
+        warnings: list[str] = []
+        for _ in range(64):  # each round drops at least one key; a config has few
+            try:
+                return cls.model_validate(data), invalid, warnings
+            except ValidationError as exc:
+                dropped = False
+                for error in exc.errors():
+                    key = _field_path(error.get("loc", ()))
+                    if not key or not _drop(data, key):
+                        continue
+                    dropped = True
+                    dotted = ".".join(key)
+                    invalid.append(dotted)
+                    default = _default_at(defaults, key)
+                    shown = "its defaults" if isinstance(default, BaseModel) else f"the default {default!r}"
+                    warnings.append(
+                        f"{dotted} = {_short_repr(error.get('input'))} in {path} is invalid "
+                        f"({error.get('msg', 'validation failed')}); using {shown}"
+                    )
+                if not dropped:
+                    break
+        # Unreachable for the current model (every field has a default); kept so a
+        # future model-level validator can never turn a bad file into a crash.
+        warnings.append(f"invalid configuration in {path}; using built-in defaults")
+        return cls(), ["*"], warnings
+
+
+# `[daemon]`, `daemon.port = …` or `daemon = {…}` in a file too broken to parse.
+_DAEMON_MENTION = re.compile(r"(?m)^\s*(\[\s*daemon\s*\]|daemon\s*[.=])")
+
+
+def _field_path(loc: tuple[Any, ...]) -> tuple[str, ...]:
+    """The setting a validation error belongs to: its location up to any list index."""
+    path: list[str] = []
+    for part in loc:
+        if not isinstance(part, str):
+            break
+        path.append(part)
+    return tuple(path)
+
+
+def _drop(data: dict[str, Any], key: tuple[str, ...]) -> bool:
+    node: Any = data
+    for part in key[:-1]:
+        node = node.get(part) if isinstance(node, dict) else None
+    if isinstance(node, dict) and key[-1] in node:
+        del node[key[-1]]
+        return True
+    return False
+
+
+def _default_at(settings: BaseModel, key: tuple[str, ...]) -> Any:
+    value: Any = settings
+    for part in key:
+        value = getattr(value, part, None)
+    return value
+
+
+def _short_repr(value: Any, limit: int = 60) -> str:
+    text = repr(value)
+    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
+
+def _model_fields(model: type[BaseModel]) -> dict[str, type[BaseModel] | None]:
+    """Field name -> nested settings model (or None for a plain value)."""
+    out: dict[str, type[BaseModel] | None] = {}
+    for name, field in model.model_fields.items():
+        annotation = field.annotation
+        nested = annotation if isinstance(annotation, type) and issubclass(annotation, BaseModel) else None
+        out[name] = nested
+    return out
+
+
+def _unknown_keys(model: type[BaseModel], data: Any, prefix: str = "") -> list[str]:
+    if not isinstance(data, dict):
+        return []
+    fields = _model_fields(model)
+    unknown: list[str] = []
+    for key, value in data.items():
+        dotted = f"{prefix}{key}"
+        if key not in fields:
+            if isinstance(value, dict) and value:
+                unknown.extend(f"{dotted}.{inner}" for inner in value)
+            else:
+                unknown.append(dotted)
+            continue
+        nested = fields[key]
+        if nested is not None:
+            unknown.extend(_unknown_keys(nested, value, f"{dotted}."))
+    return unknown
+
+
+def describe_unknown_key(key: str) -> str:
+    """Why an unknown key is ignored, with a "did you mean" for a near miss."""
+    parts = key.split(".")
+    if parts[0] in _RETIRED_KEYS:
+        return f"{key} is ignored: {_RETIRED_KEYS[parts[0]]}"
+    model: type[BaseModel] | None = Settings
+    for depth, part in enumerate(parts):
+        fields = _model_fields(model) if model is not None else {}
+        if part not in fields:
+            guess = difflib.get_close_matches(part, list(fields), n=1, cutoff=0.6)
+            if guess:
+                return f"{key} is ignored (did you mean {'.'.join([*parts[:depth], guess[0]])}?)"
+            return f"{key} is ignored (no such setting)"
+        model = fields[part]
+    return f"{key} is ignored"
+
+
+def daemon_config_error(settings: Settings | None = None) -> str | None:
+    """Why the daemon must not start on the configured endpoint, or ``None``.
+
+    The hook URL is baked into the host's settings at install time. If `[daemon]` in
+    config.toml is invalid (or unreadable), falling back to 127.0.0.1:8787 would bind a
+    port the installed hooks may not point at, and every hook would fail open in
+    silence. The daemon should refuse with this message instead (R11); `doctor` reports
+    it, and `install` refuses to bake a guessed URL into the hooks.
+    """
+    settings = settings if settings is not None else Settings.load()
+    return settings._daemon_config_error
+
+
+def configure_logging(settings: Settings | None = None) -> None:
+    """Apply ``log_level`` to the ``agentguard`` loggers of this process.
+
+    Meant for the daemon (its stderr is daemon.log). Adds a stderr handler only when
+    nothing in the process has configured logging, so an embedding application's
+    handlers are left alone.
+    """
+    settings = settings if settings is not None else Settings.load()
+    logger = logging.getLogger("agentguard")
+    logger.setLevel(getattr(logging, settings.log_level, logging.WARNING))
+    if not logger.handlers and not logging.getLogger().handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logger.addHandler(handler)

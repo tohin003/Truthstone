@@ -7,8 +7,11 @@ So the CLI is deliberately small. The commands that matter are `install`, `docto
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -19,8 +22,12 @@ import typer
 from agentguard.core.config import (
     Settings,
     agentguard_home,
+    configure_logging,
+    daemon_config_error,
+    describe_unknown_key,
     ensure_private_dir,
     get_or_create_token,
+    token_path,
     write_private_text,
 )
 
@@ -62,7 +69,18 @@ def daemon_run(
     """Run the daemon in the foreground."""
     from agentguard.daemon.app import run
 
+    settings = Settings.load()
+    _refuse_invalid_daemon_endpoint(settings, explicit_port=port is not None)
+    configure_logging(settings)
     run(host=host, port=port, log_level=log_level)
+
+
+def _refuse_invalid_daemon_endpoint(settings: Settings, explicit_port: bool = False) -> None:
+    """Never start (or install hooks for) a guessed endpoint: the hooks would miss it (R11)."""
+    problem = None if explicit_port else daemon_config_error(settings)
+    if problem:
+        _bad(problem)
+        raise typer.Exit(2)
 
 
 @daemon_app.command("start")
@@ -81,6 +99,8 @@ def daemon_start(timeout: float = typer.Option(10.0, help="Seconds to wait for r
             hs = read_handshake() or {}
             _echo(f"already running (pid {hs.get('pid')}) on {hs.get('host')}:{hs.get('port')}")
             raise typer.Exit(0)
+
+        _refuse_invalid_daemon_endpoint(Settings.load())
 
         from agentguard.adapters.claude_code.shim import daemon_python_argv
 
@@ -209,8 +229,13 @@ def install_cmd(
         _bad(str(exc))
         raise typer.Exit(2) from exc
 
+    # The hook URL is baked into Claude's settings from [daemon]. An invalid [daemon]
+    # would bake in the default port, which the daemon then refuses to serve (R11).
+    settings = Settings.load()
+    _refuse_invalid_daemon_endpoint(settings)
+
     try:
-        result, changed = inst.install(path, dry_run=dry_run)
+        result, changed = inst.install(path, settings=settings, dry_run=dry_run)
     except RuntimeError as exc:
         _bad(str(exc))
         raise typer.Exit(1) from exc
@@ -336,35 +361,163 @@ def uninstall_cmd(
 # ---------------------------------------------------------------- diagnostics
 
 
+# Languages whose symbols, imports and blast radius come from the optional tree-sitter
+# grammars (the `treesitter` extra). Python needs nothing: it uses the stdlib `ast`.
+_TREESITTER_EXTENSIONS = frozenset(
+    {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs", ".java", ".rb"}
+)
+
+
+class _DoctorReport:
+    """Counts problems; runs each section so that one failing never stops the rest."""
+
+    def __init__(self) -> None:
+        self.problems = 0
+        self._first = True
+
+    def bad(self, msg: str) -> None:
+        _bad(msg)
+        self.problems += 1
+
+    def section(self, title: str | None, check, default=None):
+        if title is not None:
+            _echo(title if self._first else f"\n{title}")
+            self._first = False
+        try:
+            return check()
+        except Exception as exc:  # noqa: BLE001 - doctor reports a broken check, never crashes
+            self.bad(f"{title or 'this check'} could not be completed: {type(exc).__name__}: {exc}")
+            return default
+
+
+@contextlib.contextmanager
+def _quiet_agentguard_logs():
+    """Doctor reports problems itself; the store's log lines would only repeat them."""
+    logger = logging.getLogger("agentguard")
+    previous = logger.level
+    logger.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        logger.setLevel(previous)
+
+
 @app.command("doctor")
 def doctor() -> None:
-    """Check that everything AgentGuard needs is present and wired up."""
+    """Check that everything AgentGuard needs is present and wired up.
+
+    Each section is independent: one that cannot complete (a corrupted database, an
+    unreadable settings file) is reported as a problem and the others still run.
+    """
+    report = _DoctorReport()
+    try:
+        settings = Settings.load()
+    except Exception as exc:  # noqa: BLE001 - e.g. no resolvable home directory
+        settings = Settings()
+        report.bad(f"could not load the configuration ({type(exc).__name__}: {exc}); checking defaults")
+
+    with _quiet_agentguard_logs():
+        report.section("environment", lambda: _doctor_environment(report, settings))
+        report.section("config", lambda: _doctor_config(report, settings))
+        report.section("storage", lambda: _doctor_storage(report))
+        report.section("daemon", lambda: _doctor_daemon(report, settings))
+        installed_anywhere = report.section(
+            "claude code", lambda: _doctor_claude_hooks(report, settings), default=False
+        )
+        plugin_active = report.section(None, lambda: _doctor_plugin(bool(installed_anywhere)), default=False)
+        codex_attached, codex_problems = report.section(None, _doctor_codex, default=(False, 0))
+        report.problems += codex_problems
+        if not installed_anywhere and not plugin_active and not codex_attached:
+            report.bad("no Claude Code or Codex hooks installed — this project is currently unguarded")
+
+    _echo()
+    if report.problems:
+        _bad(f"{report.problems} problem(s) found")
+        raise typer.Exit(1)
+    _ok("ready")
+
+
+def _doctor_environment(report: _DoctorReport, settings: Settings) -> None:
     import shutil
-    import socket
 
-    from agentguard.adapters.claude_code import install as inst
-    from agentguard.daemon.app import daemon_is_alive, read_handshake
-
-    settings = Settings.load()
-    problems = 0
-
-    _echo("environment")
     _ok(f"python {sys.version.split()[0]}")
-    for tool, required in (("git", True), ("rg", False)):
-        if shutil.which(tool):
-            _ok(f"{tool} found")
-        elif required:
-            _bad(f"{tool} not found — git evidence will be unavailable")
-            problems += 1
-        else:
-            _warn(f"{tool} not found — falling back to a slower filesystem walk")
+    if shutil.which("git"):
+        _ok("git found")
+    else:
+        report.bad("git not found — git evidence will be unavailable")
+    # (No `rg` check: nothing in AgentGuard runs ripgrep.)
+    if _treesitter_available():
+        _ok("tree-sitter grammars installed (JS/TS, Go, Rust, Java and Ruby symbols)")
+        return
+    counts = _files_needing_treesitter(Path.cwd(), set(settings.index.exclude_dirs))
+    if counts:
+        listed = ", ".join(f"{n} {ext}" for ext, n in sorted(counts.items(), key=lambda kv: -kv[1])[:4])
+        _warn(
+            f"the tree-sitter extra is not installed, and this project has {listed} files: they get "
+            "no symbols, imports or blast radius, so a hallucinated reference in them goes unchallenged. "
+            "Install AgentGuard with its `treesitter` extra (agentguard[treesitter])."
+        )
+    else:
+        _echo("  · tree-sitter extra not installed (not needed here: no JS/TS/Go/Rust/Java/Ruby files)")
 
-    _echo("\nconfig")
+
+def _treesitter_available() -> bool:
+    """Whether the optional grammars are importable, without importing them."""
+    import importlib.util
+
+    try:
+        return all(
+            importlib.util.find_spec(name) is not None
+            for name in ("tree_sitter", "tree_sitter_language_pack")
+        )
+    except (ImportError, ValueError):
+        return False
+
+
+def _files_needing_treesitter(root: Path, excluded: set[str], budget: int = 20_000) -> dict[str, int]:
+    """Source files tree-sitter would parse under ``root``, by extension.
+
+    Bounded: stops after ``budget`` directory entries, so doctor stays fast even when
+    run from $HOME or a huge monorepo.
+    """
+    counts: dict[str, int] = {}
+    stack = [root]
+    seen = 0
+    while stack and seen < budget:
+        try:
+            entries = os.scandir(stack.pop())
+        except OSError:
+            continue
+        with entries:
+            for entry in entries:
+                seen += 1
+                if seen >= budget:
+                    break
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        if entry.name not in excluded and not entry.name.startswith("."):
+                            stack.append(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        ext = os.path.splitext(entry.name)[1].lower()
+                        if ext in _TREESITTER_EXTENSIONS:
+                            counts[ext] = counts.get(ext, 0) + 1
+                except OSError:
+                    continue
+    return counts
+
+
+def _doctor_config(report: _DoctorReport, settings: Settings) -> None:
     _echo(f"  home: {agentguard_home()}")
     _echo(f"  daemon: {settings.daemon.base_url}")
-    if settings.config_warning:
-        _warn(f"using safe defaults because {settings.config_warning}")
-        problems += 1
+    for warning in settings.config_warnings:
+        _warn(warning)
+    if settings.config_warnings:
+        report.problems += 1
+    for key in settings.unknown_keys:
+        _warn(describe_unknown_key(key))
+    endpoint_problem = daemon_config_error(settings)
+    if endpoint_problem:
+        report.bad(endpoint_problem)
     if not settings.enabled:
         _warn("AgentGuard is DISABLED (AGENTGUARD_DISABLE is set, or config says enabled=false)")
     elif settings.observe_only:
@@ -373,67 +526,153 @@ def doctor() -> None:
         # to prevent, arrived at from the other direction.
         _warn("OBSERVE-ONLY is on — findings are recorded but nothing is ever said")
 
-    _echo("\nstorage")
+
+def _doctor_storage(report: _DoctorReport) -> None:
     from agentguard.core.store import Database
 
     stats = Database.shared().stats()
-    if settings.config_warning:
-        _bad(settings.config_warning)
-        problems += 1
+    if not stats:
+        report.bad("could not read the database statistics")
+        return
     _echo(f"  {stats['path']}  ({stats['size_mb']} MB)")
     if stats.get("degraded_reason"):
-        _bad(f"persistence is OFF (guarding continues): {stats['degraded_reason']}")
-        problems += 1
+        report.bad(f"persistence is OFF (guarding continues): {stats['degraded_reason']}")
     if stats["disk_state"] == "healthy":
         _ok(f"{stats['free_disk_mb']:.0f} MB free")
     elif stats["disk_state"] == "low":
         _warn(f"{stats['free_disk_mb']:.0f} MB free — pruning aggressively")
     else:
-        _bad(f"{stats['free_disk_mb']:.0f} MB free — persistence paused (guarding continues)")
-        problems += 1
+        report.bad(f"{stats['free_disk_mb']:.0f} MB free — persistence paused (guarding continues)")
 
-    _echo("\ndaemon")
-    if daemon_is_alive():
-        hs = read_handshake() or {}
-        _ok(f"running (pid {hs.get('pid')}) on http://{hs.get('host')}:{hs.get('port')}")
-    else:
+
+def _doctor_daemon(report: _DoctorReport, settings: Settings) -> None:
+    import socket
+
+    from agentguard.adapters.codex.hook import _health
+    from agentguard.daemon.app import daemon_is_alive, read_handshake
+
+    if not daemon_is_alive():
         _warn("not running — start it with `agentguard daemon start`")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.2)
             if s.connect_ex((settings.daemon.host, settings.daemon.port)) == 0:
-                _bad(
+                report.bad(
                     f"port {settings.daemon.port} is occupied by something else — "
                     "change [daemon].port in config.toml and re-run `agentguard install`"
                 )
-                problems += 1
+        return
 
-    _echo("\nclaude code")
+    hs = read_handshake() or {}
+    _ok(f"running (pid {hs.get('pid')}) on http://{hs.get('host')}:{hs.get('port')}")
+    if hs.get("port") != settings.daemon.port or hs.get("host") != settings.daemon.host:
+        report.bad(
+            f"it listens on {hs.get('host')}:{hs.get('port')} but config.toml says "
+            f"{settings.daemon.host}:{settings.daemon.port}, which is where installed hooks post — "
+            "restart it: agentguard daemon stop && agentguard daemon start"
+        )
+    token = _read_token()
+    running_token = hs.get("token")
+    if token is not None and isinstance(running_token, str) and not _same_secret(running_token, token):
+        report.bad(
+            f"it runs with a different token than {token_path()}, so it rejects hooks installed "
+            "since — restart it: agentguard daemon stop && agentguard daemon start"
+        )
+
+    health = _health(hs)
+    if health is None:
+        _warn("could not read the daemon's /health")
+        return
+    restart = "restart it to pick up the current settings: agentguard daemon stop && agentguard daemon start"
+    if health.get("enabled") is False:
+        if settings.enabled:
+            report.bad(f"the running daemon is DISABLED (started with AGENTGUARD_DISABLE?) — {restart}")
+        else:
+            _warn("the running daemon is DISABLED")
+    if health.get("observing") is True:
+        if not settings.observe_only:
+            report.bad(
+                "the running daemon is OBSERVE-ONLY, so no session is guarded "
+                f"(started with AGENTGUARD_OBSERVE?) — {restart}"
+            )
+        else:
+            _warn("the running daemon is OBSERVE-ONLY: findings are recorded, nothing is said")
+    degraded = health.get("degraded")
+    if isinstance(degraded, list):
+        for reason in degraded[:5]:
+            _warn(f"degraded: {reason}")
+
+
+def _read_token() -> str | None:
+    """The token file's content, read-only; ``None`` when there is none (never creates it)."""
+    path = token_path()
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8").strip() or None
+    except (OSError, UnicodeError):
+        return None
+
+
+def _same_secret(a: str, b: str) -> bool:
+    # Bytes, not str: compare_digest raises on non-ASCII str (R16).
+    return secrets.compare_digest(a.encode("utf-8", "surrogatepass"), b.encode("utf-8", "surrogatepass"))
+
+
+def _claude_hook_mismatches(path: Path, settings: Settings, token: str | None) -> list[str]:
+    """How the AgentGuard http hooks in one Claude settings file disagree with this
+    install: the URL they post to, and the bearer token they carry. Read-only."""
+    from agentguard.adapters.claude_code import settings_scan
+
+    data = settings_scan.load_json(path)
+    hooks = data.get("hooks") if isinstance(data, dict) else None
+    urls: set[str] = set()
+    auths: list[object] = []
+    for groups in hooks.values() if isinstance(hooks, dict) else ():
+        for group in groups if isinstance(groups, list) else ():
+            entries = group.get("hooks") if isinstance(group, dict) else None
+            for hook in entries if isinstance(entries, list) else ():
+                if settings_scan.is_ours_hook(hook) and hook.get("type") == "http":
+                    urls.add(str(hook.get("url")))
+                    headers = hook.get("headers")
+                    auths.append(headers.get("Authorization") if isinstance(headers, dict) else None)
+    problems = []
+    expected = f"{settings.daemon.base_url}/hook/claude-code"
+    stray = sorted(url for url in urls if url != expected)
+    if stray:
+        problems.append(f"post to {stray[0]}, but the daemon is configured for {expected}")
+    if auths and token is None:
+        problems.append(f"carry a token, but {token_path()} does not exist")
+    elif auths and not all(isinstance(a, str) and _same_secret(a, f"Bearer {token}") for a in auths):
+        problems.append(
+            f"carry a different token than {token_path()} (installed from another AGENTGUARD_HOME?), "
+            "so the daemon rejects every one of them and nothing is guarded"
+        )
+    return problems
+
+
+def _doctor_claude_hooks(report: _DoctorReport, settings: Settings) -> bool:
+    """The settings-hooks half of the Claude Code section. Returns whether any are installed."""
+    from agentguard.adapters.claude_code import install as inst
+
+    token = _read_token()
+    installed_anywhere = False
     for label, path in (
         ("global", inst.global_settings_path()),
         ("project", inst.project_settings_path()),
     ):
-        if inst.is_installed(path):
-            _ok(f"{label} hooks installed ({path})")
-        else:
+        if not inst.is_installed(path):
             _echo(f"  · {label} hooks not installed ({path})")
-
-    installed_anywhere = any(
-        inst.is_installed(path)
-        for path in (inst.global_settings_path(), inst.project_settings_path())
-    )
-    plugin_active = _doctor_plugin(installed_anywhere)
-
-    codex_attached, codex_problems = _doctor_codex()
-    problems += codex_problems
-    if not installed_anywhere and not plugin_active and not codex_attached:
-        _bad("no Claude Code or Codex hooks installed — this project is currently unguarded")
-        problems += 1
-
-    _echo()
-    if problems:
-        _bad(f"{problems} problem(s) found")
-        raise typer.Exit(1)
-    _ok("ready")
+            continue
+        installed_anywhere = True
+        mismatches = _claude_hook_mismatches(path, settings, token)
+        if mismatches:
+            report.bad(
+                f"{label} hooks in {path} {'; they '.join(mismatches)} — re-run "
+                f"`agentguard install claude --{label}`"
+            )
+        else:
+            _ok(f"{label} hooks installed ({path})")
+    return installed_anywhere
 
 
 def _doctor_codex() -> tuple[bool, int]:
