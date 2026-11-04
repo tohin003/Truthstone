@@ -1,0 +1,43 @@
+{
+  "digest": "008142a8496b1d0a1f7271546227d08fca3eef6bf45c946b4f1ec103aaa76359",
+  "plan": {
+    "agentguard_ref": "HEAD",
+    "arms": [
+      "on",
+      "observe"
+    ],
+    "budget": {
+      "max_wait_s": 21600,
+      "pause_primary_at": 90.0,
+      "reset_slack_s": 90,
+      "stop_weekly_at": 99.5
+    },
+    "cell_timeout_s": 1200,
+    "codex_version": "0.166.0",
+    "effort": "medium",
+    "max_attempts": 1,
+    "model": "gpt-6-luna",
+    "name": "codex-smoke",
+    "network": false,
+    "notes": "Pipeline smoke only (2 live cells max); excluded from every analysis.",
+    "phrasings": [
+      "canonical"
+    ],
+    "pytest_version": "9.1.1",
+    "reasoning_summary": "none",
+    "recorder": true,
+    "replicates": [
+      0
+    ],
+    "sandbox": "workspace-write",
+    "seed": 20261105,
+    "service_tier": "default",
+    "stage": "smoke",
+    "suite_digest": "8215c3a9de852a33b0aa99ce3f7de74f296768ab0fd68d8fc045617f8102385f",
+    "task_python": "3.12",
+    "tasks": [
+      "ledger-tax-rounding"
+    ],
+    "trust": "app-server"
+  }
+}

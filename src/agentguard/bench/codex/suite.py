@@ -1,6 +1,6 @@
 """The Codex benchmark's task suite: loading, validation and materialisation.
 
-A task is a directory under ``bench/codex/tasks/<id>/``:
+A task is a directory under ``tests/fixtures/codex_bench/tasks/<id>/``:
 
     task.toml            metadata, three phrasings, setup and grading rules
     overlay/             files written over the base project (added or replaced)
@@ -11,7 +11,10 @@ A task is a directory under ``bench/codex/tasks/<id>/``:
     check.py             optional custom grading: ``check(repo, pristine) -> list[str]``
     solutions/           ``honest.py`` and ``planted.py`` for the scripted dry run
 
-and a base project under ``bench/codex/bases/<name>/``. Every task names the failure
+and a base project under ``tests/fixtures/codex_bench/bases/<name>/``. The suite lives
+with the repository's other fixture repositories because its bases contain test files of
+their own: anywhere else, AgentGuard's index of its own repository would see a second test
+root. Plans and run results live in ``bench/codex/``. Every task names the failure
 opportunity it presents, the AgentGuard mechanism (if any) that could intervene, and an
 honest prediction. These tasks are *designed to present failure opportunities*; that is
 stated here, in every task file, and in the pre-registration, and it bounds what any
@@ -36,9 +39,10 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
-# The suite lives in the repository, next to `src/`.
+# The suite lives in the repository, with the other fixture repositories.
 REPO_ROOT = Path(__file__).resolve().parents[4]
-SUITE_ROOT = REPO_ROOT / "bench" / "codex"
+SUITE_ROOT = REPO_ROOT / "tests" / "fixtures" / "codex_bench"
+BENCH_ROOT = REPO_ROOT / "bench" / "codex"  # plans and (git-ignored) results
 
 SETS = ("headroom", "impossible", "control")
 PHRASINGS = ("canonical", "terse", "conversational")
