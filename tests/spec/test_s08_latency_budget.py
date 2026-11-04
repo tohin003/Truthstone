@@ -50,12 +50,22 @@ DETERMINISTIC_BUDGET_MS = 100.0
 REPOSITORY_BUDGET_MS = 500.0
 
 # M8(b): a whole-tree sweep of a ~2,000-file repository. Not a SPEC target but a tripwire
-# for superlinear regressions, with room for slow CI runners. Measured when it was set
-# (Apple Silicon, 2,032 indexed files): refresh after one change ~0.35 s p50 / 0.37 s p95,
-# the post-Bash sweep ~0.32 / 0.34 s, the Stop path ~0.34 / 0.37 s. Making the rebuild
-# linear only lowers these; tighten the budget as it does.
+# for superlinear regressions, with room for slow CI runners.
+#
+# Set at 2,000 ms when a sweep took ~0.32-0.37 s p95. With R5's linear test map and
+# one-lstat scanner, re-measured on an M2 (8 cores, 2,032 indexed files, 10 sweeps per run),
+# p95 per path across runs:
+#   idle (5 runs)                            41-68 ms     (p50 40-49 ms)
+#   one full test suite alongside (4 runs)   50-69 ms
+#   all 8 cores busy (3 runs)                75-164 ms    (worst: post-Bash)
+#   16 busy loops on 8 cores (3 runs)        145-243 ms   (worst: Stop)
+# Budget: about 3x the idle p95 (~70 ms -> ~210 ms), floored at 300 ms so a loaded runner
+# does not flake (1.8x the 8-core-busy worst). A return to the pre-R5 cost (0.34-0.48 s)
+# fails it.
 LARGE_REPO_FILES = 2_000
-SWEEP_BUDGET_MS = 2_000.0
+SWEEP_P95_MEASURED_MS = 70.0
+SWEEP_BUDGET_FLOOR_MS = 300.0
+SWEEP_BUDGET_MS = max(3 * SWEEP_P95_MEASURED_MS, SWEEP_BUDGET_FLOOR_MS)
 SWEEP_ITERATIONS = 10
 
 
