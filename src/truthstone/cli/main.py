@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -1457,6 +1458,65 @@ def version_cmd() -> None:
     from truthstone import __version__
 
     _echo(__version__)
+
+
+@app.command("replay")
+def replay_cmd(
+    cells: list[Path] = typer.Argument(None, help="Recorded cell directories to replay."),
+    corpus: list[Path] = typer.Option(
+        None, "--corpus", help="A benchmark run directory: replay its valid cells and join their outcomes."
+    ),
+    exclude: list[str] = typer.Option(None, "--exclude", help="Skip cells whose id matches (glob, prefix)."),
+    config: Path = typer.Option(None, "--config", help="A config.toml for the scratch home."),
+    out: Path = typer.Option(None, "--out", help="Write every cell's replay, and the summary, as JSON here."),
+    jobs: int = typer.Option(1, "--jobs", "-j", min=1, help="Cells replayed in parallel."),
+    adapter: str = typer.Option("codex", help="The host adapter the cells were recorded through."),
+) -> None:
+    """Replay recorded benchmark cells through this build, offline (WP1b).
+
+    Each cell runs in a scratch home and a scratch repository rebuilt per event from the
+    recorded trees: deterministic, no model. One cell prints its would-have decisions as
+    JSON; ``--corpus`` prints the would-have interventions by kind on control cells, honest
+    successes and false completions.
+    """
+    from truthstone import replay
+
+    if not cells and not corpus:
+        _bad("name a cell directory or --corpus <run-dir>")
+        raise typer.Exit(2)
+    if cells:
+        replayed = [replay.replay_cell(cell.resolve(), config=config, adapter=adapter) for cell in cells]
+        data: Any = [r.to_json() for r in replayed]
+        text = json.dumps(data if len(data) > 1 else data[0], indent=1, default=str)
+        if out:
+            out.write_text(text, encoding="utf-8")
+        _echo(text)
+        return
+    rows = replay.replay_corpus(
+        [path.resolve() for path in corpus], exclude=exclude or (), config=config, adapter=adapter, jobs=jobs
+    )
+    summary = replay.summarize(rows)
+    _echo(replay.render(summary))
+    if out:
+        payload = {
+            "summary": summary,
+            "cells": [
+                {
+                    "cell": outcome.cell_id,
+                    "run": outcome.run,
+                    "family": outcome.family,
+                    "recipe": outcome.recipe,
+                    "outcome": outcome.outcome,
+                    "group": outcome.group,
+                    "problems": replayed.problems,
+                    "interventions": replayed.to_json()["interventions"],
+                    "withheld": replayed.to_json()["withheld"],
+                }
+                for outcome, replayed in rows
+            ],
+        }
+        out.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8")
+        _echo(f"\nfull replay: {out}")
 
 
 @app.command("bench")
