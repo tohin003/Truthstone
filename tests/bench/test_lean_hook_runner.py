@@ -51,3 +51,11 @@ def test_the_runner_is_rewritten_only_when_it_changes(tmp_path: Path):
     assert guards.write_lean_hook(tmp_path, Path(sys.executable), runtime).stat().st_mtime_ns == mtime
     assert os.access(first, os.X_OK)
     assert first.read_text().startswith(f"#!{sys.executable} -IS\n")
+
+
+def test_a_developer_only_notice_is_not_the_agents():
+    assert guards.developer_only('{"systemMessage": "Truthstone is observe-only"}')
+    mixed = '{"systemMessage": "x", "hookSpecificOutput": {"additionalContext": "y"}}'
+    assert not guards.developer_only(mixed)
+    assert not guards.developer_only('{"decision": "block", "reason": "r"}')
+    assert not guards.developer_only("plain text is context on SessionStart")

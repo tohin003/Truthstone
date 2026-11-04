@@ -113,6 +113,16 @@ def write_lean_hook(dest_dir: Path, python: Path, runtime: Path) -> Path:
     return path
 
 
+def developer_only(output: str) -> bool:
+    """A Codex hook output that only the developer sees: a JSON object with nothing but a
+    ``systemMessage`` (shown in the TUI/app, not to the model)."""
+    try:
+        data = json.loads(output)
+    except ValueError:
+        return False
+    return isinstance(data, dict) and set(data) == {"systemMessage"}
+
+
 def product_mentions(text: str, limit: int = 20) -> list[str]:
     """Every mention of the product's names (current or former) in model-visible text."""
     found = []
@@ -893,7 +903,10 @@ class TruthstonePlugin:
         blocked = '"block"' in out["Stop"]
         problems: list[str] = []
         if ctx.arm.observe_only:
-            spoken = {k: v for k, v in out.items() if v}
+            # A developer-only notice (R9: "the daemon is observe-only") is not the agent's:
+            # Codex shows ``systemMessage`` in the TUI/app, never to the model. Anything else
+            # an observe arm prints is a leak.
+            spoken = {k: v for k, v in out.items() if v and not developer_only(v)}
             if spoken:
                 problems.append(f"observe-only arm produced output: {sorted(spoken)}")
             would = {d.get("would_have") for d in evidence.would_have()}
