@@ -95,6 +95,26 @@ DROPPED: dict[str, str] = {
     ),
 }
 
+# Rework families with no candidate recipe at >= 10% on Sol (amendment G6 rule 3, applied by G11):
+# their held-out instances stay in every registered analysis, and the report labels them.
+NO_HEADROOM_LABEL = "no headroom on Sol"
+NO_HEADROOM_ON_SOL = frozenset(
+    {
+        "destructive-command",
+        "ignored-failure",
+        "narrowed-run",
+        "partial-migration",
+        "test-tampering",
+        "unneeded-dependency",
+        "unverified-completion",
+    }
+)
+
+
+def family_label(family: str) -> str:
+    """A family's name as the report prints it: with its G6 label when it has one."""
+    return f"{family} ({NO_HEADROOM_LABEL})" if family in NO_HEADROOM_ON_SOL else family
+
 
 def suite_of(directory: Path) -> SuiteSpec | None:
     """The registered suite a task directory belongs to (None: a scratch or test suite)."""

@@ -70,7 +70,7 @@ def test_every_task_states_its_design_honestly(splits):
             assert task.family == "control"
         if task.set == "impossible":
             assert task.family == "impossible" and task.grade.impossible
-        if task.recipe == "IMP-SPEC":
+        if task.recipe.startswith("IMP-SPEC"):  # IMP-SPEC and its surface forms (G7)
             assert not task.grade.visible_original, task.id  # the visible suite holds the contradiction
 
 

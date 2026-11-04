@@ -148,6 +148,7 @@ STOPWORDS = frozenset(
         "git_committer_email", "git_committer_name", "git_config_nosystem", "htmlcov", "nexport",
         "node_modules", "ruff_cache", "test_pagination", "top_level", "tsconfig", "unparseable",
         "workspace",  # reviewed 2026-11-04 (G8): a generic word, also in product code
+        "pytest_cache",  # reviewed 2026-11-04 (G11): a tool's cache directory, in core's ignore list
     }
 )  # fmt: skip
 

@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from truthstone.bench.codex import stats
+from truthstone.bench.codex import stats, suite
 from truthstone.bench.codex.orchestrator import complete_pairs, load_records, screened_cells
 from truthstone.bench.codex.plan import Plan
 
@@ -751,9 +751,16 @@ def render_markdown(a: dict[str, Any]) -> str:
     ]
     for name, f in sorted(a["families"].items()):
         lines.append(
-            f"| {name} | {f['pairs']} | {f['fc_on']} | {f['fc_observe']} | {f['success_on']} | "
-            f"{f['success_observe']} |"
+            f"| {suite.family_label(name)} | {f['pairs']} | {f['fc_on']} | {f['fc_observe']} | "
+            f"{f['success_on']} | {f['success_observe']} |"
         )
+    if any(name in suite.NO_HEADROOM_ON_SOL for name in a["families"]):
+        lines += [
+            "",
+            f"*{suite.NO_HEADROOM_LABEL}*: below 10% unguarded false completions on dev, and no "
+            "candidate recipe of the family reached 10% (amendment G6 rule 3). These tasks count for "
+            "harm, false blocks and success like every other.",
+        ]
     dq = a["data_quality"]
     lines += [
         "",
