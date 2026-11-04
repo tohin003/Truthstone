@@ -1603,11 +1603,16 @@ The core items run in five parallel clusters: **gate** (verify, intent, engine),
 | R17 | Redact credentials before anything reaches the database | done | 6aa912d | Daemon-log redaction pending (hosts/daemon). |
 | G1-core | Exit-code-first test outcomes, last-stage rule, interrupted ≠ failed | done | efafc48 | `SHELL_TOOLS` centralised in `core/events.py`. |
 | R9-core | Degradation channel in `/health`; stale tokens no longer silent; shim prints reasons | done | 791a74f | Tests adapted to R1-store's API at integration. |
-| G2a, G6, G4a, G5, G15, G7, G9, G10-core, H3, H5-core, H2, R4 | Completion-gate cluster + engine-side host items | in progress (gate) | — | — |
-| A2, A10, A8, A9, A3, A11 | Asks cluster | in progress (asks) | — | — |
-| M6, M8 | CI workflow, latency tests that cannot time a no-op | in progress (hosts) | — | — |
+| G2a | Verification is a timeline: latest run per suite decides, narrower green → INCOMPLETE, edits after the pass → stale | done | 0c44b6f | Sticky `any_failed` removed. |
+| M6 | GitHub Actions CI: ubuntu+macOS × py3.12/3.13 × base/all-extras; Windows informational | done | e6abf83 | Not run on GitHub yet (no push). |
+| M8 | Latency tests that prove the timed call did the work | done | 5251466 | Write with 15 claims: p95 2.0 ms. Sweep budget is being tightened (ops). |
+| R11 | Config falls back per field; unknown keys reported; `log_level`; `[latency]` retired; crash-proof doctor | done | 39989ac | Daemon-side refusal + logging in progress (ops). |
+| G6 | Test waiver is an instruction (anchored imperative, per session, host-supplied, `tests_requested`) | done | e5f91ab | Paraphrases 2/12 → 12/12; false waivers 5/5 → 0/5. |
+| A2 | Tokenise before judging (`validate/shell.py`) | done | d8185f4 | Parse p50 41 µs / p95 74 µs. |
+| G4a, G5, G15, G7, G9, G10-core, H3, H5-core, H2, R4 | Completion-gate cluster + engine-side host items | in progress (gate) | — | — |
+| A10, A8, A9, A3, A11 | Asks cluster | in progress (asks) | — | — |
 | E1, R15 | Evidence precision, build yield | in progress (repo) | — | — |
-| R11 | Config robustness + doctor coverage | in progress (store) | — | — |
+| R11-daemon, R17-daemon, R11-home, R9-codex, R14-store, H7, H8, M8-tighten, DOCS | Follow-ups handed off by the store and hosts clusters | in progress (ops) | — | — |
 | R1-engine, R6, R14, R8, G2b, G8, G16, G4b, G11, G12, G13, G14, A6, A7, H6, H7, H8 | Later items | not started | — | — |
 | G1/A5/G10/H5/R9/R10 adapter halves | — | done by the adapter builders | e087bf5 (merge) | — |
 | R2 | Windows shim | out of scope | — | Windows is unsupported this release; it must fail open. |
