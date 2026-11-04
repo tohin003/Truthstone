@@ -248,7 +248,6 @@ def test_compose_env_read_by_app_code(tmp_path, sessions, codex):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M12 unread_config: every changed name the request mentions is a candidate")
 @BOTH
 def test_env_example_documents_loader_read_setting(tmp_path, sessions, codex):
     session = sessions(webapp(tmp_path), codex=codex)
@@ -261,7 +260,6 @@ def test_env_example_documents_loader_read_setting(tmp_path, sessions, codex):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M12 unread_config: every changed name the request mentions is a candidate")
 @BOTH
 def test_env_example_documents_sdk_key(tmp_path, sessions, codex):
     session = sessions(webapp(tmp_path), codex=codex)
@@ -271,7 +269,6 @@ def test_env_example_documents_sdk_key(tmp_path, sessions, codex):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M12 unread_config: every changed name the request mentions is a candidate")
 @BOTH
 def test_ts_env_example_for_derived_env_name(tmp_path, sessions, codex):
     session = sessions(make_repo(tmp_path / "web", TS_FILES), codex=codex)
@@ -281,7 +278,6 @@ def test_ts_env_example_for_derived_env_name(tmp_path, sessions, codex):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M12 unread_config: every changed name the request mentions is a candidate")
 @BOTH
 def test_compose_database_name_for_the_postgres_image(tmp_path, sessions, codex):
     session = sessions(webapp(tmp_path), codex=codex)
@@ -295,7 +291,6 @@ def test_compose_database_name_for_the_postgres_image(tmp_path, sessions, codex)
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M12 unread_config: every changed name the request mentions is a candidate")
 @BOTH
 def test_compose_port_read_by_dockerfile_and_command(tmp_path, sessions, codex):
     session = sessions(webapp(tmp_path), codex=codex)
@@ -305,7 +300,6 @@ def test_compose_port_read_by_dockerfile_and_command(tmp_path, sessions, codex):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M12 unread_config: every changed name the request mentions is a candidate")
 @BOTH
 def test_settings_module_constant_used_by_a_derived_constant(tmp_path, sessions, codex):
     session = sessions(webapp(tmp_path), codex=codex)
@@ -315,7 +309,6 @@ def test_settings_module_constant_used_by_a_derived_constant(tmp_path, sessions,
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M12 unread_config: every changed name the request mentions is a candidate")
 @BOTH
 def test_flask_setting_read_by_the_framework(tmp_path, sessions, codex):
     session = sessions(webapp(tmp_path), codex=codex)
@@ -325,7 +318,6 @@ def test_flask_setting_read_by_the_framework(tmp_path, sessions, codex):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M12 unread_config: every changed name the request mentions is a candidate")
 @BOTH
 def test_ci_step_env_for_an_action(tmp_path, sessions, codex):
     session = sessions(webapp(tmp_path), codex=codex)
@@ -346,3 +338,40 @@ def test_makefile_variable(tmp_path, sessions, codex):
     session.replace("Makefile", "PYTEST_ARGS ?= -q\n", "PYTEST_ARGS ?= -v\n")
     out = session.stop("Done: `PYTEST_ARGS ?= -v`, so `make check` runs pytest verbosely.")
     assert_silent(session, out)
+
+
+# -- which requests the unread-config check answers (M12) -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "request_text, claimed",
+    [
+        ("acme already prints every request when ACME_TRACE=1 is set, so switch that on in CI.", True),
+        ("acme prints every request when ACME_TRACE=1: turn that on in CI.", True),
+        ("ACME_TRACE is supposed to enable request logs; set it in CI.", True),
+        ("The worker currently honours ACME_TRACE; set it for the nightly job.", True),
+        ("Add ACME_TRACE to .env.example so developers know it exists.", False),
+        ("Set ACME_TRACE=1 in the CI job.", False),
+        ("Document ACME_TRACE in .env.example. The client already logs errors.", False),
+    ],
+)
+def test_a_candidate_needs_a_request_that_says_the_switch_works(request_text, claimed):
+    from truthstone.validate import config_reads
+
+    assert config_reads.claimed_to_work(request_text, "ACME_TRACE") is claimed
+
+
+@pytest.mark.parametrize(
+    "code, whole",
+    [
+        ("import os\nVALUE = os.environ.get(name)\n", True),
+        ("const v = process.env[envName(key)];\n", True),
+        ("import os\nVALUE = os.environ.get('ACME_TRACE')\n", False),
+        ("const v = process.env['ACME_TRACE'];\n", False),
+        ("const v = process.env.ACME_TRACE;\n", False),
+    ],
+)
+def test_an_env_read_with_a_computed_key_reads_everything(code, whole):
+    from truthstone.validate import config_reads
+
+    assert (config_reads._NON_LITERAL_KEY.search(code) is not None) is whole

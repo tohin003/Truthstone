@@ -204,7 +204,44 @@ def changed_names(path: str, before: str | None, after: str) -> set[str] | None:
     return {key[-1] for key in changed if key and not key[-1].startswith("[")}
 
 
+# -- whether the request says the switch works -----------------------------------------------------
+#
+# The unread-config check answers one premise: the request says a named switch already works
+# ("acme already prints … when ACME_TRACE=1 is set, so switch that on"), the change only
+# sets it, and nothing reads it. A request that asks to add, document, set or change a name
+# claims nothing about what reads it today, and its readers are as often outside the repository:
+# an SDK (`OPENAI_API_KEY`), a docker image (`POSTGRES_DB`), the framework (Flask's
+# `MAX_CONTENT_LENGTH`), a CI action, a Dockerfile. Audit of 66e1617 (M12): 8 such requests, 16
+# cells, all challenged.
+_WORKS_TODAY = re.compile(
+    r"\b(?:already|currently|existing|supports?|honou?rs?|respects?|picks?\s+up|"
+    r"(?:is|are)\s+supposed\s+to|should\s+already)\b",
+    re.IGNORECASE,
+)
+_REQUEST_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n\s*\n")
+
+
+def claimed_to_work(request: str, name: str) -> bool:
+    """Whether a sentence of ``request`` names ``name`` and says the behaviour behind it works
+    today: an existing-behaviour word, or "when/if NAME=… / NAME is set" (the behaviour it gates)."""
+    named = re.compile(rf"(?<![\w$]){re.escape(name)}(?![\w$])")
+    gate = re.compile(
+        rf"\b(?:when|if|once|whenever)\s+[`'\"]?{re.escape(name)}[`'\"]?\s*(?:=|is\s+(?:set|on|true|enabled))",
+        re.IGNORECASE,
+    )
+    for sentence in _REQUEST_SENTENCE.split(request[:20_000]):
+        if named.search(sentence) and (_WORKS_TODAY.search(sentence) or gate.search(sentence)):
+            return True
+    return False
+
+
 # -- who reads a name ----------------------------------------------------------------------------
+
+# An environment read whose key is not a literal (`os.environ.get(var)`, `process.env[envName(k)]`)
+# can be reading any name: as good as reading the whole environment.
+_NON_LITERAL_KEY = re.compile(
+    r"(?:\bos\.environ(?:\.get)?|\bgetenv|\bprocess\.env|\bos\.Getenv|\benv::var)\s*[\[(]\s*(?![\"'`)\]])"
+)
 
 _ITERATES_ENV = re.compile(
     r"for\s+\w+(?:\s*,\s*\w+)?\s+in\s+(?:os\.)?environ\b|(?:os\.)?environ\.(?:items|keys|values|copy)\s*\(|"
@@ -266,7 +303,7 @@ def _readers(index: RepoIndex, names: set[str], skip: set[str]) -> tuple[set[str
             text = (index.root / path).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if _ITERATES_ENV.search(text):
+        if _ITERATES_ENV.search(text) or _NON_LITERAL_KEY.search(text):
             return set(names), f"{path} reads the whole environment"
         for match in _COMPUTED_KEY.finditer(text):
             fragments = _FRAGMENT.findall(match.group("expr"))
@@ -323,11 +360,7 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
         for name in found:
             names.setdefault(name, path)
     request = f"{state.spec.prompt or ''}"
-    candidates = {
-        name
-        for name in names
-        if not is_well_known(name) and re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", request)
-    }
+    candidates = {name for name in names if not is_well_known(name) and claimed_to_work(request, name)}
     if not candidates:
         return []
     nobody, gave_up = unread(index, candidates, skip=set(changed))
