@@ -32,6 +32,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from agentguard.adapters import mcp
 from agentguard.adapters.claude_code.protocol import (
     SESSION_MODE_EVENT,
     SESSION_MODE_FIELD,
@@ -237,18 +238,21 @@ def to_event(payload: dict[str, Any]) -> AgentEvent | None:
     else:
         result = payload.get("tool_response", payload.get("tool_output"))
 
+    tool = payload.get("tool_name")
     return AgentEvent(
         event=event_type,
         agent=AGENT_NAME,
         workspace=payload.get("cwd") or ".",
         session_id=session_id,
-        tool=payload.get("tool_name"),
+        tool=tool,
         arguments=payload.get("tool_input") or {},
         tool_use_id=payload.get("tool_use_id"),
         result=result,
         prompt_text=payload.get("prompt") or payload.get("prompt_text"),
         last_assistant_message=payload.get("last_assistant_message"),
         pending_tasks=pending_tasks(payload),
+        # MCP (H5): read-only only when known; an `mcp__` tool is unknown, never a read.
+        host_hints=mcp.host_hints(AGENT_NAME, tool),
         raw=payload,
     )
 

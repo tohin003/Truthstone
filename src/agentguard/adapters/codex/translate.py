@@ -47,6 +47,12 @@ Unknown tools (MCP tools, ``update_plan``, ...) are never validated as writes ei
 PreToolUse is ignored, their PostToolUse is recorded under the tool's own name with the
 arguments namespaced under ``input``, so no ``file_path`` they carry is taken for an edit.
 The installer does not subscribe to them in the first place.
+
+MCP tools (H5, ``adapters/mcp.py``): Codex's own MCP-resource readers (``read_mcp_resource``
+and the two listings) are known read-only, so they reach the core with
+``host_hints["read_only"]`` and skip every write-path check. A server's
+``mcp__<server>__<tool>`` is unknown — Codex passes hooks no annotations — and is never
+marked read-only.
 """
 
 from __future__ import annotations
@@ -56,6 +62,7 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from agentguard.adapters import mcp
 from agentguard.adapters.codex import patch as patchlib
 from agentguard.adapters.codex import render as rendering
 from agentguard.core.enums import DecisionAction, EventType
@@ -198,14 +205,16 @@ def to_events(payload: dict[str, Any], root: Path | None = None) -> list[AgentEv
         ]
     if tool == PATCH_TOOL:
         return _patch_events(payload, base, tool_input, response, root)
-    if pre:
+    hints = mcp.host_hints(AGENT_NAME, tool)
+    if pre and not hints:
         return []  # unknown or MCP tool: never judged as a write
     return [
         AgentEvent(
             **base,
             tool=tool if isinstance(tool, str) and tool else "unknown",
             arguments={"input": tool_input},
-            result=response,
+            result=None if pre else response,
+            host_hints=hints,
         )
     ]
 
