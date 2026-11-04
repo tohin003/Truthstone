@@ -903,7 +903,21 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
 
 
 def _cmd_analyze(args: argparse.Namespace) -> int:
-    run_dir = Path(args.run_dir)
+    if args.acceptance:
+        from truthstone.bench.codex import acceptance
+
+        result = acceptance.acceptance([Path(d) for d in args.run_dir])
+        if args.json:
+            Path(args.json).write_text(json.dumps(result, indent=2, default=str))
+        text = acceptance.render(result)
+        if args.markdown:
+            Path(args.markdown).write_text(text)
+        print(text)
+        return 0
+    if len(args.run_dir) != 1:
+        print("analyze takes one --run-dir (several only with --acceptance)")
+        return 2
+    run_dir = Path(args.run_dir[0])
     analysis = report.analyze(run_dir)
     out_json = Path(args.json) if args.json else run_dir / "analysis.json"
     out_md = Path(args.markdown) if args.markdown else run_dir / "report.md"
@@ -1105,7 +1119,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=_cmd_calibrate)
 
     p = sub.add_parser("analyze", help="Pre-registered analysis of a run directory.")
-    p.add_argument("--run-dir", required=True)
+    p.add_argument("--run-dir", required=True, action="append")
+    p.add_argument(
+        "--acceptance",
+        action="store_true",
+        help="The v0.2 acceptance targets T1-T6 over one or more dev runs (never held-out).",
+    )
     p.add_argument("--json")
     p.add_argument("--markdown")
     p.set_defaults(func=_cmd_analyze)
