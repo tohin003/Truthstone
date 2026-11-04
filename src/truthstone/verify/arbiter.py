@@ -506,10 +506,19 @@ def _related(failing: set[str], state: TaskState, index: RepoIndex) -> bool:
 # -- disclosure -------------------------------------------------------------------------------
 
 _FAIL_WORD = re.compile(r"\b(?:fail(?:s|ed|ing|ures?)?|red|broken|erroring|errors?)\b", re.I)
+# "was failing" is history (the failure is gone); "was already failing" is not: it says the
+# failure is older than the change, and still there (audit of 66e1617, M11).
 _NOT_A_DISCLOSURE = re.compile(
     r"\b(?:no|zero|0|without|none|nothing|never)\s+(?:\w+\s+){0,2}?(?:fail\w*|errors?|red|broken)\b"
-    r"|\b(?:was|were|had\s+been|previously|used\s+to|no\s+longer)\s+(?:\w+\s+){0,2}?(?:fail\w*|red|broken)\b"
+    r"|\b(?:was|were|had\s+been|previously|used\s+to|no\s+longer)\s+(?:(?!already\b)\w+\s+){0,2}?"
+    r"(?:fail\w*|red|broken)\b"
     r"|\b(?:fix(?:ed|es)?|resolv(?:ed|es)|repair(?:ed|s)?)\s+(?:\w+\s+){0,3}?(?:fail\w*|errors?)\b",
+    re.I,
+)
+# A failure the message says predates the change: disclosed, whatever else the sentence says.
+_PREEXISTING = re.compile(
+    r"\bpre-?existing\b|\balready\s+(?:\w+\s+){0,2}?(?:fail\w*|red|broken)\b"
+    r"|\bfail\w*\s+(?:\w+\s+){0,3}?before\s+(?:this|my|the|any|these)\s+(?:\w+\s+)?change",
     re.I,
 )
 _NUMBER_WORDS = {
@@ -541,7 +550,9 @@ def disclosed_failure(message: str | None, failure: runners.TestOutcome) -> bool
         return False
     text = message[: claims.MAX_MESSAGE]
     for sentence in _SENTENCES.split(text):
-        if _FAIL_WORD.search(sentence) and not _NOT_A_DISCLOSURE.search(sentence):
+        if not _FAIL_WORD.search(sentence):
+            continue
+        if _PREEXISTING.search(sentence) or not _NOT_A_DISCLOSURE.search(sentence):
             return True
     if failure.failed:
         counts = {_number(match) for match in _COUNT.findall(text)}

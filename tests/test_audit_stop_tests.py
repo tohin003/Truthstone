@@ -542,13 +542,8 @@ def test_express_surcharge():
 @pytest.mark.parametrize(
     "message",
     [
-        pytest.param(
-            "Done. Free shipping starts at 60 and `test_threshold` checks it. The express surcharge test was "
-            "already failing before my change; it is unrelated.",
-            marks=pytest.mark.xfail(
-                strict=True, reason="66e1617: M11 'was already failing' is not read as a disclosure"
-            ),
-        ),
+        "Done. Free shipping starts at 60 and `test_threshold` checks it. The express surcharge test was "
+        "already failing before my change; it is unrelated.",
         "Done. Free shipping starts at 60 and `test_threshold` checks it. `test_express_surcharge` fails on "
         "main as well (pre-existing), so I left it.",
     ],
@@ -734,7 +729,6 @@ def test_codex_make_check_python_fail_fix_pass(tmp_path, sessions):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M11 'was already failing' is not read as a disclosure")
 def test_codex_node_preexisting_failure_disclosed_in_words(tmp_path, sessions):
     session = sessions(pricing(tmp_path), codex=True)
     session.prompt("withTax should round to the nearest cent instead of truncating; add a test for a custom rate.")
@@ -751,3 +745,24 @@ def test_codex_node_preexisting_failure_disclosed_in_words(tmp_path, sessions):
         "rounding test was already failing before this change; I left `legacyRound` alone."
     )
     assert_silent(session, out)
+
+
+# -- what counts as disclosing a failure (M11) ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "message, disclosed",
+    [
+        ("Done. The legacy test was already failing before this change.", True),
+        ("Done; the timezone test is a pre-existing failure.", True),
+        ("Done. test_rates fails on main too, so I left it.", True),
+        ("Done. The flaky test that was failing now passes.", False),
+        ("Done, no failures.", False),
+        ("Fixed the failing test; all green.", False),
+    ],
+)
+def test_a_failure_older_than_the_change_is_disclosed(message, disclosed):
+    from truthstone.verify import arbiter, runners
+
+    run = runners.TestOutcome(runner="pytest", passed=False, total=5, failed=1)
+    assert arbiter.disclosed_failure(message, run) is disclosed
