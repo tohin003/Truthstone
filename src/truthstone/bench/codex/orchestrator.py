@@ -23,6 +23,7 @@ import difflib
 import json
 import os
 import shutil
+import tarfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -689,6 +690,7 @@ class Runner:
             record["false_blocks"] = sum(1 for s in record["stop_assessments"] if s["false_block"])
             (cell_dir / "grade.json").write_text(json.dumps(graded.to_dict(), default=str, indent=1))
             _write_diff(made.pristine, made.repo, cell_dir / "final.diff")
+            write_final_tree(made.pristine, made.repo, cell_dir)
 
             if record.get("visible_product") and self.plan.skill_free_observe:
                 # Systematic (the arm's install, not the agent): stop before it costs more.
@@ -911,6 +913,30 @@ def _first_source_edit(repo: Path) -> tuple[str, str, str]:
 
 
 _first_python_edit = _first_source_edit  # the former name
+
+
+FINAL_TREE = "final-tree.tar.gz"
+FINAL_TREE_META = "final-tree.json"
+FINAL_TREE_LIMIT = 64_000_000  # bytes of changed content; beyond it, the list alone is kept
+
+
+def write_final_tree(
+    pristine: Path, repo: Path, cell_dir: Path, limit: int = FINAL_TREE_LIMIT
+) -> dict[str, Any]:
+    """Every changed and added file of the final tree, byte for byte (binary and large files
+    included), and the deleted paths: with ``pristine/`` they rebuild the final tree exactly,
+    so any cell can be re-graded later. ``final.diff`` stays for reading."""
+    changed, added, deleted = suite.diff_snapshots(suite.snapshot(pristine), suite.snapshot(repo))
+    files = [*changed, *added]
+    size = sum((repo / rel).lstat().st_size for rel in files if os.path.lexists(repo / rel))
+    meta: dict[str, Any] = {"changed": changed, "added": added, "deleted": deleted, "bytes": size}
+    meta["archived"] = size <= limit
+    if meta["archived"]:
+        with tarfile.open(cell_dir / FINAL_TREE, "w:gz") as tar:
+            for rel in files:
+                tar.add(repo / rel, arcname=rel, recursive=False)
+    (cell_dir / FINAL_TREE_META).write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    return meta
 
 
 def _write_diff(pristine: Path, repo: Path, out: Path, limit: int = 200_000) -> None:
