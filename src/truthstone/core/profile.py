@@ -93,7 +93,8 @@ _STOP = frozenset(
 # The minimal profile: per phase, the only kinds that reach the agent.
 MINIMAL_ALLOWED: dict[EventType, frozenset[str]] = {
     EventType.STOP: frozenset(str(k) for k in _STOP),
-    EventType.PRE_TOOL_USE: frozenset({str(Kind.SIGNOFF)}),
+    # The sign-off (c), and the first edit after a premise note, held once (d, T4).
+    EventType.PRE_TOOL_USE: frozenset({str(Kind.SIGNOFF), str(Kind.FALSE_PREMISE)}),
     EventType.USER_PROMPT: frozenset({str(Kind.FALSE_PREMISE)}),
 }
 _NAMED = frozenset(str(k) for k in Kind) | {PLANNING_NOTE, UNVERIFIED, UNPARSABLE}

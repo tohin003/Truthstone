@@ -265,3 +265,100 @@ def test_the_note_reaches_the_agent_once_per_session(tmp_path):
     assert again == {}  # once per name per session
     assert other_session["hookSpecificOutput"]["additionalContext"] == context
     assert routine == {}
+
+
+# -- T4: the first edit after a note is held once ----------------------------------------------
+
+
+ASK = "acme already prints every query when ACME_TRACE=1 is set, so switch that on in CI."
+
+
+def _tool(repo: Path, tool: str, tool_input: dict, session: str = "s") -> dict:
+    return {
+        "session_id": session,
+        "turn_id": "t",
+        "cwd": str(repo),
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool,
+        "tool_input": tool_input,
+    }
+
+
+def _ci_patch(repo: Path) -> dict:
+    command = (
+        "*** Begin Patch\n"
+        f"*** Update File: {repo / '.github' / 'workflows' / 'ci.yml'}\n"
+        "@@\n"
+        "       - run: python -m acme\n"
+        "+        env:\n"
+        "+          ACME_TRACE: '1'\n"
+        "*** End Patch\n"
+    )
+    return {"command": command}
+
+
+def _denied(output: dict) -> str:
+    specific = output.get("hookSpecificOutput") or {}
+    return (
+        specific.get("permissionDecisionReason", "") if specific.get("permissionDecision") == "deny" else ""
+    )
+
+
+@pytest.fixture
+def session(tmp_path):
+    repo = _repo(tmp_path)
+    guard = Guard(Settings())
+    guard.workspace(repo).index.ready(timeout=30)
+    yield repo, lambda payload: translate.dispatch(guard, payload)[0]
+    guard.close()
+
+
+def test_the_first_edit_after_a_premise_note_is_held_once(session):
+    repo, send = session
+    assert send(_prompt(repo, ASK))["hookSpecificOutput"]["additionalContext"]
+    assert send(_tool(repo, "Bash", {"command": "cat .github/workflows/ci.yml"})) == {}  # a read: not held
+    reason = _denied(send(_tool(repo, "apply_patch", _ci_patch(repo))))
+    assert reason == (
+        "Truthstone: before editing: the request assumes `ACME_TRACE`, but it appears nowhere in this "
+        "repository (see the note above). Tell the user what you found first; then continue only if the "
+        "change still makes sense."
+    )
+    assert send(_tool(repo, "apply_patch", _ci_patch(repo))) == {}  # re-issued: proceeds
+
+
+def test_a_shell_write_is_an_edit(session):
+    repo, send = session
+    send(_prompt(repo, ASK))
+    assert send(_tool(repo, "Bash", {"command": "grep -rn ACME_TRACE ."})) == {}
+    assert _denied(
+        send(_tool(repo, "Bash", {"command": "sed -i '' 's/acme/acme -v/' .github/workflows/ci.yml"}))
+    )
+
+
+def test_no_note_no_hold(session):
+    repo, send = session
+    assert send(_prompt(repo, "Add a smoke step to .github/workflows/ci.yml.")) == {}
+    assert send(_tool(repo, "apply_patch", _ci_patch(repo))) == {}
+
+
+def test_a_later_task_is_held_only_for_its_own_note(session):
+    repo, send = session
+    send(_prompt(repo, ASK))  # the note; the agent hands back without editing
+    send(_prompt(repo, ASK))  # the same name again: no second note, so no hold
+    assert send(_tool(repo, "apply_patch", _ci_patch(repo))) == {}
+    send(_prompt(repo, "acme already logs slow queries when ACME_SLOWLOG=1 is set; turn that on."))
+    assert "ACME_SLOWLOG" in _denied(send(_tool(repo, "apply_patch", _ci_patch(repo))))
+
+
+def test_the_hold_names_the_files_of_a_switch_nobody_reads(tmp_path):
+    repo = _repo(tmp_path, {"docs/ops.md": "Set `ACME_TRACE=1` to print queries.\n"})
+    guard = Guard(Settings())
+    try:
+        guard.workspace(repo).index.ready(timeout=30)
+        translate.dispatch(guard, _prompt(repo, ASK))
+        output = translate.dispatch(guard, _tool(repo, "apply_patch", _ci_patch(repo)))[0]
+    finally:
+        guard.close()
+    assert "`ACME_TRACE`, but it appears only in docs/ops.md, and no code in this repository reads it" in (
+        _denied(output)
+    )
