@@ -23,7 +23,9 @@ Two rules govern this module:
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import threading
 import time
 from collections import defaultdict, deque
@@ -70,6 +72,38 @@ def _test_stem(test_path: str) -> str:
 def _source_stem(path: str) -> str:
     """The name a source file is matched by: its basename up to the last dot."""
     return path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+
+def _home_directories() -> list[Path]:
+    """The user's home: ``$HOME`` and, when it differs, the account's own home."""
+    homes: list[Path] = []
+    with contextlib.suppress(RuntimeError, KeyError, OSError):
+        homes.append(Path.home())
+    try:
+        import pwd  # POSIX only
+
+        homes.append(Path(pwd.getpwuid(os.getuid()).pw_dir))
+    except (ImportError, KeyError, OSError, AttributeError):
+        pass
+    return homes
+
+
+def _refusal(root: Path) -> str:
+    """Why ``root`` must never be indexed, or "" when it may be (R12).
+
+    A session started in ``~`` (or ``/``) would otherwise index everything below it:
+    on a synthetic 205k-file home that blocked SessionStart for 5 s, took 24.6 s and
+    131 MB to build, and made every post-Bash sweep cost ~22 s.
+    """
+    if root.parent == root:
+        return "the workspace is the filesystem root"
+    for home in _home_directories():
+        try:
+            if root == home.resolve() or os.path.samefile(root, home):
+                return "the workspace is the home directory"
+        except (OSError, RuntimeError, ValueError):
+            continue
+    return ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,6 +169,19 @@ class RepoIndex:
         self.last_refresh: float = 0.0
         self._build_thread: threading.Thread | None = None
         self._built = threading.Event()
+        # Non-empty when this root must not be indexed (R12): why, for `status`.
+        self._unavailable: str = ""
+
+    @property
+    def status(self) -> str:
+        """``"building"``, ``"ready"`` or ``"unavailable: <reason>"`` (R12).
+
+        Unavailable means the index will not answer at all: `is_built` stays False, so
+        every question resolves to "unknown", and no sweep re-walks the tree.
+        """
+        if self._unavailable:
+            return f"unavailable: {self._unavailable}"
+        return "ready" if self.is_built else "building"
 
     # -- building -----------------------------------------------------------------
     #
@@ -145,6 +192,8 @@ class RepoIndex:
 
     def build_async(self) -> RepoIndex:
         """Start building in the background. Returns immediately."""
+        if self._unavailable or self._refused():
+            return self  # never index $HOME or /, and do not retry a refused tree
         with self._lock:
             if self._build_thread is not None and self._build_thread.is_alive():
                 return self
@@ -157,22 +206,60 @@ class RepoIndex:
     def _build_quietly(self) -> None:
         try:
             self.build()
-        except Exception:
+        except Exception as exc:
             log.exception("agentguard: index build failed for %s", self.root)
+            self._become_unavailable(f"index build failed ({type(exc).__name__})")
         finally:
             self._built.set()
 
     def ready(self, timeout: float = 0.0) -> bool:
-        """Whether the index can answer questions. Optionally waits."""
+        """Whether the index can answer questions. Optionally waits.
+
+        An unavailable index answers False at once, so no caller waits for a build that
+        is never going to happen.
+        """
         if self.is_built:
             return True
+        if self._unavailable:
+            return False
         if timeout > 0:
             self._built.wait(timeout)
         return self.is_built
 
+    def _refused(self) -> bool:
+        """Refuse a root that must never be indexed. True when refused."""
+        reason = _refusal(self.root)
+        if reason:
+            self._become_unavailable(reason)
+        return bool(reason)
+
+    def _become_unavailable(self, reason: str) -> None:
+        """Stop answering: "unknown" for every question, no sweeps, and say why.
+
+        Fail open, but never silently: the reason is logged (before anyone can observe
+        the new state) and kept in `status`.
+        """
+        if not self._unavailable:
+            log.warning("agentguard: not indexing %s: %s", self.root, reason)
+        with self._lock:
+            self.is_built = False
+            self._unavailable = reason
+            self.files = {}
+            self.parsed = {}
+            self.dependencies = DependencyInfo()
+            self._rebuild_derived()
+        self._built.set()  # last: whoever waits in ready() wakes to a settled state
+
     def build(self) -> RepoIndex:
+        if self._refused():
+            return self
         with self._lock, Timer() as t:
-            self.files = scanner.scan(self.root, self.settings)
+            try:
+                files = scanner.scan(self.root, self.settings)
+            except scanner.TreeTooLarge as exc:
+                self._become_unavailable(str(exc))
+                return self
+            self.files = files
             self.parsed = {}
             for path, record in self.files.items():
                 self.parsed[path] = self._parse(path, record)
@@ -180,6 +267,7 @@ class RepoIndex:
             self._rebuild_derived()
             self.built_at = time.time()
             self.last_refresh = time.monotonic()
+            self._unavailable = ""  # an explicit rebuild of a tree that shrank
             self.is_built = True
             self._built.set()
 
@@ -195,6 +283,8 @@ class RepoIndex:
         because it re-stats every file; this costs ~1ms, and PostToolUse already tells
         us precisely which file changed.
         """
+        if self._unavailable:
+            return False
         rel = relative_path(self.root, path)
         if rel is None:
             return False
@@ -237,7 +327,10 @@ class RepoIndex:
 
         `min_interval` guards against re-statting a large tree on every event. An index
         that is not built yet is built here; `refresh_delta` reports the changed paths.
+        An unavailable index (R12) is never swept.
         """
+        if self._unavailable:
+            return IndexDelta().counts()
         if not self.is_built:
             self.build()
             return {"added": len(self.files), "modified": 0, "removed": 0}
@@ -259,7 +352,13 @@ class RepoIndex:
 
         with self._lock:
             self.last_refresh = time.monotonic()
-            current = scanner.scan(self.root, self.settings)
+            try:
+                current = scanner.scan(self.root, self.settings)
+            except scanner.TreeTooLarge as exc:
+                # The tree grew past the cap since it was built: stop answering rather
+                # than answer from a picture we can no longer keep complete (R12).
+                self._become_unavailable(str(exc))
+                return IndexDelta()
             previous = self.files
             added = current.keys() - previous.keys()
             removed = previous.keys() - current.keys()
@@ -592,6 +691,7 @@ class RepoIndex:
             by_lang[record.lang] += 1
         return {
             "root": str(self.root),
+            "status": self.status,
             "files": len(self.files),
             "parsed_files": sum(1 for p in self.parsed.values() if p.parsed),
             "symbols": len(self.symbols_by_qualname),

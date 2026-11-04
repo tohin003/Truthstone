@@ -29,9 +29,20 @@ from agentguard.repo.models import (
 )
 from agentguard.repo.paths import relative_path
 
+# A walk outside git that passes this many files is not a project: it is a home
+# directory, a downloads folder or a whole disk. Indexing a 205k-file home took 24.6 s
+# and 131 MB, and every post-Bash sweep re-walked it for ~22 s (R12). Past this count the
+# walk stops and the index reports itself unavailable. Git repositories are not capped
+# by it: `git ls-files` already honours .gitignore, so a large listing there is source.
+NON_GIT_FILE_LIMIT = 20_000
+
 # Path components that never appear in `git ls-files` or `os.walk` output. A listed path
 # containing one is malformed or hostile, and is rejected without touching the disk.
 _UNSAFE_PARTS: frozenset[str] = frozenset({"", ".", ".."})
+
+
+class TreeTooLarge(Exception):
+    """A tree outside git passed NON_GIT_FILE_LIMIT files and must not be indexed (R12)."""
 
 TEST_DIR_NAMES: frozenset[str] = frozenset({"test", "tests", "__tests__", "spec", "specs", "e2e"})
 TEST_FILE_PREFIXES: tuple[str, ...] = ("test_",)
@@ -83,7 +94,13 @@ def _git_listed_files(root: Path) -> list[str] | None:
 
 
 def _walked_files(root: Path, settings: IndexSettings) -> list[str]:
+    """Every candidate file under ``root``, for trees outside git.
+
+    Raises TreeTooLarge as soon as the walk passes NON_GIT_FILE_LIMIT files, so a home
+    directory costs a fraction of a second rather than a 25-second build.
+    """
     excluded = set(settings.exclude_dirs)
+    limit = NON_GIT_FILE_LIMIT
     out: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root, topdown=True):
         dirnames[:] = [d for d in dirnames if d not in excluded and not d.startswith(".")]
@@ -93,6 +110,8 @@ def _walked_files(root: Path, settings: IndexSettings) -> list[str]:
             if name.startswith("."):
                 continue
             out.append(prefix + name)
+            if len(out) > limit:
+                raise TreeTooLarge(f"not a git repository and more than {limit:,} files")
             if len(out) >= settings.max_files:
                 return out
     return out
@@ -143,7 +162,10 @@ def _contained_stat(root: Path, rel: str, full: str) -> os.stat_result | None:
 
 
 def scan(root: Path, settings: IndexSettings | None = None) -> dict[str, FileRecord]:
-    """Return every indexable file, keyed by repo-relative posix path."""
+    """Return every indexable file, keyed by repo-relative posix path.
+
+    Raises TreeTooLarge for a tree outside git with more than NON_GIT_FILE_LIMIT files.
+    """
     settings = settings or IndexSettings()
     root = root.resolve()
 
