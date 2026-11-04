@@ -41,6 +41,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
@@ -65,6 +66,19 @@ SCHEMA_VERSION = 3
 # happened, not a place to archive file contents.
 MAX_ARGUMENT_BYTES = 4_000
 MAX_TEXT_BYTES = 2_000
+
+# How long a statement waits for another connection's write lock (R7). On the hook hot
+# path a busy database must cost a dropped row, never a missed deadline: a hook has 5 s,
+# and SQLite's own 3 s wait per write was enough to blow it (the first event under an
+# external lock took 6.3 s). Opening, migrating and maintaining the database happen off
+# the hot path and can afford to wait for a concurrent maintenance pass or CLI command.
+HOT_BUSY_TIMEOUT_MS = 100
+MAINTENANCE_BUSY_TIMEOUT_MS = 3_000
+
+# Failure logging is rate-limited per (operation, error type): under a held lock every
+# write fails, and a traceback per event once filled the daemon log with 465 lines in
+# seconds. Every failure is still counted (`Database.failure_count`, `stats()`).
+_FAILURE_LOG_INTERVAL_S = 60.0
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -334,14 +348,26 @@ def summarize_arguments(arguments: dict[str, Any]) -> str:
 
 
 def _safe(default: Any = None):
-    """Storage must never break the agent. Log and carry on (Memory plan §8)."""
+    """Storage must never break the agent. Roll back, report, carry on (Memory plan §8).
+
+    The rollback is the important part (R7). A statement that fails part-way — most often
+    "database is locked" because another process held the write lock — can leave the
+    shared connection inside a transaction. The next read then pins a WAL snapshot, and
+    once the other writer commits, every later write on this connection fails with
+    SQLITE_BUSY_SNAPSHOT, forever: no task, no challenge, nothing persisted until the
+    daemon restarts.
+    """
 
     def deco(fn):
         def wrapper(self, *args, **kwargs):
             try:
                 return fn(self, *args, **kwargs)
-            except Exception:
-                log.exception("agentguard store: %s failed", fn.__name__)
+            except Exception as exc:
+                db = self if isinstance(self, Database) else getattr(self, "db", None)
+                if isinstance(db, Database):
+                    db._after_error(fn.__name__, exc)
+                else:
+                    log.exception("agentguard store: %s failed", fn.__name__)
                 return default() if callable(default) else default
 
         wrapper.__name__ = fn.__name__
@@ -349,6 +375,54 @@ def _safe(default: Any = None):
         return wrapper
 
     return deco
+
+
+def _is_busy(exc: BaseException) -> bool:
+    """SQLITE_BUSY/LOCKED in any of its forms: another connection holds a lock."""
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    name = getattr(exc, "sqlite_errorname", "") or ""
+    return name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")) or "locked" in str(exc)
+
+
+def _describe_error(exc: BaseException) -> str:
+    """Type plus SQLite's own message. Never the statement's parameters (R17)."""
+    if isinstance(exc, sqlite3.Error):
+        name = getattr(exc, "sqlite_errorname", "") or ""
+        return f"{type(exc).__name__}{f' ({name})' if name else ''}: {exc}"
+    return type(exc).__name__
+
+
+class Transaction:
+    """The handle `Database.transaction()` yields. Its `execute` never raises.
+
+    The first failing statement marks the whole transaction failed: later statements are
+    skipped and the transaction is rolled back on exit, so a caller gets all of its rows
+    or none of them. `committed` is the outcome; for a nested transaction it means
+    "folded into the enclosing one", which is durable only once that one commits.
+    """
+
+    __slots__ = ("_conn", "active", "committed", "error")
+
+    def __init__(self) -> None:
+        self._conn: sqlite3.Connection | None = None
+        self.active = False
+        self.committed = False
+        self.error: BaseException | None = None
+
+    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor | None:
+        if not self.active or self._conn is None:
+            return None
+        try:
+            return self._conn.execute(sql, params)
+        except sqlite3.Error as exc:
+            self.fail(exc)
+            return None
+
+    def fail(self, exc: BaseException) -> None:
+        if self.error is None:
+            self.error = exc
+        self.active = False
 
 
 # -- the database -----------------------------------------------------------------
@@ -368,19 +442,34 @@ class Database:
         self._lock = threading.RLock()
         self._last_maintenance = 0.0
         self._writes_disabled = False
+        # Depth of `transaction()` contexts open on this connection. Only ever changed
+        # while `_lock` is held, and a transaction holds `_lock` for its whole body.
+        self._tx_depth = 0
+        # Failures are counted, not just logged: "fail open, but never silently".
+        self.failure_count = 0
+        self.last_failure = ""
+        self._failure_lock = threading.Lock()
+        self._failure_logged: dict[tuple[str, str], float] = {}
+        self._failures_unlogged = 0
 
         if path.is_symlink():
             raise RuntimeError(f"refusing to use symlink as database: {path}")
         if path.exists() and not path.is_file():
             raise RuntimeError(f"refusing to use non-regular database path: {path}")
         ensure_private_dir(self.path.parent)
-        self._conn = sqlite3.connect(str(path), check_same_thread=False)
+        # `isolation_level=None`: no implicit BEGIN. A single write is its own atomic
+        # statement, multi-statement writes go through `transaction()` (BEGIN IMMEDIATE),
+        # and a read can never be left holding a snapshot inside a forgotten transaction.
+        self._conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
+        # Patient while opening and migrating; hot-path statements get the short wait.
+        self._conn.execute(f"PRAGMA busy_timeout={MAINTENANCE_BUSY_TIMEOUT_MS}")
+        # Before journal_mode: switching to WAL writes the header, after which SQLite
+        # silently ignores an auto_vacuum change, and `incremental_vacuum` is a no-op.
+        self._conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._harden_file_modes()
         self._conn.execute("PRAGMA synchronous=NORMAL")
-        self._conn.execute("PRAGMA busy_timeout=3000")
-        self._conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
         with self._lock:
             self._conn.executescript(_SCHEMA)
             self._migrate()
@@ -389,8 +478,8 @@ class Database:
                 "INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)",
                 (str(SCHEMA_VERSION),),
             )
-            self._conn.commit()
             self._harden_file_modes()
+            self._conn.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
 
     def _harden_file_modes(self) -> None:
         """Keep SQLite and its WAL sidecars owner-readable only.
@@ -445,9 +534,9 @@ class Database:
         issue UUIDs) but not impossible, and the census divides by this number.
 
         Copy-and-rename rather than an ALTER, because SQLite cannot change a primary key
-        in place. Failure leaves the old table exactly as it was: an over-strict key
-        under-counts sessions, while a half-finished rebuild loses them, so the old shape
-        is strictly the safer place to stop.
+        in place. The whole rebuild is one transaction, so a failure leaves the old table
+        exactly as it was: an over-strict key under-counts sessions, while a half-finished
+        rebuild loses them, so the old shape is strictly the safer place to stop.
         """
         row = self._conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'"
@@ -456,20 +545,24 @@ class Database:
             return
 
         try:
-            self._conn.execute("ALTER TABLE sessions RENAME TO sessions_legacy")
-            self._conn.executescript(_SCHEMA)
-            self._conn.execute(
+            # One script, one transaction: `executescript` would commit an enclosing
+            # transaction first, so the BEGIN has to live inside the script.
+            self._conn.executescript(
+                "BEGIN IMMEDIATE;\n"
+                "ALTER TABLE sessions RENAME TO sessions_legacy;\n"
+                f"{_SCHEMA}\n"
                 "INSERT OR IGNORE INTO sessions(id, project_id, agent, started_at, ended_at, meta) "
-                "SELECT id, project_id, agent, started_at, ended_at, meta FROM sessions_legacy"
+                "SELECT id, project_id, agent, started_at, ended_at, meta FROM sessions_legacy;\n"
+                "DROP TABLE sessions_legacy;\n"
+                # The renamed table took the index name with it; recreate it on the new one.
+                "CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id, started_at);\n"
+                "COMMIT;\n"
             )
-            self._conn.execute("DROP TABLE sessions_legacy")
-            self._conn.commit()
         except sqlite3.Error:
             log.exception("agentguard store: sessions re-key failed; keeping the old table")
-            self._conn.rollback()
             with contextlib.suppress(sqlite3.Error):
-                self._conn.execute("ALTER TABLE sessions_legacy RENAME TO sessions")
-                self._conn.commit()
+                if self._conn.in_transaction:
+                    self._conn.rollback()
 
     @classmethod
     def shared(cls, settings: Settings | None = None) -> Database:
@@ -494,6 +587,53 @@ class Database:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    # -- failure handling (R7) ----------------------------------------------------
+
+    def _rollback_quietly(self) -> None:
+        """End whatever transaction a failed statement left open on the shared connection.
+
+        Skipped while a `transaction()` context is open on this thread: that context owns
+        the transaction and rolls it back itself. Another thread's context cannot be open
+        here, because a transaction holds `_lock` for its whole body.
+        """
+        with self._lock:
+            if self._tx_depth:
+                return
+            with contextlib.suppress(sqlite3.Error):
+                if self._conn.in_transaction:
+                    self._conn.rollback()
+
+    def _after_error(self, where: str, exc: BaseException) -> None:
+        self._rollback_quietly()
+        self._note_failure(where, exc)
+
+    def _note_failure(self, where: str, exc: BaseException) -> None:
+        """Count every failure; log the first of each kind per interval."""
+        now = time.monotonic()
+        key = (where, type(exc).__name__)
+        with self._failure_lock:
+            self.failure_count += 1
+            self.last_failure = f"{where}: {_describe_error(exc)}"
+            last = self._failure_logged.get(key)
+            if last is not None and now - last < _FAILURE_LOG_INTERVAL_S:
+                self._failures_unlogged += 1
+                return
+            self._failure_logged[key] = now
+            unlogged, self._failures_unlogged = self._failures_unlogged, 0
+        more = f" ({unlogged} more failure(s) since the last report)" if unlogged else ""
+        if _is_busy(exc):
+            log.warning(
+                "agentguard store: %s dropped: the database is busy (another process holds "
+                "its write lock); guarding continues without persistence%s",
+                where,
+                more,
+            )
+        elif isinstance(exc, sqlite3.Error):
+            log.warning("agentguard store: %s failed: %s%s", where, _describe_error(exc), more)
+        else:
+            # Not a storage condition but a defect: keep the traceback.
+            log.error("agentguard store: %s failed%s", where, more, exc_info=exc)
 
     # -- disk protection ----------------------------------------------------------
 
@@ -532,16 +672,110 @@ class Database:
 
     # -- primitives ---------------------------------------------------------------
 
-    def write(self, sql: str, params: tuple) -> None:
+    def write(self, sql: str, params: tuple) -> bool:
+        """One statement, atomic on its own. Returns whether it ran.
+
+        Raises on failure (callers are `_safe`), but only after rolling back, so the
+        shared connection is never left inside a transaction. Inside an enclosing
+        `transaction()` the statement simply joins it.
+        """
         if not self.writes_enabled:
-            return  # §8: reliability continues without persistence
+            return False  # §8: reliability continues without persistence
         with self._lock:
-            self._conn.execute(sql, params)
-            self._conn.commit()
+            try:
+                self._conn.execute(sql, params)
+            except sqlite3.Error:
+                self._rollback_quietly()
+                raise
+        return True
 
     def query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         with self._lock:
-            return self._conn.execute(sql, params).fetchall()
+            try:
+                return self._conn.execute(sql, params).fetchall()
+            except sqlite3.Error:
+                self._rollback_quietly()
+                raise
+
+    @contextlib.contextmanager
+    def transaction(self, name: str = "transaction") -> Iterator[Transaction]:
+        """``BEGIN IMMEDIATE … COMMIT`` around a group of writes. Never raises.
+
+        * Every statement goes through the yielded `Transaction`; the first failure
+          rolls the whole group back, and so does an exception from the body, which is
+          logged and swallowed — storage must never break the hot path.
+        * ``BEGIN IMMEDIATE`` takes the write lock up front. A busy database therefore
+          fails at BEGIN, after at most the hot-path busy timeout, with nothing written;
+          a deferred transaction would fail half-way instead.
+        * Nest-safe: inside another transaction it becomes a SAVEPOINT, so an inner
+          failure undoes only the inner work.
+        * With writes disabled (critical disk) the body still runs and nothing is written.
+
+        ``with db.transaction() as tx: tx.execute(...)`` then check ``tx.committed``.
+        """
+        tx = Transaction()
+        with self._lock:
+            conn = self._conn
+            depth = self._tx_depth
+            savepoint = f"agentguard_{depth}"
+            began = False
+            if self.writes_enabled:
+                try:
+                    conn.execute(f"SAVEPOINT {savepoint}" if depth else "BEGIN IMMEDIATE")
+                except sqlite3.Error as exc:
+                    tx.fail(exc)
+                    self._rollback_quietly()
+                else:
+                    tx._conn = conn
+                    tx.active = began = True
+                    self._tx_depth += 1
+            try:
+                yield tx
+            except Exception as exc:  # noqa: BLE001 - the hot path never sees storage errors
+                tx.fail(exc)
+            except BaseException:
+                tx.active = False  # interrupted: roll back, then let it propagate
+                raise
+            finally:
+                if began:
+                    self._tx_depth -= 1
+                    self._end_transaction(tx, conn, savepoint if depth else None)
+        if tx.error is not None:
+            self._note_failure(name, tx.error)
+
+    @staticmethod
+    def _end_transaction(tx: Transaction, conn: sqlite3.Connection, savepoint: str | None) -> None:
+        if tx.active:
+            try:
+                conn.execute(f"RELEASE {savepoint}" if savepoint else "COMMIT")
+            except sqlite3.Error as exc:
+                tx.fail(exc)
+            else:
+                tx.active = False
+                tx.committed = True
+                return
+        tx.active = False
+        with contextlib.suppress(sqlite3.Error):
+            if savepoint:
+                conn.execute(f"ROLLBACK TO {savepoint}")
+                conn.execute(f"RELEASE {savepoint}")
+            elif conn.in_transaction:
+                conn.rollback()
+
+    @contextlib.contextmanager
+    def _maintenance_window(self) -> Iterator[sqlite3.Connection]:
+        """The connection, held, with the patient busy timeout; restored on exit.
+
+        `busy_timeout` is per connection, so it is raised only while `_lock` keeps every
+        hot-path statement out.
+        """
+        with self._lock:
+            self._conn.execute(f"PRAGMA busy_timeout={MAINTENANCE_BUSY_TIMEOUT_MS}")
+            try:
+                yield self._conn
+            finally:
+                with contextlib.suppress(sqlite3.Error):
+                    self._conn.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
 
     # -- maintenance (Memory plan §7) ---------------------------------------------
 
@@ -564,15 +798,20 @@ class Database:
         aggressive = self.disk_state() != "healthy" or self.database_over_limit
         removed = self.prune(aggressive=aggressive)
 
-        with self._lock:
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            self._conn.execute("PRAGMA incremental_vacuum")
-            self._conn.commit()
+        with self._maintenance_window() as conn:
+            # Step it to completion: `incremental_vacuum` frees one page per row it
+            # yields, so an execute() whose cursor is dropped reclaims a single page.
+            conn.execute("PRAGMA incremental_vacuum").fetchall()
+            # Checkpoint after the vacuum, so the pages it moved leave the WAL too.
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
             self._harden_file_modes()
 
         if self.size_megabytes() > self.retention.vacuum_threshold_mb or self.database_over_limit:
-            with self._lock:
-                self._conn.execute("VACUUM")
+            with self._maintenance_window() as conn:
+                # A database created before auto_vacuum was set in the right order is
+                # converted by the full VACUUM that is running anyway.
+                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                conn.execute("VACUUM")
                 self._harden_file_modes()
         return removed
 
@@ -592,10 +831,9 @@ class Database:
             if days <= 0:
                 continue
             cutoff = now - (days * scale * 86400)
-            with self._lock:
-                cursor = self._conn.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
+            with self._maintenance_window() as conn:
+                cursor = conn.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,))
                 removed[table] = cursor.rowcount if cursor.rowcount > 0 else 0
-                self._conn.commit()
 
         # Sessions are summaries, but an active session is not a summary yet. Keep it
         # (and its open task) even if a daemon happens to run maintenance after a long
@@ -605,8 +843,10 @@ class Database:
         summary_days = self.retention.session_summaries_days
         if summary_days > 0:
             cutoff = now - (summary_days * scale * 86400)
-            with self._lock:
-                cursor = self._conn.execute(
+            with self._maintenance_window() as conn:
+                # One transaction for the pair; on failure `_safe` rolls it back.
+                conn.execute("BEGIN IMMEDIATE")
+                cursor = conn.execute(
                     "DELETE FROM sessions WHERE started_at < ? AND ended_at IS NOT NULL",
                     (cutoff,),
                 )
@@ -616,7 +856,7 @@ class Database:
                 # whose session summary has already disappeared (or was never recorded
                 # because persistence was unavailable). Open tasks survive unless their
                 # session is definitively gone and the task itself is old.
-                cursor = self._conn.execute(
+                cursor = conn.execute(
                     "DELETE FROM tasks WHERE "
                     "(status <> 'open' AND COALESCE(closed_at, created_at) < ?) OR "
                     "(status = 'open' AND created_at < ? AND NOT EXISTS ("
@@ -626,7 +866,7 @@ class Database:
                     (cutoff, cutoff),
                 )
                 removed["tasks"] = cursor.rowcount if cursor.rowcount > 0 else 0
-                self._conn.commit()
+                conn.execute("COMMIT")
         else:
             # Keep the keys stable for callers (CLI/reporting) while honoring the
             # documented `0 means keep indefinitely` retention setting.
@@ -638,30 +878,28 @@ class Database:
         # orphan rows left by an interrupted write. A challenge without its task cannot
         # participate in rationing, so retaining it would only consume storage.
         removed["challenges"] = 0
-        with self._lock:
+        with self._maintenance_window() as conn:
             # Include project_id in the join: task ids are normally UUIDs, but callers
             # and older databases may contain human-readable ids reused across projects.
             # A bare `task_id NOT IN (...)` cleanup would violate project isolation.
-            cursor = self._conn.execute(
+            cursor = conn.execute(
                 "DELETE FROM challenges WHERE NOT EXISTS ("
                 "  SELECT 1 FROM tasks t WHERE t.id=challenges.task_id "
                 "  AND t.project_id=challenges.project_id"
                 ")"
             )
             removed["challenges"] += max(cursor.rowcount, 0)
-            self._conn.commit()
 
         # Findings belong to decisions; a finding whose decision is gone is unreadable.
         # Violations worth keeping are promoted to `memories` in Phase 9.
-        with self._lock:
-            cursor = self._conn.execute(
+        with self._maintenance_window() as conn:
+            cursor = conn.execute(
                 "DELETE FROM findings AS f WHERE NOT EXISTS ("
                 "  SELECT 1 FROM decisions d WHERE d.id=f.decision_id "
                 "  AND d.project_id=f.project_id"
                 ")"
             )
             removed["findings"] = max(cursor.rowcount, 0)
-            self._conn.commit()
         return removed
 
     def size_megabytes(self) -> float:
@@ -756,17 +994,16 @@ class ProjectStore:
         # let SessionEnd for such a payload close every anonymous task in the project.
         if not session_id or not self.db.writes_enabled:
             return
-        with self.db._lock:
-            self.db._conn.execute(
+        with self.db.transaction("close_session") as tx:
+            tx.execute(
                 "UPDATE sessions SET ended_at=? WHERE id=? AND project_id=?",
                 (ended_at, session_id, self.project_id),
             )
-            self.db._conn.execute(
+            tx.execute(
                 "UPDATE tasks SET status='closed', closed_at=? "
                 "WHERE project_id=? AND session_id=? AND status='open'",
                 (ended_at, self.project_id, session_id),
             )
-            self.db._conn.commit()
 
     # -- tasks --------------------------------------------------------------------
 
@@ -816,72 +1053,108 @@ class ProjectStore:
 
     # -- events & decisions -------------------------------------------------------
 
+    _EVENT_SQL = (
+        "INSERT OR REPLACE INTO events"
+        "(id, project_id, session_id, task_id, type, agent, tool, arguments, ts) "
+        "VALUES(?,?,?,?,?,?,?,?,?)"
+    )
+    _DECISION_SQL = (
+        "INSERT OR REPLACE INTO decisions"
+        "(id, project_id, event_id, task_id, session_id, tool, action, would_have, reason, "
+        " level, latency_ms, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"
+    )
+    _FINDING_SQL = (
+        "INSERT INTO findings"
+        "(project_id, decision_id, task_id, category, verdict, failure_mode, severity, "
+        " subject, summary, detail, evidence, fingerprint, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    )
+
+    def _event_row(self, event: AgentEvent) -> tuple:
+        return (
+            event.event_id,
+            self.project_id,
+            event.session_id,
+            event.task_id,
+            str(event.event),
+            event.agent,
+            event.tool,
+            summarize_arguments(event.arguments),
+            event.ts,
+        )
+
+    def _decision_row(self, event: AgentEvent, decision: Decision, decision_id: str, now: float) -> tuple:
+        return (
+            decision_id,
+            self.project_id,
+            event.event_id,
+            event.task_id,
+            event.session_id,
+            event.tool,
+            str(decision.action),
+            str(decision.would_have or ""),
+            decision.reason[:MAX_TEXT_BYTES],
+            int(decision.level),
+            decision.latency_ms,
+            now,
+        )
+
+    def _finding_rows(
+        self, event: AgentEvent, decision: Decision, decision_id: str, now: float
+    ) -> list[tuple]:
+        return [
+            (
+                self.project_id,
+                decision_id,
+                event.task_id,
+                str(f.category),
+                str(f.verdict),
+                str(f.failure_mode),
+                str(f.severity),
+                f.subject[:200],
+                f.summary[:500],
+                f.detail[:MAX_TEXT_BYTES],
+                json.dumps([e.model_dump() for e in f.evidence], default=str)[:MAX_ARGUMENT_BYTES],
+                f.fingerprint(),
+                now,
+            )
+            for f in decision.findings
+        ]
+
     @_safe()
     def record_event(self, event: AgentEvent) -> None:
-        self.db.write(
-            "INSERT OR REPLACE INTO events"
-            "(id, project_id, session_id, task_id, type, agent, tool, arguments, ts) "
-            "VALUES(?,?,?,?,?,?,?,?,?)",
-            (
-                event.event_id,
-                self.project_id,
-                event.session_id,
-                event.task_id,
-                str(event.event),
-                event.agent,
-                event.tool,
-                summarize_arguments(event.arguments),
-                event.ts,
-            ),
-        )
+        self.db.write(self._EVENT_SQL, self._event_row(event))
 
     @_safe(default="")
     def record_decision(self, event: AgentEvent, decision: Decision) -> str:
         decision_id = decision.decision_id or uuid.uuid4().hex
         now = time.time()
-        self.db.write(
-            "INSERT OR REPLACE INTO decisions"
-            "(id, project_id, event_id, task_id, session_id, tool, action, would_have, reason, "
-            " level, latency_ms, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (
-                decision_id,
-                self.project_id,
-                event.event_id,
-                event.task_id,
-                event.session_id,
-                event.tool,
-                str(decision.action),
-                str(decision.would_have or ""),
-                decision.reason[:MAX_TEXT_BYTES],
-                int(decision.level),
-                decision.latency_ms,
-                now,
-            ),
-        )
-        for f in decision.findings:
-            self.db.write(
-                "INSERT INTO findings"
-                "(project_id, decision_id, task_id, category, verdict, failure_mode, severity, "
-                " subject, summary, detail, evidence, fingerprint, ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    self.project_id,
-                    decision_id,
-                    event.task_id,
-                    str(f.category),
-                    str(f.verdict),
-                    str(f.failure_mode),
-                    str(f.severity),
-                    f.subject[:200],
-                    f.summary[:500],
-                    f.detail[:MAX_TEXT_BYTES],
-                    json.dumps(
-                        [e.model_dump() for e in f.evidence], default=str
-                    )[:MAX_ARGUMENT_BYTES],
-                    f.fingerprint(),
-                    now,
-                ),
-            )
+        self.db.write(self._DECISION_SQL, self._decision_row(event, decision, decision_id, now))
+        for row in self._finding_rows(event, decision, decision_id, now):
+            self.db.write(self._FINDING_SQL, row)
         return decision_id
+
+    @_safe(default="")
+    def record_event_and_decision(self, event: AgentEvent, decision: Decision) -> str:
+        """The event, its decision and the decision's findings: one transaction (R7).
+
+        Returns the decision id once all of it is committed, or ``""`` when nothing was
+        persisted (busy database, writes disabled, any failure) — never a partial record,
+        and never an exception. One commit per event instead of two or more also halves
+        the WAL traffic on the hot path.
+        """
+        decision_id = decision.decision_id or uuid.uuid4().hex
+        now = time.time()
+        # Build every row before taking the write lock: serialising arguments and
+        # evidence is the slow part, and the lock should be held for the inserts only.
+        rows = [
+            (self._EVENT_SQL, self._event_row(event)),
+            (self._DECISION_SQL, self._decision_row(event, decision, decision_id, now)),
+            *((self._FINDING_SQL, row) for row in self._finding_rows(event, decision, decision_id, now)),
+        ]
+        with self.db.transaction("record_event_and_decision") as tx:
+            for sql, params in rows:
+                tx.execute(sql, params)
+        return decision_id if tx.committed else ""
 
     @_safe(default=list)
     def recent_decisions(self, limit: int = 50) -> list[dict]:
