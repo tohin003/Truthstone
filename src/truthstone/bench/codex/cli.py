@@ -110,7 +110,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         }
     else:
         host_fields = {"codex_version": codex_version(args.codex), "trust": args.trust}
-    default_model = "claude-opus-5-5" if args.host == "claude" else "gpt-6-luna"
+    default_model = "claude-opus-5-5" if args.host == "claude" else "gpt-6.1-sol"  # amendment A5
     plan = Plan(
         name=args.name,
         stage=args.stage,
@@ -608,7 +608,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--phrasing", action="append", choices=list(suite.PHRASINGS))
     p.add_argument("--replicates", default="1,2,3")
     p.add_argument("--host", default="codex", choices=["codex", "claude"])
-    p.add_argument("--model", help="Default: gpt-6-luna (codex), claude-opus-5-5 (claude).")
+    p.add_argument("--model", help="Default: gpt-6.1-sol (codex), claude-opus-5-5 (claude).")
     p.add_argument("--effort", default="medium")
     p.add_argument("--accounts", help="Claude: comma-separated accounts the plan may use (work,personal).")
     p.add_argument("--permission-mode", help="Claude: --permission-mode for cells (default dontAsk).")
