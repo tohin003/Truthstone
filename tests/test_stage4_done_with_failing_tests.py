@@ -140,6 +140,29 @@ def test_done_with_the_changed_modules_own_tests_failing_speaks(shop):
     assert "why it should stay" not in reason  # the disclosure already said why; no such door
 
 
+def test_the_recorded_event_sequence_speaks(shop):
+    """The recorded go/no-go cells' event sequence, on this made-up repository: look around, edit,
+    one red run, an in-memory check of the new format (not a test run), a diff, "FINAL: done"."""
+    session = shop()
+    session.prompt(PROMPT)
+    session.run("pwd; rg --files -g '*export*' -g '*test*' -g 'pyproject.toml'", "src/shop/export.py\ntests/test_export.py\npyproject.toml\n")
+    session.run("cat src/shop/export.py; cat tests/test_export.py", EXPORT + TEST_EXPORT)
+    session.write("src/shop/export.py", EXPORT_ISO)
+    session.run("python -m pytest -q", EXPORT_RED)
+    session.run(
+        "python - <<'PY'\nfrom datetime import date\nfrom shop.export import to_row\n"
+        "print(to_row({'number': 'A1', 'issued': date(2026, 11, 3)}))\nPY",
+        "{'number': 'A1', 'issued': '2026-11-03'}\n",
+    )
+    session.run("git diff -- src/shop/export.py; git status --short", " M src/shop/export.py\n")
+    out = session.stop(
+        "Changed only `src/shop/export.py`: `issued` is now YYYY-MM-DD; statements keep DD/MM/YYYY.\n\n"
+        "Verification: 34 tests passed. Two export tests still expect the old format; both pass with ISO "
+        "expectations checked in memory, without editing test files.\n\nFINAL: done"
+    )
+    assert out.get("decision") == "block" and "You claimed done while" in out["reason"]
+
+
 def test_with_a_green_baseline_any_linked_new_failure_speaks(shop):
     session = shop()
     session.prompt(PROMPT)
