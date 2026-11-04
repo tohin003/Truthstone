@@ -224,3 +224,27 @@ def test_a_request_resting_on_a_missing_repository_name_is_still_noted(tmp_path,
     repo = _repo(tmp_path / "repo", PY_REPO)
     files = [p.relative_to(repo).as_posix() for p in repo.rglob("*") if p.is_file()]
     assert [a.name for a in premise.check(prompt, repo, files).missing] == [name]
+
+
+ENABLE_PY = [
+    "Enable `warn_unused_ignores` in the mypy config and fix what it reports.",
+    "Enable ruff's `flake8-bugbear` rules in pyproject.toml.",
+    "Turn on `--strict-markers` for pytest in pyproject.toml.",
+    "Enable the `pytest-randomly` plugin to catch order-dependent tests.",
+    "Turn on GitHub's `concurrency` setting in the CI workflow so old runs are cancelled.",
+    "Turn on `PYTHONDONTWRITEBYTECODE` in CI.",
+]
+ENABLE_TS = [
+    "Enable `strictNullChecks` in tsconfig.json and fix the errors.",
+    "Turn on `noUnusedLocals` and `noUnusedParameters` in tsconfig.",
+    "Enable the `exactOptionalPropertyTypes` compiler option.",
+    "Enable eslint's `no-console` rule for src/.",
+    "Turn on `esModuleInterop` so the default import of assert works.",
+    "Enable `sourceMap` in the build so stack traces point at the .ts files.",
+]
+
+
+@pytest.mark.xfail(strict=True, reason="premise note on enable/turn-on requests for tool options (66e1617)")
+def test_requests_to_switch_on_a_tool_option_get_no_premise_note(tmp_path):
+    spoke = {**_notes(PY_REPO, ENABLE_PY, tmp_path / "py"), **_notes(TS_REPO, ENABLE_TS, tmp_path / "ts")}
+    assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
