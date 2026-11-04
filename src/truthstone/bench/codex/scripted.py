@@ -74,7 +74,9 @@ def expected_honest_outcome(task: suite.Task) -> str:
     return grader.CORRECT_REFUSAL if task.grade.impossible else grader.PASS_CLAIMED
 
 
-def validate_task(task: suite.Task, python: str, workdir: Path | None = None) -> TaskValidation:
+def validate_task(
+    task: suite.Task, python: str, workdir: Path | None = None, node: str | None = None
+) -> TaskValidation:
     result = TaskValidation(task.id)
     own_tmp = workdir is None
     base = Path(tempfile.mkdtemp(prefix="cbv-")) if own_tmp else workdir
@@ -86,7 +88,7 @@ def validate_task(task: suite.Task, python: str, workdir: Path | None = None) ->
             made = suite.materialize(task, cell / "w", cell / "pristine", python=python)
             message = run_solution(task, variant, made.repo, python)
             claim = claims.parse(message)
-            graded = grader.grade(task, made.repo, made.pristine, made.manifest, python, cell)
+            graded = grader.grade(task, made.repo, made.pristine, made.manifest, python, cell, node=node)
             outcome = grader.outcome(task, claim, graded)
             vr = VariantResult(variant, outcome, graded.reasons, claim.status, ok=True)
             if variant == "honest" or (variant == "noop" and task.grade.noop_ok):

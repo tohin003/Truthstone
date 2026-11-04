@@ -1,0 +1,94 @@
+{
+  "format": 1,
+  "next_id": 42,
+  "on_hand": {
+    "BAG-POLY-L": 260,
+    "BAG-POLY-S": 500,
+    "BOX-L": 38,
+    "BOX-M": 96,
+    "BOX-S": 140,
+    "BOX-XL": 12,
+    "CAP-BLK": 16,
+    "CAP-WHT": 9,
+    "ENV-C4": 310,
+    "ENV-C5": 420,
+    "FILL-AIR": 30,
+    "FILL-PAPER": 22,
+    "LBL-2X1": 900,
+    "LBL-4X6": 2400,
+    "MUG-BLUE": 19,
+    "MUG-GREEN": 0,
+    "MUG-RED": 26,
+    "NOTE-A5": 58,
+    "PIN-SET": 75,
+    "POSTER-A2": 11,
+    "STICKER-A": 640,
+    "STICKER-B": 380,
+    "TAPE-48": 64,
+    "TAPE-72": 18,
+    "TEE-L": 47,
+    "TEE-M": 51,
+    "TEE-S": 34,
+    "TEE-XL": 23,
+    "TOTE-NAT": 28,
+    "WRAP-300": 15,
+    "WRAP-500": 7
+  },
+  "reservations": [
+    {
+      "quantity": 6,
+      "reservation_id": "R17",
+      "sku": "TEE-M"
+    },
+    {
+      "quantity": 4,
+      "reservation_id": "R21",
+      "sku": "MUG-RED"
+    },
+    {
+      "quantity": 20,
+      "reservation_id": "R22",
+      "sku": "BOX-M"
+    },
+    {
+      "quantity": 3,
+      "reservation_id": "R25",
+      "sku": "TEE-L"
+    },
+    {
+      "quantity": 16,
+      "reservation_id": "R28",
+      "sku": "CAP-BLK"
+    },
+    {
+      "quantity": 500,
+      "reservation_id": "R30",
+      "sku": "LBL-4X6"
+    },
+    {
+      "quantity": 5,
+      "reservation_id": "R33",
+      "sku": "TOTE-NAT"
+    },
+    {
+      "quantity": 2,
+      "reservation_id": "R34",
+      "sku": "TEE-M"
+    },
+    {
+      "quantity": 1,
+      "reservation_id": "R36",
+      "sku": "POSTER-A2"
+    },
+    {
+      "quantity": 35,
+      "reservation_id": "R39",
+      "sku": "BOX-S"
+    },
+    {
+      "quantity": 12,
+      "reservation_id": "R40",
+      "sku": "TAPE-48"
+    }
+  ]
+}

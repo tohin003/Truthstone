@@ -13,6 +13,10 @@ Plans and results stay in `bench/codex/`.
 **Current version: v1 (amendments A1–A3).** The suite is frozen; the main run is not yet
 scheduled. It waits for the core build in §11.
 
+**Golden set (amendments A5–A6).** The study now runs on the golden set v2, pre-registered in
+[`BENCH-golden.md`](BENCH-golden.md): a dev split for calibration and a held-out split that freezes
+after the dev review, on `gpt-6.1-sol` at medium, then on Claude Code (`claude-opus-5-5`).
+
 ---
 
 ## 1. The question, and the only claim this can support
@@ -587,6 +591,7 @@ uv sync --all-extras
 | A3 | 2026-11-04 | (a) Smoke calibration recorded in §6.2. N unchanged. (b) The allowance pre-check and `allowance` command (§6.4), with a 0.1%-per-cell placeholder until the pilot measures it. (c) Leak detector: only untagged developer messages in AgentGuard's voice count as injected context (§3.4). (d) Pilot and smoke analyses are blind: no arm differences (§8). (e) `smoke` hard-caps live agent calls. | (a) Two live cells measured the cost. (b) The lead's requirement: refuse a study the allowance cannot finish. (c) Smoke run 1 halted on a false alarm, the skills listing present in both arms; re-attested offline, both cells pass. (d) Integrity of §8. (e) The day's limit of two live calls. |
 | A4 | 2026-11-04 | (a) The product is renamed Truthstone (previously named AgentGuard), by `scripts/rename_product.py`. The suite digest moves from `54f7eaa8…3628` to `1002d24e…9e0e`; reverting the name in the task files reproduces `54f7eaa8…3628` exactly: only `[opportunity].prediction` prose in 12 `task.toml` files changed, no prompt, fixture, grader or solution. Plans registered before the rename still load, their digests verified under the former spelling of the build-ref field. (b) A Claude Code host is added (`docs/BENCH-claude-plan.md`). (c) Instrument fix found by the preflight: the arm database name no longer follows the harness process's own (former-name) home. | (a) The user's decision. (b) The user approved a Claude Code study. (c) Without it every arm's evidence read came back empty after the rename. |
 | A5 | 2026-11-04 | The user decided the plan: **first a golden benchmark set, then the Codex study on `gpt-6.1-sol`, then the Claude Code study on `claude-opus-5-5`.** §5 and §6 (the luna design) are superseded and kept as history; the Sol design starts in §15. No Sol or Opus cell has run. | The user's decision, relayed by the lead. |
+| A6 | 2026-11-04 | The golden set v2 is registered in [`BENCH-golden.md`](BENCH-golden.md) (suites `golden-dev`, `golden-heldout`; Python and TypeScript tasks; the dev review and freeze rule; the dev pilot and held-out designs). The harness gains named suites (`--suite`; a plan pins `{suite, suite_digest}`; new plan fields stay out of the digest at their defaults, so every registered plan and this suite's digest are unchanged), TypeScript grading with a pinned Node, and a per-cell check of the sandbox Codex actually applied (rollout `sandbox_policy`; a recognised other mode or network access is settings drift). | Implements A5's golden set; the sandbox check confirms §3.2's "network off" per cell instead of only per request. |
 
 ## 15. Amendment A5: golden set, then `gpt-6.1-sol`, then `claude-opus-5-5`
 
@@ -639,7 +644,7 @@ Pebble's held-out Sol runs had 2 false completions in 75 coding-family runs (abo
 At that base rate no affordable study detects anything. The golden set must create
 headroom on Sol deliberately, and a dev split must show it before the held-out split runs.
 
-### 15.4 Golden-set structure (recommendation to the lead)
+### 15.4 Golden-set structure (recommendation to the lead; realised in [`BENCH-golden.md`](BENCH-golden.md))
 
 - **Two disjoint splits from the same families.** A dev (calibration) split is run, both
   arms, to measure the observe-arm base rate per family, per-cell cost, window percent per

@@ -1,0 +1,19 @@
+{
+  "segments": {
+    "beta-testers": ["u-1", "u-2"],
+    "staff": ["s-9"]
+  },
+  "flags": {
+    "new-search": {
+      "enabled": true,
+      "rules": [{ "type": "segment", "name": "beta-testers" }]
+    },
+    "admin-tools": {
+      "enabled": true,
+      "rules": [
+        { "type": "country", "values": ["DE"] },
+        { "type": "segment", "name": "staff" }
+      ]
+    }
+  }
+}

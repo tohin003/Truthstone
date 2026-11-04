@@ -1,24 +1,31 @@
-"""The Codex benchmark's task suite: loading, validation and materialisation.
+"""The benchmark's task suites: loading, validation and materialisation.
 
-A task is a directory under ``tests/fixtures/codex_bench/tasks/<id>/``:
+A *suite* is a directory with ``bases/``, ``protocol/`` and one directory of tasks. Suites
+are named (``SUITES``): ``codex_bench`` is the original 32-task suite
+(``tests/fixtures/codex_bench/tasks``); ``golden-dev`` and ``golden-heldout`` are the two
+disjoint splits of the golden set (``tests/fixtures/golden/{dev,heldout}``), which share
+that directory's ``bases/`` and ``protocol/``. A plan pins its suite by name and digest.
+
+A task is a directory ``<suite>/<tasks dir>/<id>/``:
 
     task.toml            metadata, three phrasings, setup and grading rules
     overlay/             files written over the base project (added or replaced)
     untracked/           files placed after the commit, left untracked
     uncommitted/         files copied over tracked files after the commit
     setup.py             optional; runs in the repository after the commit
-    hidden/              hidden pytest tests the agent never sees
+    hidden/              hidden tests the agent never sees (pytest, or node:test for TypeScript)
     check.py             optional custom grading: ``check(repo, pristine) -> list[str]``
     solutions/           ``honest.py`` and ``planted.py`` for the scripted dry run
 
-and a base project under ``tests/fixtures/codex_bench/bases/<name>/``. The suite lives
-with the repository's other fixture repositories because its bases contain test files of
-their own: anywhere else, Truthstone's index of its own repository would see a second test
-root. Plans and run results live in ``bench/codex/``. Every task names the failure
-opportunity it presents, the Truthstone mechanism (if any) that could intervene, and an
-honest prediction. These tasks are *designed to present failure opportunities*; that is
-stated here, in every task file, and in the pre-registration, and it bounds what any
-result can claim.
+and a base project under ``<suite>/bases/<name>/``. Bases are Python (pytest) or
+TypeScript (Node's built-in test runner on ``.ts`` files, no npm dependencies), declared by
+the task's ``language``. The suites live with the repository's other fixture repositories
+because their bases contain test files of their own: anywhere else, Truthstone's index of
+its own repository would see a second test root. Plans and run results live in
+``bench/codex/``. Every task names the failure opportunity it presents, the Truthstone
+mechanism (if any) that could intervene, and an honest prediction. These tasks are
+*designed to present failure opportunities*; that is stated here, in every task file, and
+in the pre-registration, and it bounds what any result can claim.
 
 Materialisation is deterministic: the same task produces byte-identical repositories,
 with a fixed commit identity and date, so the two arms of a pair start from the same
@@ -39,13 +46,39 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
-# The suite lives in the repository, with the other fixture repositories.
+# The suites live in the repository, with the other fixture repositories.
 REPO_ROOT = Path(__file__).resolve().parents[4]
-SUITE_ROOT = REPO_ROOT / "tests" / "fixtures" / "codex_bench"
+FIXTURES_ROOT = REPO_ROOT / "tests" / "fixtures"
+SUITE_ROOT = FIXTURES_ROOT / "codex_bench"  # the original suite (its digest is pinned)
+GOLDEN_ROOT = FIXTURES_ROOT / "golden"
 BENCH_ROOT = REPO_ROOT / "bench" / "codex"  # plans and (git-ignored) results
+
+
+@dataclass(frozen=True, slots=True)
+class SuiteSpec:
+    """A named suite: a root holding ``bases/`` and ``protocol/``, and its tasks directory."""
+
+    name: str
+    root: Path
+    tasks_dir: str
+
+    @property
+    def tasks_path(self) -> Path:
+        return self.root / self.tasks_dir
+
+
+DEFAULT_SUITE = "codex_bench"
+SUITES: dict[str, SuiteSpec] = {
+    "codex_bench": SuiteSpec("codex_bench", SUITE_ROOT, "tasks"),
+    "golden-dev": SuiteSpec("golden-dev", GOLDEN_ROOT, "dev"),
+    "golden-heldout": SuiteSpec("golden-heldout", GOLDEN_ROOT, "heldout"),
+}
 
 SETS = ("headroom", "impossible", "control")
 PHRASINGS = ("canonical", "terse", "conversational")
+LANGUAGES = ("python", "typescript")
+# Where a base keeps its visible tests, unless the task says otherwise.
+DEFAULT_VISIBLE_DIRS = {"python": ("tests",), "typescript": ("test",)}
 
 # What each family is an opportunity for. A task's family is descriptive; the analysis
 # reports per family but the primary endpoint pools the opportunity sets.
@@ -146,6 +179,12 @@ class GradeSpec:
     # Read-only controls ("explain, don't change anything") are solved by changing
     # nothing; only there may a no-op pass. Allowed on control tasks only.
     noop_ok: bool = False
+    # Directories of visible tests whose pristine copies the grader re-runs. Empty means
+    # the language's default (``tests`` for Python, ``test`` for TypeScript).
+    visible_dirs: tuple[str, ...] = ()
+    # Dependencies the task legitimately adds (a control that really needs one). Any
+    # other new dependency still fails the grade.
+    allowed_dependencies: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,10 +208,26 @@ class Task:
     grade: GradeSpec
     solutions: Solutions
     root: Path
+    language: str = "python"
+    # The family's recipe (golden set: e.g. UV-ENTRY, IMP-NET); descriptive strata only.
+    recipe: str = ""
+
+    @property
+    def suite_root(self) -> Path:
+        """The directory holding this task's ``bases/`` and ``protocol/``."""
+        return self.root.parent.parent
 
     @property
     def base_root(self) -> Path:
-        return self.root.parent.parent / "bases" / self.base
+        return self.suite_root / "bases" / self.base
+
+    @property
+    def protocol_root(self) -> Path:
+        return self.suite_root / "protocol"
+
+    @property
+    def visible_dirs(self) -> tuple[str, ...]:
+        return self.grade.visible_dirs or DEFAULT_VISIBLE_DIRS[self.language]
 
     def prompt(self, phrasing: str) -> str:
         return self.prompts[phrasing]
@@ -203,6 +258,9 @@ def load_task(directory: Path) -> Task:
         raise SuiteError(f"{task_id}: set must be one of {SETS}")
     if data.get("family") not in FAMILIES:
         raise SuiteError(f"{task_id}: unknown family {data.get('family')!r}")
+    language = str(data.get("language", "python"))
+    if language not in LANGUAGES:
+        raise SuiteError(f"{task_id}: language must be one of {LANGUAGES}")
 
     prompts = data.get("prompts") or {}
     if set(prompts) != set(PHRASINGS) or not all(isinstance(p, str) and p.strip() for p in prompts.values()):
@@ -248,6 +306,10 @@ def load_task(directory: Path) -> Task:
         impossible=bool(raw_grade.get("impossible", False)),
         timeout_s=int(raw_grade.get("timeout_s", 120)),
         noop_ok=bool(raw_grade.get("noop_ok", False)),
+        visible_dirs=_tuple(raw_grade.get("visible_dirs"), "grade.visible_dirs", task_id),
+        allowed_dependencies=_tuple(
+            raw_grade.get("allowed_dependencies"), "grade.allowed_dependencies", task_id
+        ),
     )
     if (data["set"] == "impossible") != grade.impossible:
         raise SuiteError(f"{task_id}: set=impossible and grade.impossible must agree")
@@ -276,9 +338,14 @@ def load_task(directory: Path) -> Task:
         grade=grade,
         solutions=solutions,
         root=directory,
+        language=language,
+        recipe=str(data.get("recipe", "")),
     )
     if not task.base_root.is_dir():
         raise SuiteError(f"{task_id}: base {task.base!r} does not exist")
+    manifest = "package.json" if language == "typescript" else "pyproject.toml"
+    if not (task.base_root / manifest).is_file():
+        raise SuiteError(f"{task_id}: a {language} base must have {manifest}")
     for name in (solutions.honest, solutions.planted):
         if not (directory / name).is_file():
             raise SuiteError(f"{task_id}: solution script {name} is missing")
@@ -287,8 +354,21 @@ def load_task(directory: Path) -> Task:
     return task
 
 
-def load_suite(root: Path | None = None, only: list[str] | None = None) -> list[Task]:
-    tasks_dir = (root or SUITE_ROOT) / "tasks"
+def suite_spec(name: str | None) -> SuiteSpec:
+    """The named suite (default: the original ``codex_bench``)."""
+    key = name or DEFAULT_SUITE
+    if key not in SUITES:
+        raise SuiteError(f"unknown suite {key!r}; known: {', '.join(SUITES)}")
+    return SUITES[key]
+
+
+def load_suite(
+    root: Path | None = None, only: list[str] | None = None, suite: str | None = None
+) -> list[Task]:
+    """Load a suite's tasks: a named ``suite``, or (legacy) a suite ``root`` with ``tasks/``."""
+    if root is not None and suite is not None:
+        raise SuiteError("give a suite name or a suite root, not both")
+    tasks_dir = root / "tasks" if root is not None else suite_spec(suite).tasks_path
     available = {d.name: d for d in sorted(tasks_dir.iterdir()) if d.is_dir() and (d / "task.toml").exists()}
     if only:
         missing = set(only) - set(available)
@@ -308,7 +388,9 @@ def suite_digest(tasks: list[Task]) -> str:
     for task in tasks:
         roots.add(task.root)
         roots.add(task.base_root)
-    roots.add(protocol_root())
+        roots.add(task.protocol_root)
+    if not tasks:
+        roots.add(protocol_root())
     for root in sorted(roots):
         for path in sorted(_walk(root)):
             hasher.update(str(path.relative_to(root.parent)).encode())
@@ -373,6 +455,7 @@ def matches(path: str, patterns: tuple[str, ...]) -> bool:
 
 
 def protocol_root() -> Path:
+    """The default suite's protocol. A task's own is ``task.protocol_root``."""
     return SUITE_ROOT / "protocol"
 
 
@@ -426,7 +509,7 @@ def materialize(
             shutil.rmtree(victim)
         elif victim.exists():
             victim.unlink()
-    shutil.copyfile(protocol_root() / "AGENTS.md", repo / instructions)
+    shutil.copyfile(task.protocol_root / "AGENTS.md", repo / instructions)
     if task.setup.canaries:
         canary = repo / CANARY_TRACKED
         canary.parent.mkdir(parents=True, exist_ok=True)

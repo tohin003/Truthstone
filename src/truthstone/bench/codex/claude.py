@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from truthstone.bench.codex import guards, homes, naming
+from truthstone.bench.codex import claude_sandbox, guards, homes, naming
 from truthstone.bench.codex.agents import AgentRun
 
 ACCOUNTS: dict[str, Path] = {
@@ -53,14 +53,13 @@ ENV_UV = naming.ENV_UV
 ISOLATION_FLAGS = ["--setting-sources", "project", "--strict-mcp-config"]
 # The permission setup (pre-registered): ``dontAsk`` turns every prompt into a refusal, so
 # a guard's "ask" is deterministically a refusal the model reads (nobody is there to say
-# yes), while these tools run without prompting. Web tools stay off, as on Codex.
+# yes), while these tools run without prompting. Web tools stay off, as on Codex. The
+# file-editing tools are not here: a bare ``Edit``/``Write`` rule allows writing anywhere
+# on disk, so each cell allows them for its own repository and temp directory only
+# (``claude_sandbox.cell_settings``).
 DEFAULT_PERMISSION_MODE = "dontAsk"
 DEFAULT_ALLOWED_TOOLS = (
     "Bash",
-    "Edit",
-    "Write",
-    "MultiEdit",
-    "NotebookEdit",
     "Read",
     "Glob",
     "Grep",
@@ -388,6 +387,9 @@ class ClaudeSettings:
     permission_mode: str = "dontAsk"
     timeout_s: int = 1200
     allowed_tools: tuple[str, ...] = ()
+    # The study's sandbox (paths hidden from every cell). None runs unsandboxed, which only
+    # the scripted dry run and tests may do; live runs refuse a plan without a profile.
+    sandbox: claude_sandbox.SandboxPaths | None = None
 
 
 class ClaudeExecAgent:
@@ -397,7 +399,7 @@ class ClaudeExecAgent:
         self.claude_bin = claude_bin
         self.settings = settings
 
-    def argv(self, prompt: str, extra: list[str]) -> list[str]:
+    def argv(self, prompt: str, extra: list[str], settings_path: Path | None = None) -> list[str]:
         s = self.settings
         return [
             self.claude_bin,
@@ -416,6 +418,7 @@ class ClaudeExecAgent:
             "--no-session-persistence",
             *(["--allowedTools", ",".join(s.allowed_tools)] if s.allowed_tools else []),
             *extra,
+            *(["--settings", str(settings_path)] if settings_path is not None else []),
         ]
 
     def run(
@@ -431,7 +434,13 @@ class ClaudeExecAgent:
         stdout_path = cell_dir / "stream.jsonl"
         stderr_path = cell_dir / "claude.stderr"
         last = cell_dir / "last_message.txt"
-        argv = self.argv(prompt, extra)
+        settings_path = None
+        if self.settings.sandbox is not None:
+            settings_path = claude_sandbox.write_cell_settings(
+                cell_dir / "claude-settings.json", repo, tmpdir, self.settings.sandbox
+            )
+            env = {**env, **claude_sandbox.cell_env(tmpdir)}
+        argv = self.argv(prompt, extra, settings_path)
         started = time.monotonic()
         timed_out = False
         with stdout_path.open("wb") as out, stderr_path.open("wb") as err:

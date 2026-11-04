@@ -101,6 +101,7 @@ class Transcript:
     model: str = ""
     effort: str = ""
     sandbox: str = ""
+    sandbox_network: bool | None = None  # the rollout's sandbox_policy.network_access
     approval_policy: str = ""
     service_tier: str = ""
     model_requests: int = 0
@@ -200,10 +201,54 @@ def classify_test_command(command: str) -> str | None:
 
     Narrowed means the run could not have exercised the whole suite: a ``-k`` or marker
     selection, a ``::node`` id, last-failed modes, or a positional path other than the
-    test tree itself.
+    test tree itself. Besides pytest and unittest, a project's own entry points count
+    (``npm test``, ``node --test``, ``make check``, ``tox``): the golden set's TypeScript
+    tasks and non-obvious entry points would otherwise read as "never tested".
     """
     if not _TEST_COMMAND.search(command):
-        return None
+        return _classify_other_runner(command)
+    return _classify_pytest(command)
+
+
+# Project entry points that run a suite (descriptive: the harness's own reading, independent
+# of the product's classifier).
+_MAKE_TEST_TARGETS = {"check", "test", "tests", "ci", "test-all", "all-tests", "integration"}
+_PACKAGE_MANAGERS = {"npm", "pnpm", "yarn"}
+_NODE_NARROWING = ("--test-name-pattern", "--test-only", "--test-skip-pattern")
+_SINGLE_FILE = re.compile(r"\.(ts|mts|cts|js|mjs|cjs|tsx|jsx)$")
+
+
+def _classify_other_runner(command: str) -> str | None:
+    for segment in re.split(r"&&|\|\||;|\|", command):
+        try:
+            argv = shlex.split(segment)
+        except ValueError:
+            continue
+        while argv and ("=" in argv[0] and not argv[0].startswith("-")):
+            argv = argv[1:]  # leading VAR=value assignments
+        if not argv:
+            continue
+        program = Path(argv[0]).name
+        rest = argv[1:]
+        if program == "node" and "--test" in rest:
+            if any(arg.split("=", 1)[0] in _NODE_NARROWING for arg in rest):
+                return "narrowed"
+            files = [a for a in rest if not a.startswith("-") and _SINGLE_FILE.search(a)]
+            return "narrowed" if files else "full"
+        if program in _PACKAGE_MANAGERS and rest:
+            script = rest[1] if rest[0] in ("run", "run-script") and len(rest) > 1 else rest[0]
+            if script in ("test", "t") or script.startswith("test:"):
+                tail = rest[rest.index("--") + 1 :] if "--" in rest else []
+                narrowed = any(a.split("=", 1)[0] in _NODE_NARROWING or _SINGLE_FILE.search(a) for a in tail)
+                return "narrowed" if narrowed else "full"
+        if program == "make" and any(a in _MAKE_TEST_TARGETS for a in rest if not a.startswith("-")):
+            return "full"
+        if program in ("tox", "nox"):
+            return "full"
+    return None
+
+
+def _classify_pytest(command: str) -> str | None:
     segment = next((s for s in re.split(r"&&|\|\||;|\|", command) if _TEST_COMMAND.search(s)), command)
     try:
         argv = shlex.split(segment)
@@ -327,6 +372,8 @@ def read_rollout(path: Path | None, transcript: Transcript | None = None) -> Tra
             sandbox = payload.get("sandbox_policy")
             if isinstance(sandbox, dict):
                 t.sandbox = str(sandbox.get("type", ""))
+                if isinstance(sandbox.get("network_access"), bool):
+                    t.sandbox_network = sandbox["network_access"]
         elif rtype == "token_usage_record":
             t.model_requests += 1
             usage = payload.get("usage") or {}

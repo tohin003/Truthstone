@@ -6,7 +6,15 @@ otherwise. **Status: draft.** The harness, the scripted dry run and the no-model
 are done. No live cell has run: the user decided (amendment A5 of the Codex plan) that a
 golden benchmark set comes first, then the Codex study on `gpt-6.1-sol`, then this one on
 `claude-opus-5-5`. The task suite, N and the per-cell cost are filled in when the golden set
-is frozen and two smoke cells have measured the cost.
+is frozen and two smoke cells have measured the cost. The golden set, its dev review and the
+held-out design are pre-registered in [`BENCH-golden.md`](BENCH-golden.md); effort is Claude
+Code's default for `claude-opus-5-5`, which is `medium` (verified without a model, §7 there).
+
+**Safety (2026-11-04, blocking for any live Claude cell):** every cell now runs under Claude
+Code's own sandbox, profile `claude-bash-sandbox/v1` (§2 below), proven with no model call by
+`python -m truthstone.bench.codex sandbox-check --host claude --control`. Plans made before the
+profile existed (`bench/codex/plans/claude-smoke.json`) are refused by the runner and must be
+re-made.
 
 ## 1. The comparison
 
@@ -20,11 +28,22 @@ see the difference: no environment variable, file name or path names the arm.
 ```
 claude -p <prompt> --output-format stream-json --verbose --include-hook-events \
   --model claude-opus-5-5 --effort <effort> --permission-mode dontAsk \
-  --allowedTools Bash,Edit,Write,MultiEdit,NotebookEdit,Read,Glob,Grep,TodoWrite,Task,Agent \
+  --allowedTools Bash,Read,Glob,Grep,TodoWrite,Task,Agent \
   --no-session-persistence \
   --plugin-dir <build>/plugins/truthstone-claude --plugin-dir <harness logging plugin> \
-  --setting-sources project --strict-mcp-config
+  --setting-sources project --strict-mcp-config \
+  --settings <cell>/claude-settings.json          # the sandbox profile, per cell
 ```
+
+- **Sandbox (profile `claude-bash-sandbox/v1`, `claude_sandbox.cell_settings`).** Bash runs in
+  Claude Code's sandbox (Seatbelt): writes only inside the cell's repository and its temp directory
+  (`CLAUDE_CODE_TMPDIR`); no network (empty allowlist, `strictAllowlist`, no loopback, no Unix
+  sockets); `allowUnsandboxedCommands: false`; `failIfUnavailable: true`. Reads of the checkout,
+  the run directory, the work root and credential directories are denied (the task interpreter
+  and Node re-opened); the product's and harness's variables are unset for Bash. `Edit`/`Write`
+  are never allowed bare (a bare rule writes anywhere: the sandbox does not cover file tools);
+  each cell allows them for its repository and temp directory by absolute path and denies `Read`
+  on the hidden paths. Hooks are unsandboxed and reach their daemon as before.
 
 - **Plugin, session-only.** `--plugin-dir` on a symlink-free copy of the build under test's
   `plugins/truthstone-claude`. It is never installed into any settings, and `--bare` is never
@@ -103,10 +122,13 @@ the runner refuses a study the windows cannot finish.
 1. **Sign-in expiry.** Claude Code warned that `work`'s sign-in can end any time until
    2026-11-07 and `personal`'s between 2026-11-06 and 2026-11-09. An expired sign-in voids
    cells (auth); re-login is the user's step.
-2. **Real `HOME`, no sandbox, network on.** The agent runs unsandboxed with the user's home
-   readable. Mitigations: scratch repos outside `/Users`, read-only task interpreter, user
-   settings excluded, web tools off. Bash can still reach the network (pip, curl), unlike
-   the Codex study.
+2. **Real `HOME`.** The subscription sign-in needs it. Since 2026-11-04 every cell is
+   sandboxed (§2): Bash cannot write outside the cell, reach the network, read the benchmark's
+   own material or credentials, or see the arm's home; the file tools are confined by permission
+   rules. Remaining exposure: Bash and the Read tool can still read the rest of the user's home
+   (outside the denied paths). The profile is proven per study (preflight), not per cell: Claude
+   Code reports no sandbox state in its stream; `failIfUnavailable` makes it refuse to start
+   unsandboxed, and the binary is pinned.
 3. **Shared plugin data dir.** Another session loading the same plugin by `--plugin-dir` on
    the same account would share and could reinstall the runtime; the per-cell spec check
    voids the cell rather than letting it pass silently. Remove
@@ -119,9 +141,11 @@ the runner refuses a study the windows cannot finish.
 ## 7. Commands
 
 ```bash
+python -m truthstone.bench.codex sandbox-check --host claude --control  # the sandbox, no model
 python -m truthstone.bench.codex claude-usage                      # both accounts, the choice
-python -m truthstone.bench.codex plan --host claude --name <name> --accounts work,personal \
-  --model claude-opus-5-5 --effort medium --per-cell-session <measured> --per-cell-week <measured> \
+python -m truthstone.bench.codex plan --host claude --suite golden-dev --name <name> \
+  --accounts work,personal --model claude-opus-5-5 --effort medium \
+  --per-cell-session <measured> --per-cell-week <measured> \
   --out bench/codex/plans/<name>.json
 python -m truthstone.bench.codex preflight --plan bench/codex/plans/<name>.json   # no model call
 python -m truthstone.bench.codex smoke --plan bench/codex/plans/claude-smoke.json --confirm-live

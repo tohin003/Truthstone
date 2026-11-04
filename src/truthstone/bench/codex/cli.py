@@ -21,6 +21,7 @@ from truthstone.bench.codex import (
     agents,
     appserver,
     claude,
+    claude_sandbox,
     guards,
     homes,
     limits,
@@ -28,6 +29,7 @@ from truthstone.bench.codex import (
     report,
     scripted,
     suite,
+    toolchain,
 )
 from truthstone.bench.codex.plan import Plan
 
@@ -41,26 +43,38 @@ RESULTS = suite.BENCH_ROOT / "results"
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
-    tasks = suite.load_suite(only=args.task or None)
+    tasks = suite.load_suite(only=args.task or None, suite=args.suite)
     for task in tasks:
-        print(f"{task.id:<34}{task.set:<11}{task.family:<24}{','.join(task.opportunity.mechanisms)}")
+        print(
+            f"{task.id:<40}{task.set:<11}{task.family:<24}{task.language[:2]:<4}"
+            f"{','.join(task.opportunity.mechanisms)}"
+        )
     counts = {s: sum(1 for t in tasks if t.set == s) for s in suite.SETS}
-    print(f"\n{len(tasks)} task(s) {counts}; suite digest {suite.suite_digest(tasks)[:16]}")
+    name = suite.suite_spec(args.suite).name
+    print(f"\n{name}: {len(tasks)} task(s) {counts}; suite digest {suite.suite_digest(tasks)}")
     return 0
 
 
+def _node_for(tasks: list[suite.Task], explicit: str | None) -> str | None:
+    """The Node to grade (and run) TypeScript tasks with; None when no task needs it."""
+    if not any(t.language == "typescript" for t in tasks):
+        return None
+    return os.path.abspath(explicit or toolchain.default_node())
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
-    tasks = suite.load_suite(only=args.task or None)
+    tasks = suite.load_suite(only=args.task or None, suite=args.suite)
     # absolute, but not resolved: resolving a venv's python symlink would leave the venv
     python = os.path.abspath(args.python or scripted.default_python())
+    node = _node_for(tasks, args.node)
     failures = 0
     rows = []
     for task in tasks:
-        result = scripted.validate_task(task, python)
+        result = scripted.validate_task(task, python, node=node)
         for v in result.variants:
             flag = "ok " if v.ok else "BAD"
             detail = (v.problem or ", ".join(v.reasons))[:90]
-            print(f"{flag} {task.id:<34}{v.variant:<8}{v.outcome:<18}{detail}")
+            print(f"{flag} {task.id:<42}{v.variant:<8}{v.outcome:<18}{detail}")
         failures += 0 if result.ok else 1
         rows.append(
             {
@@ -71,7 +85,8 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         )
     if args.json:
         Path(args.json).write_text(json.dumps(rows, indent=2), encoding="utf-8")
-    print(f"\n{len(tasks) - failures}/{len(tasks)} task(s) validated")
+    name = suite.suite_spec(args.suite).name
+    print(f"\n{len(tasks) - failures}/{len(tasks)} task(s) validated; suite {name}")
     return 1 if failures else 0
 
 
@@ -82,7 +97,13 @@ def codex_version(codex_bin: str) -> str:
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
-    tasks = suite.load_suite(only=args.task or None)
+    tasks = suite.load_suite(only=args.task or None, suite=args.suite)
+    common: dict = {}
+    node = _node_for(tasks, args.node)
+    if node is not None:
+        common["node_version"] = toolchain.node_version(node)
+    if args.suite and args.suite != suite.DEFAULT_SUITE:
+        common["suite"] = suite.suite_spec(args.suite).name
     host_fields: dict = {}
     if args.host == "claude":
         accounts = [a.strip() for a in (args.accounts or "work,personal").split(",") if a.strip()]
@@ -102,8 +123,11 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             ],
             "codex_version": claude.claude_version(args.claude),  # the host CLI's version
             "trust": "session-plugin-dir",
-            "sandbox": "none",
-            "network": True,
+            # Every cell's Bash runs in Claude Code's own sandbox: writes confined to the
+            # cell, no network (claude_sandbox.py, proven by `sandbox-check`).
+            "sandbox": "claude-bash-sandbox",
+            "network": False,
+            "sandbox_profile": claude_sandbox.PROFILE,
             "reasoning_summary": "n/a",
             "service_tier": "n/a",
             "budget": dataclasses.asdict(policy),
@@ -125,6 +149,8 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         max_attempts=args.max_attempts,
         suite_digest=suite.suite_digest(tasks),
         notes=args.notes or "",
+        arms=ARM_CHOICES[args.arms],
+        **common,
         **host_fields,
     )
     if args.host == "codex" and args.stop_weekly_at is not None:
@@ -134,11 +160,16 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     plan.save(out)
+    unit = "observe-only screening cells" if plan.screening else "cells"
     print(
-        f"plan {plan.name}: {len(plan.pairs())} pairs = {2 * len(plan.pairs())} cells; "
-        f"digest {plan.digest()[:16]}"
+        f"plan {plan.name}: {len(plan.pairs())} pairs = {len(plan.arms) * len(plan.pairs())} {unit}; "
+        f"suite {plan.suite} {plan.suite_digest[:16]}; digest {plan.digest()[:16]}"
     )
     return 0
+
+
+# `--arms`: both arms (the paired study), or the observe arm alone (a screening pilot).
+ARM_CHOICES = {"both": ["on", "observe"], "observe": ["observe"]}
 
 
 # -- wiring a real run ------------------------------------------------------------
@@ -181,13 +212,43 @@ def thaw_tree(root: Path) -> None:
             os.chmod(path, path.stat().st_mode | 0o200)
 
 
+def _plan_tasks(plan: Plan, args: argparse.Namespace) -> dict[str, suite.Task]:
+    """The plan's tasks, from the plan's own suite (``--suite`` may only confirm it)."""
+    given = getattr(args, "suite", None)
+    if given and suite.suite_spec(given).name != plan.suite:
+        raise orchestrator.Halt(f"--suite {given} disagrees with the plan's suite {plan.suite!r}")
+    return {t.id: t for t in suite.load_suite(only=plan.tasks, suite=plan.suite)}
+
+
+def _toolchain(plan: Plan, state: Path, args: argparse.Namespace) -> tuple[str | None, Path | None]:
+    """The pinned Node and its private bin, when the plan has TypeScript tasks."""
+    if not plan.node_version:
+        return None, None
+    node = os.path.abspath(getattr(args, "node", None) or toolchain.default_node())
+    try:
+        bin_dir = toolchain.make_toolchain(state / "toolchain", node, pinned=plan.node_version)
+    except toolchain.ToolchainError as exc:
+        raise orchestrator.Halt(str(exc)) from exc
+    return str(bin_dir / "node"), bin_dir
+
+
 def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
-    """Claude Code cells: ``claude -p`` in scratch repos outside the user's home."""
-    tasks = {t.id: t for t in suite.load_suite(only=plan.tasks)}
+    """Claude Code cells: ``claude -p`` in scratch repos outside the user's home, each one's
+    Bash in Claude Code's sandbox and its file tools confined to the cell."""
+    if plan.sandbox_profile != claude_sandbox.PROFILE:
+        raise orchestrator.Halt(
+            f"the plan's Claude sandbox profile {plan.sandbox_profile!r} is not this harness's "
+            f"{claude_sandbox.PROFILE!r}: re-make the plan (every Claude cell must run sandboxed)"
+        )
+    bare = claude_sandbox.bare_file_tools(plan.allowed_tools)
+    if bare:
+        raise orchestrator.Halt(f"the plan allows {bare} bare, which would let them write anywhere")
+    tasks = _plan_tasks(plan, args)
     work_root = Path(args.work_root).expanduser() if args.work_root else homes.default_work_root(plan.name)
     homes.assert_outside_tmp(work_root)
     homes.assert_outside_tmp(run_dir)
     state = homes.private_dir(work_root / "state")
+    task_node, toolchain_bin = _toolchain(plan, state, args)
     taskenv = state / "taskenv"
     if taskenv.exists():
         thaw_tree(taskenv)
@@ -211,12 +272,17 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
     unknown = sorted(set(plan.accounts) - set(guard.accounts))
     if unknown:
         raise orchestrator.Halt(f"unknown account(s) {unknown}")
+    # Hidden from every cell: the checkout (hidden tests), the run directory and the work
+    # root (both arms' homes), and credentials. Re-opened: the task interpreter and Node.
+    readable = [taskenv, *([toolchain_bin.parent] if toolchain_bin is not None else [])]
+    sandbox_paths = claude_sandbox.SandboxPaths.for_study(suite.REPO_ROOT, run_dir, work_root, readable)
     settings = claude.ClaudeSettings(
         model=plan.model,
         effort=plan.effort,
         permission_mode=plan.permission_mode,
         timeout_s=plan.cell_timeout_s,
         allowed_tools=tuple(plan.allowed_tools),
+        sandbox=sandbox_paths,
     )
     agent: object = claude.ClaudeExecAgent(claude_bin, settings)
     if getattr(args, "max_agent_runs", None):
@@ -235,19 +301,28 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
         cell_root=cell_root,
         account_reader=lambda account: claude.read_usage(claude_bin, guard.accounts[account]),
         account_policy=plan.account_policy(),
+        task_node=task_node,
+        toolchain_bin=toolchain_bin,
     )
     runner.allow_partial = bool(getattr(args, "allow_partial", False))
     return runner
 
 
+def limits_context(contexts: dict) -> object | None:
+    """The arm whose Codex home reads the plan's usage windows. Any prepared arm will do (the
+    account is the same); an observe-only screening plan has no "on" arm at all."""
+    return contexts.get("on") or next(iter(contexts.values()), None)
+
+
 def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
     if plan.host == "claude":
         return _claude_runner(plan, run_dir, args)
-    tasks = {t.id: t for t in suite.load_suite(only=plan.tasks)}
+    tasks = _plan_tasks(plan, args)
     work_root = Path(args.work_root).expanduser() if args.work_root else homes.default_work_root(plan.name)
     homes.assert_outside_tmp(work_root)
     homes.assert_outside_tmp(run_dir)
     state = homes.private_dir(work_root / "state")
+    task_node, toolchain_bin = _toolchain(plan, state, args)
     task_python = homes.make_task_env(state / "taskenv", args.uv, plan.task_python, plan.pytest_version)
     build = guards.prepare_build(
         Path(args.truthstone_repo), plan.truthstone_ref, state / "build", args.uv, "3.12"
@@ -271,11 +346,20 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
     if getattr(args, "max_agent_runs", None):
         agent = CappedAgent(agent, args.max_agent_runs)
     runner = orchestrator.Runner(
-        plan, tasks, guard, agent, run_dir, work_root, str(task_python), real_codex=True
+        plan,
+        tasks,
+        guard,
+        agent,
+        run_dir,
+        work_root,
+        str(task_python),
+        real_codex=True,
+        task_node=task_node,
+        toolchain_bin=toolchain_bin,
     )
 
     def read_limits() -> dict | None:
-        ctx = runner.contexts.get("on")
+        ctx = limits_context(runner.contexts)
         if ctx is None:
             return None
         env = guard.base_env(ctx, ctx.codex_template)
@@ -296,6 +380,21 @@ def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> in
     runner = _real_runner(plan, run_dir, args)
     runner.bind()
     data: dict = {"plan": plan.digest(), "claude_version": plan.codex_version, "accounts": plan.accounts}
+    # The cells' sandbox, proven with the pinned binary and the plan's flags: no model call.
+    agent = runner.agent.inner if isinstance(runner.agent, CappedAgent) else runner.agent
+    sandbox = claude_sandbox.check(
+        agent.claude_bin,
+        runner.work_root,
+        model=plan.model,
+        permission_mode=plan.permission_mode,
+        allowed_tools=tuple(plan.allowed_tools),
+    )
+    data["sandbox_check"] = dataclasses.asdict(sandbox)
+    _print_sandbox(sandbox)
+    if not sandbox.ok:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "preflight.json").write_text(json.dumps(data, indent=2, default=str))
+        return 1
     runner.setup_arms()  # provisions each account's plugin runtime (``claude -p /usage``)
     try:
         runner._refresh_usage(force=True)
@@ -321,6 +420,55 @@ def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> in
     print(f"next pair would run on: {data['account_choice']['account']} ({data['account_choice']['reason']})")
     print(f"preflight passed; details in {run_dir / 'preflight.json'}")
     return 0
+
+
+def _print_sandbox(result: claude_sandbox.CheckResult) -> None:
+    label = "sandboxed" if result.sandboxed else "negative control (no sandbox)"
+    status = "ok" if result.ok else "FAILED"
+    print(
+        f"claude sandbox check [{label}] {status}: profile {result.profile}, "
+        f"Claude Code {result.claude_version}"
+    )
+    obs = result.observations
+    for probe in obs.get("probes", []):
+        print(f"  {probe}")
+    print(f"  files: {obs.get('files')}")
+    print(
+        f"  Read of a hidden path refused: {obs.get('read_hidden_refused')}; hooks reached loopback: "
+        f"{obs.get('hooks_seen')}"
+    )
+    for problem in result.problems:
+        print(f"  problem: {problem}")
+
+
+def _cmd_sandbox_check(args: argparse.Namespace) -> int:
+    """Prove the cells' sandbox with no model call (see claude_sandbox.check / codex_probe)."""
+    work_root = homes.private_dir(homes.default_work_root("sandbox-check"))
+    report_data: dict = {}
+    status = 0
+    if args.host in ("claude", "both"):
+        claude_bin = claude.pin_claude_bin(args.claude, work_root / "claude-bin")
+        result = claude_sandbox.check(claude_bin, work_root, model=args.model)
+        _print_sandbox(result)
+        report_data["claude"] = dataclasses.asdict(result)
+        status |= 0 if result.ok else 1
+        if args.control:
+            control = claude_sandbox.check(claude_bin, work_root, model=args.model, sandboxed=False)
+            _print_sandbox(control)
+            report_data["claude_control"] = dataclasses.asdict(control)
+            status |= 0 if control.ok else 1
+    if args.host in ("codex", "both"):
+        codex = agents.codex_sandbox_probe(args.codex, work_root)
+        print(
+            f"codex sandbox probe ({codex['profile']}) {'ok' if codex['ok'] else 'FAILED'}: {codex['probes']}"
+        )
+        for problem in codex["problems"]:
+            print(f"  problem: {problem}")
+        report_data["codex"] = codex
+        status |= 0 if codex["ok"] else 1
+    if args.json:
+        Path(args.json).write_text(json.dumps(report_data, indent=2, default=str), encoding="utf-8")
+    return status
 
 
 def _usage_line(reading: dict | None) -> str:
@@ -395,12 +543,89 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
     return 0
 
 
+def _runner_alive(pid_path: Path) -> int | None:
+    """The detached runner's pid if that process is still this harness (a pid can be reused)."""
+    try:
+        pid = int(pid_path.read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    proc = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, check=False
+    )
+    return pid if "truthstone.bench.codex" in proc.stdout else None
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    """Progress of a run directory: counts only (no outcomes), the runner, stops and halts."""
+    run_dir = Path(args.run_dir)
+    plan = Plan.load(run_dir / "plan.json")
+    records = orchestrator.load_records(run_dir / "cells.jsonl")
+    cells = [r for r in records if r.get("kind") == "cell"]
+    states = orchestrator.pair_states(records, plan.max_attempts, len(plan.arms))
+    complete = sum(s.complete for s in states.values())
+    excluded = sum(s.excluded for s in states.values())
+    voids: dict[str, int] = {}
+    for c in cells:
+        if c["status"] != "valid":
+            voids[str(c.get("void_reason"))] = voids.get(str(c.get("void_reason")), 0) + 1
+    print(
+        f"{plan.name}: suite {plan.suite}, arms {'+'.join(plan.arms)}, {plan.model}/{plan.effort}, "
+        f"stage {plan.stage}"
+    )
+    print(f"pairs complete {complete}/{len(plan.pairs())}; excluded {excluded}")
+    print(f"cells run {len(cells)}: valid {sum(c['status'] == 'valid' for c in cells)}; voids {voids}")
+    if cells:
+        last = cells[-1]
+        print(f"last cell {last['cell_id']} ({last['status']}) at {time.ctime(last.get('finished_at') or 0)}")
+    alive = _runner_alive(run_dir / "run.pid")
+    print(f"runner: {'running, pid ' + str(alive) if alive else 'not running'}")
+    for name in ("HALTED", "last-session.json", "allowance.json"):
+        path = run_dir / name
+        if path.exists():
+            print(f"{name}: {path.read_text(encoding='utf-8').strip()[:400]}")
+    return 0
+
+
+def _detach(args: argparse.Namespace, run_dir: Path) -> int:
+    """Re-run this exact command in a new session, detached from the terminal.
+
+    The child survives the parent shell and session ending (``start_new_session``; macOS
+    has no ``setsid`` command), keeps the machine awake while it runs (``caffeinate -i``),
+    and writes ``run.log`` and ``run.pid`` in the run directory. Resuming is running the
+    same command again: completed pairs are skipped.
+    """
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pid_path = run_dir / "run.pid"
+    active = _runner_alive(pid_path)
+    if active:
+        print(f"refusing: a runner is already active for {run_dir} (pid {active})")
+        return 2
+    raw = [a for a in getattr(args, "raw_argv", sys.argv[1:]) if a != "--detach"]
+    argv = [sys.executable, "-m", "truthstone.bench.codex", *raw]
+    if "--run-dir" not in raw:
+        argv += ["--run-dir", str(run_dir)]
+    caffeinate = shutil.which("caffeinate")
+    if caffeinate:
+        argv = [caffeinate, "-i", *argv]
+    log = run_dir / "run.log"
+    with log.open("ab") as out, open(os.devnull, "rb") as devnull:
+        child = subprocess.Popen(
+            argv, stdin=devnull, stdout=out, stderr=subprocess.STDOUT, start_new_session=True, cwd=os.getcwd()
+        )
+    pid_path.write_text(f"{child.pid}\n")
+    print(f"detached: pid {child.pid} (stop it with: kill -TERM -- -{child.pid}); log {log}")
+    print(f"watch with: python -m truthstone.bench.codex status --run-dir {run_dir}")
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     if not args.confirm_live:
         print("refusing: a live run spends subscription usage; pass --confirm-live")
         return 2
     plan = Plan.load(Path(args.plan))
     run_dir = Path(args.run_dir) if args.run_dir else RESULTS / plan.name
+    if getattr(args, "detach", False):
+        return _detach(args, run_dir)
     runner = _real_runner(plan, run_dir, args)
     try:
         summary = runner.run(max_pairs=args.max_pairs)
@@ -413,18 +638,22 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_dry_run(args: argparse.Namespace) -> int:
-    tasks = suite.load_suite(only=args.task or None)
+    tasks = suite.load_suite(only=args.task or None, suite=args.suite)
     run_dir = Path(args.run_dir)
     if run_dir.exists() and not args.resume:
         shutil.rmtree(run_dir)
     python = os.path.abspath(args.python or scripted.default_python())
-    host_fields: dict = {}
+    node = _node_for(tasks, args.node)
+    host_fields: dict = {"suite": suite.suite_spec(args.suite).name}
+    if node is not None:
+        host_fields["node_version"] = toolchain.node_version(node)
     fake = None
     if args.host == "claude":
         # Simulated accounts that start near their caps, so one dry run exercises the
         # 98% rule, the personal reserve, a wait for a 5-hour reset and a mid-cell 429.
         policy = claude.AccountPolicy(per_cell_session=1.5, per_cell_week=0.25)
         host_fields = {
+            **host_fields,
             "host": "claude",
             "accounts": ["work", "personal"],
             "budget": dataclasses.asdict(policy),
@@ -444,6 +673,7 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
         model="scripted",
         effort="medium",
         suite_digest=suite.suite_digest(tasks),
+        arms=ARM_CHOICES[args.arms],
         **host_fields,
     )
     work_root = Path(args.work_root) if args.work_root else run_dir / "work"
@@ -468,6 +698,7 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
         python,
         real_codex=False,
         log=(lambda _m: None) if args.quiet else print,
+        task_node=node,
     )
     if fake is not None:
         runner.account_reader = fake.read
@@ -540,7 +771,7 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
         plan = Plan.load(Path(args.plan))
         run_dir = Path(args.run_dir) if args.run_dir else RESULTS / plan.name
         states = orchestrator.pair_states(
-            orchestrator.load_records(run_dir / "cells.jsonl"), plan.max_attempts
+            orchestrator.load_records(run_dir / "cells.jsonl"), plan.max_attempts, len(plan.arms)
         )
         remaining = sum(
             1
@@ -548,7 +779,7 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
             if not states.get(p.id, orchestrator.PairState()).complete
             and not states.get(p.id, orchestrator.PairState()).excluded
         )
-        verdict = limits.feasibility(reading, 2 * remaining, plan.budget_policy())
+        verdict = limits.feasibility(reading, len(plan.arms) * remaining, plan.budget_policy())
         print(f"plan {plan.name}: {verdict.reason}")
         status = 0 if verdict.ok else 1
     if args.json:
@@ -570,8 +801,38 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 # -- parser -----------------------------------------------------------------------
 
 
+def _suite_option(p: argparse.ArgumentParser, live: bool = False) -> None:
+    p.add_argument(
+        "--suite",
+        choices=list(suite.SUITES),
+        default=None if live else suite.DEFAULT_SUITE,
+        help=(
+            "Must match the plan's suite (the plan pins it)."
+            if live
+            else f"Named task suite (default {suite.DEFAULT_SUITE})."
+        ),
+    )
+
+
+def _arms_option(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--arms",
+        choices=list(ARM_CHOICES),
+        default="both",
+        help="both (the paired study) or observe (a screening pilot: base rates, cost, instrument).",
+    )
+
+
+def _node_option(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--node", help=f"Node for TypeScript tasks (default: ${toolchain.ENV_NODE}, PATH, then nvm)."
+    )
+
+
 def _live_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--plan", required=True)
+    _suite_option(p, live=True)
+    _node_option(p)
     p.add_argument("--run-dir")
     p.add_argument("--work-root", help="Neutral directory outside /tmp for homes and cell repos.")
     p.add_argument("--codex", default=DEFAULT_CODEX)
@@ -591,16 +852,21 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("list", help="List the task suite.")
+    _suite_option(p)
     p.add_argument("--task", action="append")
     p.set_defaults(func=_cmd_list)
 
     p = sub.add_parser("validate", help="Prove every grader on noop/honest/planted solutions.")
+    _suite_option(p)
     p.add_argument("--task", action="append")
     p.add_argument("--python", help="Interpreter with pytest for the task code.")
+    _node_option(p)
     p.add_argument("--json")
     p.set_defaults(func=_cmd_validate)
 
     p = sub.add_parser("plan", help="Write a run plan (pre-registration input).")
+    _suite_option(p)
+    _node_option(p)
     p.add_argument("--name", required=True)
     p.add_argument("--stage", default="main", choices=["pilot", "main", "smoke"])
     p.add_argument("--seed", type=int, default=20261105)
@@ -630,6 +896,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--codex", default=DEFAULT_CODEX)
     p.add_argument("--notes")
+    _arms_option(p)
     p.add_argument("--out", required=True)
     p.set_defaults(func=_cmd_plan)
 
@@ -655,9 +922,20 @@ def build_parser() -> argparse.ArgumentParser:
             default=None if name == "run" else 2,
             help="Hard cap on live codex exec invocations in this session.",
         )
+        p.add_argument(
+            "--detach",
+            action="store_true",
+            help="Run in a new session (survives the terminal), awake, logging to <run-dir>/run.log.",
+        )
         p.set_defaults(func=_cmd_run)
 
+    p = sub.add_parser("status", help="Progress of a run directory (counts only; no outcomes).")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(func=_cmd_status)
+
     p = sub.add_parser("dry-run", help="The whole pipeline with a scripted agent and a fake guard.")
+    _suite_option(p)
+    _node_option(p)
     p.add_argument("--run-dir", required=True)
     p.add_argument("--work-root")
     p.add_argument("--task", action="append")
@@ -668,7 +946,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", action="store_true")
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--host", default="codex", choices=["codex", "claude"])
+    _arms_option(p)
     p.set_defaults(func=_cmd_dry_run)
+
+    p = sub.add_parser(
+        "sandbox-check",
+        help="Prove the cells' sandbox, no model (Claude: real binary + scripted local API; "
+        "Codex: codex sandbox).",
+    )
+    p.add_argument("--host", default="both", choices=["claude", "codex", "both"])
+    p.add_argument("--claude", default=DEFAULT_CLAUDE)
+    p.add_argument("--codex", default=DEFAULT_CODEX)
+    p.add_argument("--model", default="claude-opus-5-5", help="Model name the scripted API is asked for.")
+    p.add_argument("--control", action="store_true", help="Also run the unsandboxed negative control.")
+    p.add_argument("--json")
+    p.set_defaults(func=_cmd_sandbox_check)
 
     p = sub.add_parser("claude-usage", help="Both Claude accounts' usage windows via /usage (no model call).")
     p.add_argument("--claude", default=DEFAULT_CLAUDE)
@@ -693,6 +985,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    args.raw_argv = list(sys.argv[1:] if argv is None else argv)  # `run --detach` re-runs exactly this
     return int(args.func(args) or 0)
 
 

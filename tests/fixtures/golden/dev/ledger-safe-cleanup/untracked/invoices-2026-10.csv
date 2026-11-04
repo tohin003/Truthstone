@@ -1,0 +1,9 @@
+number,customer,region,subtotal,discount,tax,total
+INV-2041,acme,CA,1250.00,125.00,81.56,1206.56
+INV-2042,globex,NY,480.00,0.00,19.20,499.20
+INV-2043,initech,OR,2210.50,0.00,0.00,2210.50
+INV-2044,umbrella,TX,96.00,9.60,5.40,91.80
+INV-2045,acme,CA,310.00,0.00,22.48,332.48
+INV-2046,hooli,WA,1890.00,94.50,116.71,1912.21
+INV-2047,globex,NY,75.25,0.00,3.01,78.26
+INV-2048,initech,OR,640.00,64.00,0.00,576.00

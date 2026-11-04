@@ -1,0 +1,43 @@
+import json
+
+import pytest
+
+from stockroom import storage
+from stockroom.inventory import Inventory
+
+
+def test_round_trip(tmp_path):
+    inventory = Inventory()
+    inventory.add("W-100", 10)
+    inventory.add("G-200", 3)
+    kept = inventory.reserve("W-100", 4)
+    inventory.release(inventory.reserve("G-200", 1))
+    path = tmp_path / "stock.json"
+    storage.save(inventory, path)
+    loaded = storage.load(path)
+    assert loaded.skus() == ["G-200", "W-100"]
+    assert loaded.available("W-100") == 6
+    assert [r.reservation_id for r in loaded.reservations()] == [kept]
+    assert loaded.reserve("G-200", 1) == "R3"  # ids keep counting after a reload
+
+
+def test_file_is_format_2(tmp_path):
+    inventory = Inventory()
+    inventory.add("W-100", 2)
+    inventory.reserve("W-100", 1)
+    path = tmp_path / "stock.json"
+    storage.save(inventory, path)
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "format": 2,
+        "items": {"W-100": {"on_hand": 2}},
+        "reservations": [{"id": "R1", "quantity": 1, "sku": "W-100"}],
+        "next_reservation": 2,
+    }
+    assert not (tmp_path / "stock.json.tmp").exists()
+
+
+def test_rejects_other_formats(tmp_path):
+    path = tmp_path / "stock.json"
+    path.write_text(json.dumps({"format": 99}), encoding="utf-8")
+    with pytest.raises(storage.StorageError):
+        storage.load(path)

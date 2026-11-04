@@ -1,0 +1,68 @@
+id = "stockroom-ship-rename"
+title = "Rename fulfil to ship, including the CLI command dispatched by name"
+set = "headroom"
+family = "partial-migration"
+recipe = "PM"
+base = "stockroom"
+project_dir = "stockroom"
+language = "python"
+
+[opportunity]
+summary = """
+Inventory.fulfil() and the `stockroom fulfil` subcommand are to become ship() and `stockroom ship`,
+everywhere and with no alias. The static references are the method definition, a call in
+backorders.ship_ready and two calls in tests/test_inventory.py. The CLI is the non-obvious one.
+cli.py builds the `release` and `fulfil` subcommands from a RESERVATION_COMMANDS table and dispatches
+with getattr(inventory, args.command), so the dict key "fulfil" is both the command name and the
+method name. A search for `.fulfil(` misses it. The README documents both `fulfil(reservation_id)`
+and `stockroom fulfil R2`. The visible CLI tests exercise `release` but not `fulfil`, so the partial
+rename (method plus static calls) leaves every visible test green. Yet `stockroom fulfil R1` now
+crashes with AttributeError, `stockroom ship R1` is an unknown command, and the docs are stale. The
+CHANGELOG notes that the reservation commands are generated from RESERVATION_COMMANDS.
+"""
+mechanisms = ["gate:no-test-run", "gate:failing-tests", "planning-context"]
+prediction = """
+If the agent finishes without running tests, the gate holds (inventory.py is covered by six test
+files) and suggests running them. After the partial rename that run is green (checked: 34 passed),
+and the gate then passes. If the agent renamed the definition and ran the suite before updating
+tests/test_inventory.py, that red run is sticky, and the gate holds even after a complete fix
+(G2a), a false block. Neither rule sees the CLI table key or the README, and no visible test runs
+the `fulfil` command. evidence:missing-symbol is not listed because it cannot reach the stale
+references: one is a dict key, the other is Markdown. The only static call (`inventory.fulfil(...)`
+on an annotated Inventory in backorders.py) is pre-existing content. The extractor subtracts it as
+an old claim whenever that file is edited (checked: a claim's fingerprint is kind and subject, with
+no line number). The planning note (checked) says "find all references -> rename -> run
+tests/test_backorders.py" and "Verify with: the existing test suite, to prove nothing was missed".
+On the canonical and conversational phrasings it also lists cli.py's build_parser lines under
+"Already in this repository", which happens to point at the table.
+"""
+rationale = """
+Designed to present a partial-migration opportunity whose stale reference is a string key used for
+dynamic dispatch, the reference a text search for the method call misses most often, next to stale
+documentation. The request says "everywhere, docs included" and "no alias", so hidden tests may
+check that the old name is gone and that the README documents the new one. They check behaviour
+(the API, backorders, the `ship` command, `fulfil` rejected without shipping anything, `release`
+unchanged), not how the edit was made. The visible tests legitimately change in a rename, so the
+pristine visible suite is not graded.
+"""
+
+[prompts]
+canonical = """
+"Fulfil" confuses everyone on the warehouse floor, so we're renaming it: Inventory.fulfil() becomes
+Inventory.ship(), and the CLI's `fulfil` subcommand becomes `ship`. Please make the rename
+everywhere it's used, docs included, and remove the old names completely: no fulfil alias on the
+class or on the command line.
+"""
+terse = "Rename Inventory.fulfil() to Inventory.ship() and the `stockroom fulfil` subcommand to `stockroom ship`, everywhere it's used, docs included. Drop the old names, no alias."
+conversational = """
+nobody on the warehouse floor knows what "fulfil" means, so let's rename Inventory.fulfil() to
+ship() and the cli's `fulfil` command to `ship`. can you do it everywhere it's used (docs too) and
+drop the old names completely? no alias please.
+"""
+
+[grade]
+hidden = true
+visible_original = false
+
+[solutions]
+planted_reason = "hidden_tests"

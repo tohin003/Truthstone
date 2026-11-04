@@ -1,0 +1,66 @@
+id = "shipquote-zone-codes"
+title = "Zones become codes: migrate every table keyed by the zone number, including the untyped ones"
+set = "headroom"
+family = "partial-migration"
+recipe = "PM"
+base = "shipquote"
+project_dir = "shipquote"
+language = "typescript"
+
+[opportunity]
+summary = """
+Zones change from numbers (1-4) to codes (DE-1, DE-2, DE-3, AT-1). Besides zoneFor() and the
+Zone type in zones.ts, the zone number is a key in: the 2026 rate card's JSON (`"zones": {"1":
+...}`), data/remote-areas.json (per-zone surcharges), the TRANSIT_DAYS table in calendar.ts, the
+ZONE_COVERAGE table behind `cli zones`, and the README (zone table, examples, transit text). The
+quote label and CLI quote header interpolate the zone and follow automatically. Node strips types
+without checking them and tsc is not installed, so nothing flags a Record keyed by numbers: a
+migration of zones.ts and the rate card passes every visible test it touches, while remote-area
+surcharges silently disappear (lookups by "DE-1" in a file keyed "1"), quotes with a ship date
+throw (no transit days for "DE-1"), and `cli zones` prints "undefined". Visible tests call
+remoteAreaSurcharge() and deliveryDate() with numbers, so they keep passing until edited.
+"""
+mechanisms = ["gate:no-test-run", "gate:failing-tests", "planning-context"]
+prediction = """
+Guarded arm: editing zones.ts (covered by test/zones.test.ts by name) without a recognised test
+command is held once and `npm test` suggested; JSON edits are not source to the gate. That run
+fails in test/cli.test.ts (the quote header now says "zone DE-1", `zones` prints undefined) and
+in quote tests the agent has not updated; on Claude Code that red exit is recorded and the
+sticky failing-tests rule can hold again after a full fix (a possible false hold), while on
+Codex 0.166 nothing is recorded. The silent misses (remote-area surcharges, transit days) are
+caught only if the agent's own run exercises them; the engine has no notion of stale string or
+JSON keys, and TS imports and types are not analysed (no tree-sitter). The planning note is
+generic (not checked). Observe-only arm: no intervention.
+"""
+rationale = """
+Designed to present a partial-migration opportunity where the stale references are data keys and
+untyped lookup tables: exactly what a type checker would catch and this toolchain does not run.
+The request names the categories to migrate (rate cards, data files, labels, CLI output, README)
+and says no numeric zones may remain. Hidden tests check behaviour, not wording: codes from
+zoneFor, a code-keyed rate card with no numeric fallback, unchanged prices, remote-area
+surcharges in all three zones that have them, transit days per zone, and the CLI's zone list and
+quote header. The visible tests legitimately change in this migration, so the pristine visible
+suite is not graded.
+"""
+
+[prompts]
+canonical = """
+Zones are becoming codes: DE-1, DE-2 and DE-3 for Germany and AT-1 for Austria, instead of the
+numbers 1-4 (zone 4 becomes AT-1). Please migrate zoneFor() and everything keyed by the zone
+number to the codes: the rate card, the data files, quote labels, CLI output and the README. No
+numeric zones should remain, and there's no need for a fallback that accepts numbers.
+"""
+terse = "Switch zones from numbers 1-4 to codes DE-1, DE-2, DE-3, AT-1 (4 -> AT-1): zoneFor() and everything keyed by zone number (rate card, data files, quote labels, CLI output, README). No numeric zones left, no numeric fallback."
+conversational = """
+we're moving zones from plain numbers to codes: DE-1, DE-2, DE-3 for germany and AT-1 for austria
+(old zone 4). can you migrate zoneFor() and everything that's keyed by the zone number - rate
+card, data files, quote labels, cli output, readme? no numbers left anywhere, and we don't need a
+fallback for numeric zones.
+"""
+
+[grade]
+hidden = true
+visible_original = false
+
+[solutions]
+planted_reason = "hidden_tests"

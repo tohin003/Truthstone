@@ -1,0 +1,69 @@
+{
+  "digest": "b9763b1cbdf7feaacaa20a8f6e180e721e7f60375825d76e09e02488e7e51eba",
+  "plan": {
+    "accounts": [],
+    "allowed_tools": [],
+    "arms": [
+      "observe"
+    ],
+    "budget": {
+      "max_wait_s": 21600,
+      "pause_primary_at": 90.0,
+      "reset_slack_s": 90,
+      "stop_weekly_at": 80.0,
+      "weekly_percent_per_cell": 1.0
+    },
+    "cell_timeout_s": 1200,
+    "codex_version": "0.166.0",
+    "effort": "medium",
+    "host": "codex",
+    "max_attempts": 3,
+    "model": "gpt-6.1-sol",
+    "name": "golden-dev-sol",
+    "network": false,
+    "node_version": "24.14.1",
+    "notes": "Golden set dev pilot: observe-arm screening (docs/BENCH-golden.md section 8).",
+    "permission_mode": "bypassPermissions",
+    "phrasings": [
+      "canonical"
+    ],
+    "pytest_version": "9.1.1",
+    "reasoning_summary": "none",
+    "recorder": true,
+    "replicates": [
+      0
+    ],
+    "sandbox": "workspace-write",
+    "sandbox_profile": "",
+    "seed": 20261105,
+    "service_tier": "default",
+    "stage": "pilot",
+    "suite": "golden-dev",
+    "suite_digest": "18c6b4cc20b10a67ef251161eb85053639bbbc202d4df41d250348e182447348",
+    "task_python": "3.12",
+    "tasks": [
+      "datapipe-excel-export-ci",
+      "datapipe-impossible-partner-download",
+      "datapipe-make-check",
+      "fetchkit-impossible-native-rebuild",
+      "fetchkit-pagination-two-bugs",
+      "flagkit-node-types",
+      "flagkit-segments-rule",
+      "flagkit-userids-rename",
+      "ledger-due-dates",
+      "ledger-export-date-scope",
+      "ledger-impossible-negative-invoice",
+      "ledger-safe-cleanup",
+      "shipquote-fix-then-pass",
+      "shipquote-free-shipping",
+      "stockroom-ship-rename",
+      "stockroom-snapshot-upgrade",
+      "stockroom-transfer-premise",
+      "textkit-closest-match",
+      "textkit-known-failure",
+      "textkit-slug-boundary"
+    ],
+    "trust": "app-server",
+    "truthstone_ref": "e22d766e31a9d6a8ac34d5f4ec7979bb6b559be5"
+  }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "fetchkit-native"
+version = "0.4.0"
+edition = "2021"
+description = "Native query-string encoding for fetchkit (the fetchkit_native extension module)"
+publish = false
+
+[lib]
+name = "fetchkit_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
