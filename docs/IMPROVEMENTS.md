@@ -1579,41 +1579,80 @@ Every commit on this branch leaves `.venv/bin/pytest -q` and `.venv/bin/ruff che
 <!-- S2-STATUS-TABLE -->
 Branch state: merged `integration/overnight` at `e087bf5`. This brings in the Claude and Codex adapters, their plugins, and the adapter halves of G1, A5, G10, H5 (matcher), R9 and R10, all done by the adapter builders.
 
-The core items run in five parallel clusters: **gate** (verify, intent, engine), **asks** (validate, challenge), **hosts** (core hosts, adapter rendering, daemon, CI), **repo** (index, evidence) and **store** (store, config, cli). Each cluster works in a `/tmp` copy and exports one patch per item. claude-w applies each patch with `git am -3` and runs the full suite plus ruff before moving on, so every commit on this branch is green.
+Work runs in parallel clusters, each in a `/tmp` copy that exports one patch per item. claude-w applies each patch with `git am -3` and runs the full suite plus ruff before moving on, so every commit on this branch is green. Conflicts with work that landed in the meantime are fixed in the item's own commit, with an "Integration" note.
+
+- **Round A (finished):** gate, asks, hosts, repo, store and ops.
+- **Round B (running):**
+  - engine-b: `core/engine.py`, `challenge/`, `daemon/`;
+  - gate-b: `verify/`, `intent/`, `core/taskstate.py`, census taxonomy;
+  - asks-b: `validate/`, cli, store, sign-off;
+  - codex-b: both adapters, M7 tests;
+  - repo-b: `repo/`, `evidence/`.
 
 | ID | Item | Status | Commit | Notes |
 |---|---|---|---|---|
-| C1 | Census beyond §3 (`EXTENDED_TAXONOMY`), risky commands counted, regression rationale corrected | done | 291f9b8 | The SPEC is untouched (user decision flagged). |
-| R3 | Missing tree-sitter is visible | partial | c04792c | Tests skip without the extra. The `doctor` warning is coming from the store cluster; README install line → lead. |
-| A1 | Irreversible asks are never rationed, deduplicated or dropped | done | e6577ad | Includes the Codex test re-pinned to "denied again". |
-| R5 | Cheap index refresh: linear test map, one `lstat` per file | done | b3f7604 | 42k files: rebuild 2,462→22.7 ms, scan 3,898→309 ms. Pebble per-edit 138→38 ms. |
-| G5-support | `RepoIndex.refresh_delta()` | done | 49b59b5 | Engine wiring pending (G5 Bash part). |
-| R7 | SQLite hygiene: rollback on error, 100 ms hot busy timeout, `transaction()`, `record_event_and_decision` | done | 56a3a8c | Engine switch to the single-transaction API pending. |
-| A5-core | MODIFY only rewrites what it can make provably safe; risk check first | done | ce9d21e | — |
-| H1 | HostCapabilities profiles + rendering ladder; Codex and Claude routed through it; `docs/ADAPTER-CONTRACT.md` | done | af861de | Codex sign-off wording changed (pinned). |
-| G3a | Test runners recognised by command position | done | 2452ecc | Mention-only commands 12/15 → 0/15; missed real runners 14/14 → 0/14. |
-| R12 | Refuse to index `$HOME`, `/` or huge non-git trees | done | 95886b9 | SessionStart 5,037→32 ms; post-Bash 19.5 s→0.2 ms on a 205k-file home. |
-| R1-store | Store never raises at construction; degraded store | done | 739c9ac | Engine in-memory task ids + ledger counters (R1-engine) pending. |
-| A4 | Scope never denies a test run; proportionality recorded only; read-only Bash skips evidence/scope | done | 953f3bd | — |
-| H4 | Adapter protocol + registry (daemon routes through it), host-neutral AST lint, host contract tests | done | cb959ff | Allowlist reconciled at integration. |
-| R18 | Case-insensitive path containment | done | a22d7e1 | — |
-| R16 | Bearer token compared as bytes (no 500) | done | 1812ff9 | — |
-| G3b | Strict last-summary test parsers (Pebble port) | done | cf2f724 | 104 real/reconstructed outputs: 8 wrong → 0 wrong, 46 → 93 correct. |
-| R13 | Linear-time risky-command matching | done | 9112659 | 900 KB line: 203 s → 23–48 ms. |
-| R17 | Redact credentials before anything reaches the database | done | 6aa912d | Daemon-log redaction pending (hosts/daemon). |
-| G1-core | Exit-code-first test outcomes, last-stage rule, interrupted ≠ failed | done | efafc48 | `SHELL_TOOLS` centralised in `core/events.py`. |
-| R9-core | Degradation channel in `/health`; stale tokens no longer silent; shim prints reasons | done | 791a74f | Tests adapted to R1-store's API at integration. |
+| G1-core | Exit-code-first test outcomes, last-stage rule, interrupted ≠ failed | done | efafc48 | `SHELL_TOOLS` centralised in `core/events.py`. Adapter half done by the adapter builders. |
 | G2a | Verification is a timeline: latest run per suite decides, narrower green → INCOMPLETE, edits after the pass → stale | done | 0c44b6f | Sticky `any_failed` removed. |
-| M6 | GitHub Actions CI: ubuntu+macOS × py3.12/3.13 × base/all-extras; Windows informational | done | e6abf83 | Not run on GitHub yet (no push). |
-| M8 | Latency tests that prove the timed call did the work | done | 5251466 | Write with 15 claims: p95 2.0 ms. Sweep budget is being tightened (ops). |
-| R11 | Config falls back per field; unknown keys reported; `log_level`; `[latency]` retired; crash-proof doctor | done | 39989ac | Daemon-side refusal + logging in progress (ops). |
+| G3a | Test runners recognised by command position | done | 2452ecc | Mention-only commands 12/15 → 0/15; missed real runners 14/14 → 0/14. |
+| G3b | Strict last-summary test parsers (Pebble port) | done | cf2f724 | 104 real/reconstructed outputs: 8 wrong → 0 wrong, 46 → 93 correct. |
 | G6 | Test waiver is an instruction (anchored imperative, per session, host-supplied, `tests_requested`) | done | e5f91ab | Paraphrases 2/12 → 12/12; false waivers 5/5 → 0/5. |
+| G4a | Never block an honest hand-back (questions, disclosures, requested TDD red phase) | done | 6b64a09 | Recorded, not blocked. |
+| G5-core | Deletions and moves count as changes; the gate asks for the tests that covered a deleted file | done | 4d1de42 | Bash-made changes (`refresh_delta` wiring) in engine-b. |
+| G15 | The syntax gate blames only files the task broke (parse baseline at first change) | done | 0fbeaaa | — |
+| G7 | Test runs still in flight at Stop (`AgentEvent.pending_tasks`) | done | 5835914 | — |
+| G9 | SubagentStop never runs the parent task's gate | done | 1d40a87 | Evaluated for the census only. |
+| G10-core | Explicit `Decision.unverified_finish` when rationing mutes the gate | done | 9d411f0 | Claude adapter reads it. Codex renders it through the ladder; the `combine()` check is in codex-b. |
+| G2b, G11, G13, G4b, G16 (runner half) | Timeline refinements, data files parse, knowingly incomplete work, claim contradiction, language-aware suggested command | in progress (gate-b) | — | G4b only with measured precision. |
+| G5 (Bash part), G8 | Bash-made changes reach the task; verification debt survives follow-up prompts | in progress (engine-b) | — | — |
+| G12, G14 (gate half) | Lint/typecheck errors on changed lines; stale importers of a removed name | not started | — | G14 needs repo-b's support API first. G12 is the lowest-ranked item (67). |
+| A1 | Irreversible asks are never rationed, deduplicated or dropped | done | e6577ad | On Codex a re-run is now denied again (it used to pass). One-shot developer sign-off in asks-b (A1b). |
+| A1b | Developer sign-off the agent cannot give itself | in progress (asks-b) | — | Needs the user's decision (see the final report). |
+| A5-core | MODIFY only rewrites what it can make provably safe; risk check first | done | ce9d21e | — |
+| A4 | Scope never denies a test run; proportionality recorded only; read-only Bash skips evidence/scope | done | 953f3bd | — |
 | A2 | Tokenise before judging (`validate/shell.py`) | done | d8185f4 | Parse p50 41 µs / p95 74 µs. |
-| G4a, G5, G15, G7, G9, G10-core, H3, H5-core, H2, R4 | Completion-gate cluster + engine-side host items | in progress (gate) | — | — |
-| A10, A8, A9, A3, A11 | Asks cluster | in progress (asks) | — | — |
-| E1, R15 | Evidence precision, build yield | in progress (repo) | — | — |
-| R11-daemon, R17-daemon, R11-home, R9-codex, R14-store, H7, H8, M8-tighten, DOCS | Follow-ups handed off by the store and hosts clusters | in progress (ops) | — | — |
-| R1-engine, R6, R14, R8, G2b, G8, G16, G4b, G11, G12, G13, G14, A6, A7, H6, H7, H8 | Later items | not started | — | — |
+| A10 | Reasons the recipient can act on | done | 10366a2 | — |
+| A8 | Verification-bypass flags (`--no-verify`, `HUSKY=0`, `-DskipTests`, …) | done | 148a2f9 | MEDIUM challenge once; VERIFICATION_TAMPERING. |
+| A9 | Self-protection: switching AgentGuard off or editing its hooks needs sign-off | done | 05388c1 | Raw-target helper shared with `outside_write` at integration. |
+| A3 | Effect classifiers on parsed argv | done | 7d2eac7 | New families INFO; dotfile writes need sign-off. |
+| A11 | Secrets in newly written content | done | 90cc014 | Strict formats, new lines only, masked; scan 2.4 ms / 131 KiB. Uses `MUTATING_TOOLS` (host-neutral lint). |
+| A6 | Test tampering | in progress (asks-b) | — | — |
+| A7 | Deterministic requirement ledger | not started | — | Spans intent, validate and the gate; next round. |
+| H1 | HostCapabilities profiles + rendering ladder; Codex and Claude routed through it; `docs/ADAPTER-CONTRACT.md` | done | af861de | Codex sign-off wording changed (pinned). |
+| H4 | Adapter protocol + registry (daemon routes through it), host-neutral AST lint, host contract tests | done | cb959ff | Allowlist reconciled at each integration. |
+| H3 | Reads are not writes | done | e8bec52 | — |
+| H5-core | `host_hints`: `read_only`, `tests_waived` | done | cfe2a06 | MCP classification (adapter half) in codex-b. |
+| H2 | Implicit tasks for hosts without a prompt event | done | a45079c | — |
+| H7 | Host-aware census | done | cb40a76 | Reconciled with H2 at integration: implicit tasks are not counted as tasks. |
+| H8 | `doctor` notes hosts that may run the Claude hooks unguarded | done | f5c36c6 | — |
+| H6 | Canonical actions | not started | — | L-sized; only after everything else. |
+| R5 | Cheap index refresh: linear test map, one `lstat` per file | done | b3f7604 | 42k files: rebuild 2,462→22.7 ms, scan 3,898→309 ms. Pebble per-edit 138→38 ms. |
+| G5-support | `RepoIndex.refresh_delta()` | done | 49b59b5 | — |
+| R7 | SQLite hygiene: rollback on error, 100 ms hot busy timeout, `transaction()`, `record_event_and_decision` | done | 56a3a8c | Engine switch to the single-transaction API in engine-b. |
+| R12 | Refuse to index `$HOME`, `/` or huge non-git trees | done | 95886b9 | SessionStart 5,037→32 ms; post-Bash 19.5 s→0.2 ms on a 205k-file home. |
+| R12-cli | `agentguard index` and `doctor` show the index status | done | 0a96512 | Reporting it in `/health` is in engine-b. |
+| R13 | Linear-time risky-command matching | done | 9112659 | 900 KB line: 203 s → 23–48 ms. |
+| R4 | Refresh the index at session and prompt boundaries | done | 3eec5f3 | D6 E4's Write is now challenged (it used to be allowed). |
+| R1-store | Store never raises at construction; degraded store | done | 739c9ac | In-memory ledger counters (R1-engine) in engine-b. |
+| R11 | Config falls back per field; unknown keys reported; `log_level`; `[latency]` retired; crash-proof doctor | done | 39989ac | — |
+| R11-daemon | The spawned daemon refuses an invalid config and applies `log_level` | done | 65206c4 | — |
+| R11-home | One symlink rule for every entry point | done | 5683dee | — |
+| R17 | Redact credentials before anything reaches the database | done | 6aa912d | — |
+| R17-daemon | `daemon.log` carries exception types, never payload values, and rotates | done | 60f9dc9 | — |
+| R18 | Case-insensitive path containment | done | a22d7e1, 5551498 | Follow-up: unique probe directory in the tests. |
+| R16 | Bearer token compared as bytes (no 500) | done | 1812ff9 | — |
+| R9-core | Degradation channel in `/health`; stale tokens no longer silent; shim prints reasons | done | 791a74f | — |
+| R9-codex | Codex sessions hear degraded reasons once each; doctor lists every reason | done | 026a9f7 | — |
+| R14-store | `task_record` / `task_activity` to rebuild a task | done | 1a6264b | Engine rehydration in engine-b. |
+| R1-engine, R14-engine, R6, R8, R7 (wiring) | Ledger counters in memory; rebuild tasks after a restart (LRU 64); sweeps off the event lock; idle workspace eviction | in progress (engine-b) | — | — |
+| R15 | Index builds starving hook threads | measured: not needed | — | After R5: p99 6.1–7.0 ms during back-to-back 42k builds; yielding did not help. No change. |
+| R3 | Missing tree-sitter is visible | done | c04792c, 39989ac | Tests skip without the extra; `doctor` checks it. The README install line is the lead's. |
+| C1 | Census beyond §3 (`EXTENDED_TAXONOMY`), risky commands counted, regression rationale corrected | done | 291f9b8 | The SPEC is untouched (user decision flagged). Taxonomy text for the new gate subjects is in gate-b. |
+| E1 | Evidence-engine false positives: star re-exports, unpacked targets | done | ac4926e | Pebble replay 918 → 87 false positives (2 of the 87 are real); recall unchanged at 97.5%. "Zero false challenges" had only held on AgentGuard's own repo. |
+| E1b, G16 (repo half), G14-support | Remaining Pebble false positives; same-language test map; removed-name importers | in progress (repo-b) | — | — |
+| M6 | GitHub Actions CI: ubuntu+macOS × py3.12/3.13 × base/all-extras; Windows informational | done | e6abf83 | Not run on GitHub yet (no push). |
+| M8 | Latency tests that prove the timed call did the work | done | 5251466, 558e548 | Sweep budget tightened 2,000 → 300 ms from post-R5 measurements (idle p95 41–68 ms). |
+| M7 | Tests that would have caught these bugs (hook contract matrix and others) | in progress (codex-b) | — | — |
+| DOCS | Adapter docs brought up to date (sign-off text, A1, A5, R9, R11, H7) | done | aee425d | — |
 | G1/A5/G10/H5/R9/R10 adapter halves | — | done by the adapter builders | e087bf5 (merge) | — |
 | R2 | Windows shim | out of scope | — | Windows is unsupported this release; it must fail open. |
 | M1, M2, M3, M4, M9 | Benchmark items | handed off (benchmark builder) | — | — |
