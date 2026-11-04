@@ -297,8 +297,38 @@ def _session_ending_on_a_failing_run(guard: Guard, repo: Path) -> tuple[dict, De
     return output, decision
 
 
+def _session_ending_without_a_run(guard: Guard, repo: Path) -> tuple[dict, Decision]:
+    """A source edit, no test run at all, then "done": an unverified finish, not (a)/(b)/(e)."""
+    translate.dispatch(guard, _payload(repo, "UserPromptSubmit", prompt="real_helper() should return 2."))
+    patch = (
+        "*** Begin Patch\n"
+        f"*** Update File: {repo / 'pkg' / 'core.py'}\n"
+        "@@\n"
+        "-    return 1\n"
+        "+    return 2\n"
+        "*** End Patch\n"
+    )
+    translate.dispatch(
+        guard, _payload(repo, "PreToolUse", tool_name="apply_patch", tool_input={"command": patch})
+    )
+    (repo / "pkg" / "core.py").write_text("def real_helper():\n    return 2\n")
+    translate.dispatch(
+        guard,
+        _payload(
+            repo, "PostToolUse", tool_name="apply_patch", tool_input={"command": patch}, tool_response="ok"
+        ),
+    )
+    output, _results, decision = translate.dispatch(
+        guard, _payload(repo, "Stop", stop_hook_active=False, last_assistant_message="Done.")
+    )
+    return output, decision
+
+
 @pytest.mark.parametrize("name", ["default", "full"])
-def test_under_the_shipped_default_an_old_gate_stop_block_is_recorded_not_shown(tmp_path, name):
+def test_a_false_all_pass_claim_on_a_red_run_speaks_as_failing_tests(tmp_path, name):
+    """Brief (b): "done" with a test of the changed code red after the last edit, undisclosed
+    ("all tests pass"), reaches the agent under the shipped default too (the arbiter names it
+    failing_tests; before the arbiter it was the old gate's recorded-only reason)."""
     repo = _python_repo(tmp_path)
     guard = Guard(Settings() if name == "default" else Settings(profile="full"))
     try:
@@ -306,12 +336,26 @@ def test_under_the_shipped_default_an_old_gate_stop_block_is_recorded_not_shown(
         output, decision = _session_ending_on_a_failing_run(guard, repo)
     finally:
         guard.close()
+    assert output["decision"] == "block"
+    if name == "default":
+        assert profile.kind_of(decision) == "failing_tests"
+
+
+@pytest.mark.parametrize("name", ["default", "full"])
+def test_under_the_shipped_default_an_unverified_finish_is_recorded_not_shown(tmp_path, name):
+    repo = _python_repo(tmp_path)
+    guard = Guard(Settings() if name == "default" else Settings(profile="full"))
+    try:
+        guard.workspace(repo).index.ready(timeout=30)
+        output, decision = _session_ending_without_a_run(guard, repo)
+    finally:
+        guard.close()
     if name == "full":
         assert output["decision"] == "block"
     else:
         assert output == {}
         assert decision.would_have is DecisionAction.BLOCK
-        assert profile.withheld_kind(decision) == "other:failing-tests-on-completion"
+        assert profile.withheld_kind(decision) == "unverified"
 
 
 def test_doctor_names_the_effective_profile(isolated_home: Path, monkeypatch):
