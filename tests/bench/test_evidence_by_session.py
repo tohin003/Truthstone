@@ -40,12 +40,13 @@ def test_evidence_follows_the_session_when_a_clone_takes_over_the_project_root(t
     )
     clone = tmp_path / "tmp" / "w-release"
     _git("clone", "-q", str(repo), str(clone))
-    ProjectStore(db, project_identity(clone))  # the agent works in its clone: same identity
+    ProjectStore(db, project_identity(clone))  # the agent works in its local clone
     (root,) = db._conn.execute("SELECT root FROM projects WHERE id = ?", (store.project_id,)).fetchone()
-    assert Path(root) == clone.resolve()  # the product's behaviour today: the root moved
-
-    lost = guards.read_guard_db(db_path, repo)
-    assert lost.events == {}  # what voided the two cells
+    # It used to share the origin's identity and move its root (what voided two cells); a local
+    # path is no longer an identity, so the origin keeps its root and is found by its checkout.
+    assert Path(root) == repo.resolve()
+    kept = guards.read_guard_db(db_path, repo)
+    assert kept.events == {"session_start": 1}
 
     trace = tmp_path / "hooks"
     trace.mkdir()
