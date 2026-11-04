@@ -1,0 +1,96 @@
+# Publish to PyPI when a release tag (v*) is pushed.
+#
+# Uses PyPI Trusted Publishing (OpenID Connect): no API token is stored anywhere. The PyPI
+# project is configured to trust exactly this repository, this workflow file (release.yml)
+# and the `pypi` environment. In the repository settings you can add a required reviewer to
+# that environment, so that every publish waits for a human click.
+#
+# Release checklist: bump the version in pyproject.toml AND in every hook plugin's manifest,
+# commit, then `git tag v<version> && git push origin v<version>`. The hook plugins install
+# their runtime from that same tag, so the tag must match their manifests exactly. The
+# version check below refuses to publish otherwise.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test before publishing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+      - name: Install with every extra
+        run: uv sync --all-extras
+      - name: Lint
+        run: uv run ruff check src tests
+      - name: Test
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          export AGENTGUARD_HOME="$(mktemp -d)"
+          uv run pytest -o addopts="" -q -p no:warnings
+
+  build:
+    name: Build and verify
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - name: The tag, the package and the hook plugins agree on the version
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, sys, tomllib
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          package = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          problems = []
+          if tag != f"v{package}":
+              problems.append(f"tag {tag} != v{package} (pyproject.toml)")
+          # A hook plugin installs its runtime from git tag v<manifest version>, so every
+          # plugin that ships hooks must carry exactly the released version.
+          for manifest in sorted(pathlib.Path("plugins").glob("*/.*-plugin/plugin.json")):
+              plugin_dir = manifest.parent.parent
+              if not (plugin_dir / "hooks").is_dir():
+                  continue  # hook-free plugins (skills only) version independently
+              version = json.loads(manifest.read_text()).get("version")
+              if version != package:
+                  problems.append(f"{manifest}: version {version!r} != {package!r}")
+          if problems:
+              sys.exit("refusing to publish:\n  " + "\n  ".join(problems))
+          print(f"ok: {tag}")
+          PY
+      - name: Build the sdist and wheel
+        run: uv build
+      - name: Check the distribution metadata
+        run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/truthstone
+    permissions:
+      id-token: write  # Trusted Publishing; nothing else needs write access
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
