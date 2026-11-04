@@ -226,6 +226,7 @@ def test_ordinary_typescript_requests_get_no_premise_note(tmp_path):
         ("`fetch_rates` already caches in `RatesCache`; reuse that cache in the CLI.", "RatesCache"),
         ("ledgerly currently reads `LEDGERLY_PROXY`, so set it in the nightly job.", "LEDGERLY_PROXY"),
         ("The `rates_ttl` setting should already cap the cache; lower it to 60.", "rates_ttl"),
+        ("The `LEDGERLY_TRACE` env var already turns on request logs; set it in CI.", "LEDGERLY_TRACE"),
     ],
 )
 def test_a_request_resting_on_a_missing_repository_name_is_still_noted(tmp_path, prompt, name):
@@ -404,7 +405,6 @@ NEW_VARIABLE = [
 ]
 
 
-@pytest.mark.xfail(strict=True, reason="premise note on a variable the request introduces (66e1617)")
 def test_a_variable_the_request_introduces_gets_no_premise_note(tmp_path):
     spoke = _notes(PY_REPO, NEW_VARIABLE, tmp_path)
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())

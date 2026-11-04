@@ -157,7 +157,9 @@ _KIND_NOUN = re.compile(
     r"variable|env(?:ironment)? var(?:iable)?|config|command|subcommand)s?\b",
     re.IGNORECASE,
 )
-_SETTING_NOUN = re.compile(r"\b(?:option|switch|setting|key|config)s?\b", re.IGNORECASE)
+_SETTING_NOUN = re.compile(
+    r"\b(?:option|switch|setting|key|config|variable|env(?:ironment)? var(?:iable)?)s?\b", re.IGNORECASE
+)
 # Where a sentence moves from what is to what should be: "…; it should …", "…: …", "… but
 # must …". An existence word speaks for its own clause only, so the names of the requested
 # change ("…currently retries 3 times; it should honour `max_retries`") are not asserted.
@@ -333,7 +335,7 @@ def _candidates(sentence: str) -> list[tuple[int, Assertion]]:
             put(m.start(1), Assertion(m.group(1), "name", (m.group(1),)))
     for m in _BACKTICK.finditer(sentence):
         inner = m.group(1).strip()
-        if re.fullmatch(r"[A-Za-z_][\w-]*", inner) and len(inner) >= 3:
+        if re.fullmatch(r"[A-Za-z_][\w-]*", inner) and len(inner) >= 3 and not _WELL_KNOWN_ENV.match(inner):
             put(m.start(1), Assertion(inner, "name", (inner,)))
     return sorted(found.values(), key=lambda item: item[0])
 
@@ -352,6 +354,16 @@ def _clause(sentence: str, offset: int, length: int) -> str:
     return sentence[start:end]
 
 
+def _clause_start(sentence: str, offset: int) -> int:
+    """Where the clause holding ``offset`` begins (see :func:`_clause`)."""
+    start = 0
+    for match in _CLAUSE_BREAK.finditer(sentence):
+        if match.end() > offset:
+            break
+        start = match.start()
+    return start
+
+
 def _window(before: str) -> str:
     return " ".join(_WORD.findall(before)[-4:])
 
@@ -368,7 +380,10 @@ def _asserted(sentence: str, offset: int, name: str, kind: str = "name") -> bool
     """
     before = sentence[:offset]
     after = sentence[offset + len(name) :]
-    window = _window(before)
+    clause = _clause(sentence, offset, len(name))
+    # The words just before the name, within its own clause: "src/x.ts already has `a`; add
+    # `b`" must not lend `a`'s "already" to `b` (audit of 66e1617).
+    window = _window(before[_clause_start(sentence, offset) :])
     if re.search(r"\b(?:already|existing)\b", window, re.IGNORECASE):
         return True  # "on top of the existing X": nearest word wins
     # Creation binds tighter than the sentence: a creating word within the four words before.
@@ -382,13 +397,14 @@ def _asserted(sentence: str, offset: int, name: str, kind: str = "name") -> bool
     noun = _KIND_NOUN.match(after)
     if noun and re.search(r"\b(?:the|our|its|their|your)\s+\S*$", before, re.IGNORECASE):
         # "the X helper", "the --foo flag": the project's own. "the X setting / option" is
-        # as often a tool's (GitHub's `concurrency` setting, a compiler option), so a
-        # setting asserts itself only as an environment switch or with an existing-behaviour
-        # word ("the existing X setting", "… already …").
-        if not _SETTING_NOUN.search(noun.group(0)) or kind == "env":
+        # as often a tool's (GitHub's `concurrency` setting, a compiler option), and "the X
+        # environment variable" is how a request introduces one ("read the timeout from the
+        # `X` environment variable"): those assert themselves only with an existing-behaviour
+        # word in their clause ("the existing X setting", "X already …").
+        if not _SETTING_NOUN.search(noun.group(0)):
             return True
-        return _EXISTING_BEHAVIOUR.search(sentence) is not None
-    if _EXISTING_BEHAVIOUR.search(_clause(sentence, offset, len(name))):
+        return _EXISTING_BEHAVIOUR.search(clause) is not None
+    if _EXISTING_BEHAVIOUR.search(clause):
         return True  # "X currently …", "the X setting is supposed to …": in X's own clause
     return kind == "env" and _SWITCH_ON.search(sentence) is not None
 
