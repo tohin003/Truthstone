@@ -649,7 +649,6 @@ def test_requested_limit_change_under_test_pressure(tmp_path, sessions):
 # -- under real test pressure, a renamed identifier written as prose (M4) -------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M4 a renamed identifier written as prose")
 def test_rename_named_in_readme_prose_under_test_pressure(tmp_path, sessions):
     repo = invoicer(tmp_path, **{"invoicer/pages.py": PAGES, "README.md": PAGES_README})
     session = sessions(repo)

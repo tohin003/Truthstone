@@ -524,7 +524,9 @@ def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[s
             if owners_after is not None and sentence.owner not in owners_after:
                 continue  # the function or class it documented is gone: it went with its code
             tokens = _code_tokens(sentence.text)
-            if tokens & targets:
+            # A target the request renames or removes, named in the rule as code or as prose
+            # ("The max_items setting must be …"): the rule went with its name (audit M4).
+            if tokens & targets or any(_mentions(sentence.text, target) for target in targets):
                 continue
             if any(
                 _mentions(before_text_all, token) and not _mentions(after_text_all, token) for token in tokens
