@@ -258,7 +258,9 @@ def degradation(app: FastAPI) -> list[degraded.Reason]:
 def create_app(token: str, settings: Settings | None = None, guard: Guard | None = None) -> FastAPI:
     app = FastAPI(title="Truthstone", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.token = token
-    app.state.guard = guard or Guard(settings)
+    # The daemon answers a post-tool hook before its bookkeeping when nothing it decides
+    # could reach the agent (WP9): the agent's next step never waits on a sweep.
+    app.state.guard = guard or Guard(settings, defer_bookkeeping=True)
     app.state.started_at = time.time()
     # Hook requests refused for their token. Each still gets the fail-open "{}", which is
     # exactly why they must be counted: a stale token is otherwise indistinguishable from

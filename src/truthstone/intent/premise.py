@@ -62,6 +62,26 @@ TAIL = (
     "the behaviour the request assumes may not exist — verify before building on it, and tell the "
     "user if it doesn't."
 )
+# The deny for the first file edit after a note (T4): a careful agent can read the note and
+# still edit first; the user hears about the missing behaviour before anything is built on it.
+HOLD = (
+    "Truthstone: before editing: the request assumes {what} (see the note above). Tell the user what "
+    "you found first; then continue only if the change still makes sense."
+)
+
+
+def hold_finding(text: str) -> Finding:
+    """The record of a held first edit: the premise note's kind, at the edit."""
+    return Finding(
+        category=ChallengeCategory.ASSUMPTION,
+        verdict=Verdict.CONTRADICTED,
+        failure_mode=FailureMode.CONTINUED_ON_BAD_ASSUMPTION,
+        severity=Severity.MEDIUM,
+        subject=SUBJECT,
+        summary="the first edit after a premise note, held once so the user hears first",
+        detail=text,
+        level=EscalationLevel.REPOSITORY,
+    )
 # A request that says the behaviour exists today: the only kind a switch-nobody-reads note answers.
 _EXISTING_BEHAVIOUR = re.compile(
     r"\b(?:already|existing|currently|(?:is|are) supposed to|should already)\b", re.IGNORECASE
@@ -166,6 +186,21 @@ class Premise:
             listed = ", ".join(files[:3]) + (f" and {len(files) - 3} more" if len(files) > 3 else "")
             parts.append(ONLY_IN.format(name=a.name, files=listed))
         return "; ".join(parts) + "; " + TAIL
+
+    @property
+    def hold(self) -> str:
+        """The deny for the task's first file edit (T4): the note may have gone unheeded."""
+        clauses = []
+        for a in self.missing[:3]:
+            files = self.only_in.get(a.name)
+            if files:
+                listed = ", ".join(files[:3]) + (f" and {len(files) - 3} more" if len(files) > 3 else "")
+                clauses.append(
+                    f"`{a.name}`, but it appears only in {listed}, and no code in this repository reads it"
+                )
+            else:
+                clauses.append(f"`{a.name}`, but it appears nowhere in this repository")
+        return HOLD.format(what="; and ".join(clauses)) if clauses else ""
 
     def finding(self) -> Finding | None:
         if not self.missing:

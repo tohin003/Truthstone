@@ -13,12 +13,13 @@ mode in which Truthstone stops a developer from working.
 
 from __future__ import annotations
 
+import functools
 import logging
 import sys
 import threading
 import time
 import uuid
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from pathlib import Path
 
@@ -73,6 +74,11 @@ HARD_MAX_LIVE_TASKS = 512
 # Task ids the store does not know (memory-only ids, closed tasks), remembered so a miss
 # does not query the store on every event.
 MAX_UNKNOWN_TASKS = 256
+
+# Post-tool events that can say nothing (WP9): answered at once, their bookkeeping done right
+# after on the workspace's worker. Idle workers wake this often to notice a close.
+BOOKKEEPING_IDLE_WAKE_S = 5.0
+_POST_EVENTS = frozenset({EventType.POST_TOOL_USE, EventType.POST_TOOL_FAILURE})
 
 # Reported once per rebuild through the R9 registry, for as long as it matters.
 TASK_REBUILT = "task_rebuilt"
@@ -130,9 +136,55 @@ class Workspace:
         # Names a session's prompts asserted that the repository does not have, each
         # noted once (M8).
         self.premises_noted: dict[str, set[str]] = {}
+        # Task id -> the deny its first file edit gets after a premise note (T4), once.
+        self.premise_holds: dict[str, str] = {}
         # Shell commands' changes, each holding its place on its task's timeline until a
         # sweep of the tree attributes them (G5).
         self.shell = shellchanges.ShellChanges()
+        # Events answered before their bookkeeping ran (WP9), in arrival order. Handled by
+        # this workspace's worker, and by any later event first, always under event_lock:
+        # nothing is judged before everything that came before it is recorded.
+        self._deferred: deque[AgentEvent] = deque()
+        self._deferred_process: Callable[[AgentEvent], object] | None = None
+        self._deferred_wakeup = threading.Event()
+        self._deferred_worker: threading.Thread | None = None
+        self._deferred_start = threading.Lock()
+        self._closing = False
+
+    def defer(self, event: AgentEvent, process: Callable[[AgentEvent], object]) -> None:
+        """Queue ``event`` for ``process``, on this workspace's worker (started on first use)."""
+        self._deferred.append(event)
+        if self._deferred_worker is None:
+            with self._deferred_start:
+                if self._deferred_worker is None:
+                    self._deferred_process = process
+                    worker = threading.Thread(target=self._work, name="truthstone-bookkeeping", daemon=True)
+                    worker.start()
+                    self._deferred_worker = worker
+        self._deferred_wakeup.set()
+
+    def drain(self) -> int:
+        """Handle every deferred event, oldest first. Call with ``event_lock`` held."""
+        handled = 0
+        process = self._deferred_process
+        while self._deferred:
+            event = self._deferred.popleft()
+            handled += 1
+            if process is None:
+                continue
+            try:
+                process(event)
+            except Exception:  # bookkeeping that fails is lost, never a broken host
+                log.exception("truthstone: deferred bookkeeping failed for %s", event.event)
+        return handled
+
+    def _work(self) -> None:
+        while not self._closing:
+            self._deferred_wakeup.wait(BOOKKEEPING_IDLE_WAKE_S)
+            self._deferred_wakeup.clear()
+            if self._deferred:
+                with self.event_lock:
+                    self.drain()
 
     def begin_task(self, task_id: str, spec: TaskSpec, session_id: str = "") -> TaskState | None:
         if not task_id:
@@ -312,6 +364,7 @@ class Workspace:
         for task_id in self._session_task_ids.pop(session_id, []):
             self._tasks.pop(task_id, None)
             self._task_sessions.pop(task_id, None)
+            self.premise_holds.pop(task_id, None)
         self._session_tasks.pop(session_id, None)
         self.session_waivers.discard(session_id)
         self.premises_noted.pop(session_id, None)
@@ -334,14 +387,22 @@ class Workspace:
             spec.session_waiver = True
 
     def close(self) -> None:
+        with self.event_lock:
+            self.drain()  # what was answered is still recorded
+        self._closing = True
+        self._deferred_wakeup.set()
         self.store.close()
 
 
 class Guard:
     """Routes events to handlers, records everything, never breaks the host."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, defer_bookkeeping: bool = False) -> None:
         self.settings = settings or Settings.load()
+        # WP9: answer a post-tool event at once when nothing it decides could reach the agent,
+        # and do its bookkeeping right after (the daemon turns this on; in-process callers and
+        # replay stay synchronous).
+        self.defer_bookkeeping = defer_bookkeeping
         self._workspaces: dict[str, Workspace] = {}
         self._workspace_roots: dict[str, str] = {}
         self._lock = threading.Lock()
@@ -414,7 +475,6 @@ class Guard:
 
     def handle(self, event: AgentEvent) -> Decision:
         """Never raises. Never blocks on failure."""
-        ws: Workspace | None = None
         if not self.settings.enabled:
             return Decision.allow()
         # The marker is per-dispatch, not part of the host event contract.  Reset it so
@@ -425,65 +485,83 @@ class Guard:
             try:
                 self._normalize_event_workspace(event)
                 ws = self.workspace(event.workspace)
-                with ws.event_lock:
-                    try:
-                        # Resolve the task *before* dispatching. Handlers need it: without a task
-                        # id the challenge ledger has no way to avoid repeating itself, so it
-                        # suppresses everything — which silently disabled every challenge.
-                        if event.task_id:
-                            # A host-provided id is an explicit attribution claim. If it is
-                            # stale, unknown, or owned by another session, leave the event
-                            # unscoped rather than silently attaching it to the session's
-                            # current task. Reassigning a late event could contaminate the
-                            # live task's scope and completion evidence.
-                            if ws.task_state(event.task_id, event.session_id) is None:
-                                event._task_id_rejected = True
-                                event.task_id = None
-                        else:
-                            event.task_id = ws.resolve_task_id(event.session_id)
-                            if (
-                                event.task_id is None
-                                and event.event in _TOOL_EVENTS
-                                and not event.is_read_only
-                            ):
-                                implicit = ws.ensure_task(event.session_id)
-                                event.task_id = implicit.task_id if implicit else None
-                        handler = self._handlers.get(event.event)
-                        decision = handler(event, ws) if handler else Decision.allow()
-                    except Exception:
-                        log.exception("truthstone: handler failed for %s; failing open", event.event)
-                        decision = Decision.allow()
-
-                    # The one place that decides what may reach the agent (WP7): under the
-                    # minimal profile only the sanctioned kinds speak; everything else is
-                    # recorded, never shown.
-                    decision = self._profiled(event, decision)
-
-                    if self.settings.observe_only:
-                        decision = observe.silence(decision)
-
-                    # Keep persistence in the same critical section as state mutation. A
-                    # SessionEnd arriving concurrently must not close a session and then
-                    # lose or reorder the event that preceded it. One transaction (R7):
-                    # the event, its decision and the findings are recorded together or
-                    # not at all — never an event whose decision was lost — in one commit
-                    # instead of two or more. The id is set only when it was persisted.
-                    decision.latency_ms = t.elapsed_ms()
-                    try:
-                        decision.decision_id = (
-                            ws.store.record_event_and_decision(event, decision) or decision.decision_id
-                        )
-                    except Exception:
-                        log.exception("truthstone: failed to persist event/decision")
+                if self._defers(event):
+                    # Nothing this event decides can reach the agent: answer now, and let the
+                    # workspace's worker record it, in order, before any later event is judged.
+                    ws.defer(event, functools.partial(self._decide, ws=ws))
+                    decision = Decision.allow()
+                else:
+                    with ws.event_lock:
+                        ws.drain()  # everything answered earlier is recorded first
+                        decision = self._decide(event, ws, t)
             except Exception:
                 log.exception("truthstone: event handling failed for %s; failing open", event.event)
                 decision = Decision.allow()
-                ws = None
 
         decision.latency_ms = t.ms
         METRICS.observe(M_HOOK_LATENCY, t.ms, {"event": str(event.event)})
         METRICS.increment(M_DECISION, labels={"action": str(decision.action)})
 
+        return decision
+
+    def _defers(self, event: AgentEvent) -> bool:
+        """Whether ``event`` is answered before its bookkeeping (WP9): a post-tool event, in a
+        guard that defers (the daemon), whose profile lets nothing speak after a tool."""
+        if not self.defer_bookkeeping or event.event not in _POST_EVENTS:
+            return False
+        if self.settings.observe_only:
+            return True
+        active = profile.active(self.settings)
+        return not active.allow_all and not any(active.allowed.get(kind) for kind in _POST_EVENTS)
+
+    def _decide(self, event: AgentEvent, ws: Workspace, t: Timer | None = None) -> Decision:
+        """Judge and record one event. Call with ``ws.event_lock`` held. Never raises."""
+        if t is None:  # a deferred event: its own clock
+            with Timer() as own:
+                return self._decide(event, ws, own)
+        try:
+            # Resolve the task *before* dispatching. Handlers need it: without a task
+            # id the challenge ledger has no way to avoid repeating itself, so it
+            # suppresses everything — which silently disabled every challenge.
+            if event.task_id:
+                # A host-provided id is an explicit attribution claim. If it is
+                # stale, unknown, or owned by another session, leave the event
+                # unscoped rather than silently attaching it to the session's
+                # current task. Reassigning a late event could contaminate the
+                # live task's scope and completion evidence.
+                if ws.task_state(event.task_id, event.session_id) is None:
+                    event._task_id_rejected = True
+                    event.task_id = None
+            else:
+                event.task_id = ws.resolve_task_id(event.session_id)
+                if event.task_id is None and event.event in _TOOL_EVENTS and not event.is_read_only:
+                    implicit = ws.ensure_task(event.session_id)
+                    event.task_id = implicit.task_id if implicit else None
+            handler = self._handlers.get(event.event)
+            decision = handler(event, ws) if handler else Decision.allow()
+        except Exception:
+            log.exception("truthstone: handler failed for %s; failing open", event.event)
+            decision = Decision.allow()
+
+        # The one place that decides what may reach the agent (WP7): under the
+        # minimal profile only the sanctioned kinds speak; everything else is
+        # recorded, never shown.
+        decision = self._profiled(event, decision)
+
+        if self.settings.observe_only:
+            decision = observe.silence(decision)
+
+        # Keep persistence in the same critical section as state mutation. A
+        # SessionEnd arriving concurrently must not close a session and then
+        # lose or reorder the event that preceded it. One transaction (R7):
+        # the event, its decision and the findings are recorded together or
+        # not at all — never an event whose decision was lost — in one commit
+        # instead of two or more. The id is set only when it was persisted.
+        decision.latency_ms = t.elapsed_ms()
+        try:
+            decision.decision_id = ws.store.record_event_and_decision(event, decision) or decision.decision_id
+        except Exception:
+            log.exception("truthstone: failed to persist event/decision")
         return decision
 
     def _profiled(self, event: AgentEvent, decision: Decision) -> Decision:
@@ -645,6 +723,8 @@ class Guard:
                 noted.update(a.name for a in found.missing)
                 notes.append(found.note)
                 findings.append(finding)
+                if event.task_id:
+                    ws.premise_holds[event.task_id] = found.hold
         if profile.active(self.settings).allows(EventType.USER_PROMPT, profile.PLANNING_NOTE):
             budget = planning.render(spec, index)
             if budget:
@@ -721,20 +801,49 @@ class Guard:
         # keeps ordinary exploration free.
         if event.is_read_only:
             return Decision.allow()
-        if event.tool in SHELL_TOOLS:
-            # The command's window opens: a file it changes changes after this (G5).
-            ws.shell.note_start(event.session_id, event.tool_use_id)
-
         try:
+            # First, even for an edit about to be held: the file as the task found it is
+            # what the Stop-time checks compare against (unread configuration needs it).
             self._record_parse_baseline(event, ws)
         except Exception:  # a missing baseline only means "blame as before"
             log.exception("truthstone: could not record a parse baseline; continuing")
+        held = self._premise_hold(event, ws)
+        if held is not None:
+            return held
+        if event.tool in SHELL_TOOLS:
+            # The command's window opens: a file it changes changes after this (G5).
+            ws.shell.note_start(event.session_id, event.tool_use_id)
         return validate.validate(
             event=event,
             index=ws.index,
             state=ws.event_task_state(event),
             ledger=ws.ledger,
             task_id=event.task_id,
+        )
+
+    @staticmethod
+    def _premise_hold(event: AgentEvent, ws: Workspace) -> Decision | None:
+        """The task's first file edit after a premise note, held once (T4, M8).
+
+        The note goes out with the prompt, and a careful agent can read it and still edit
+        first: the user then hears about the missing behaviour only after something was built
+        on it, if at all. So the first edit of a task that got a note is denied once, with
+        the note's facts and the honest next step; the re-issued edit proceeds. A file tool's
+        edit or deletion, or a shell command that is not read-only, counts as an edit; a read
+        never does. No note, no hold.
+        """
+        task_id = event.task_id
+        if not task_id or task_id not in ws.premise_holds:
+            return None
+        edits = event.is_mutating or (event.tool in SHELL_TOOLS and not checks.read_only_bash(event))
+        if not edits:
+            return None
+        text = ws.premise_holds.pop(task_id)
+        return Decision(
+            action=DecisionAction.CHALLENGE,
+            level=EscalationLevel.HOST_CHALLENGE,
+            reason=text,
+            findings=[premise.hold_finding(text)],
         )
 
     @staticmethod
