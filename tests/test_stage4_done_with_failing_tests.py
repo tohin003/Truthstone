@@ -284,6 +284,45 @@ def test_without_a_baseline_a_claim_they_were_already_failing_is_taken_at_its_wo
     assert_silent(session, session.stop(ALREADY))
 
 
+TOTALS_RED = pytest_output(["tests/test_export.py::test_export_totals"], 35)
+S1 = pytest.mark.xfail(strict=True, reason="stage 4 misfire S1: no baseline, the message's 'not the change's' ignored")
+
+
+@S1
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Done. Export dates are ISO. 35 passed; test_export_totals fails, unrelated to the date change.",
+        "Done. Export dates are ISO. test_export_totals fails, but it has nothing to do with the dates.",
+        "Done. Export dates are ISO. test_export_totals failed once more; it is flaky (timing).",
+        "Done. Export dates are ISO. test_export_totals fails on main as well.",
+    ],
+    ids=["unrelated", "nothing-to-do-with", "flaky", "fails-on-main"],
+)
+def test_without_a_baseline_a_failure_the_message_says_is_not_the_changes_is_taken_at_its_word(shop, message):
+    """The known-failure control shape, in the changed module's own test file: no baseline says
+    otherwise, so the message's word stands."""
+    totals = TEST_EXPORT + "\n\ndef test_export_totals():\n    assert to_csv([]) == []\n"
+    session = shop(**{"tests/test_export.py": totals})
+    session.prompt(PROMPT)
+    session.write("src/shop/export.py", EXPORT_ISO)
+    session.write("tests/test_export.py", totals.replace("03/11/2026", "2026-11-03"))
+    session.run("python -m pytest -q", TOTALS_RED)
+    assert_silent(session, session.stop(message))
+
+
+def test_with_a_baseline_a_failure_called_unrelated_is_still_the_changes(shop):
+    totals = TEST_EXPORT + "\n\ndef test_export_totals():\n    assert to_csv([]) == []\n"
+    session = shop(**{"tests/test_export.py": totals})
+    session.prompt(PROMPT)
+    session.run("python -m pytest -q", pytest_output([], 37))
+    session.write("src/shop/export.py", EXPORT_ISO)
+    session.write("tests/test_export.py", totals.replace("03/11/2026", "2026-11-03"))
+    session.run("python -m pytest -q", TOTALS_RED)
+    out = session.stop("Done. Export dates are ISO. 35 passed; test_export_totals fails, unrelated to the date change.")
+    assert out.get("decision") == "block"
+
+
 def test_a_red_baseline_that_names_no_failure_leaves_the_cause_open(shop):
     session = shop()
     session.prompt(PROMPT)
