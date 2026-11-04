@@ -1579,23 +1579,26 @@ Every commit on this branch leaves `.venv/bin/pytest -q` and `.venv/bin/ruff che
 <!-- S2-STATUS-TABLE -->
 Branch state: merged `integration/overnight` at `e087bf5`. This brings in the Claude and Codex adapters, their plugins, and the adapter halves of G1, A5, G10, H5 (matcher), R9 and R10, all done by the adapter builders.
 
-The core items run in five parallel clusters, each working in a `/tmp` copy and applied here one patch at a time:
-- **gate:** verify, intent and engine;
-- **asks:** validate and challenge;
-- **hosts:** core hosts, adapter rendering, daemon and CI;
-- **repo:** index and evidence;
-- **store:** store, config and cli.
+The core items run in five parallel clusters: **gate** (verify, intent, engine), **asks** (validate, challenge), **hosts** (core hosts, adapter rendering, daemon, CI), **repo** (index, evidence) and **store** (store, config, cli). Each cluster works in a `/tmp` copy and exports one patch per item. claude-w applies each patch with `git am -3` and runs the full suite plus ruff before moving on, so every commit on this branch is green.
 
 | ID | Item | Status | Commit | Notes |
 |---|---|---|---|---|
 | C1 | Census beyond §3 (`EXTENDED_TAXONOMY`), risky commands counted, regression rationale corrected | done | 291f9b8 | The SPEC is untouched (user decision flagged). |
-| R3 | Missing tree-sitter visible | partial | c04792c | Tests skip without the extra. The `doctor` warning is in progress (store cluster); the README install line is the lead's. |
-| H1 | HostCapabilities + rendering ladder, end to end | partial | 8c367e4 | `Decision.signoff_required` is done. The ladder is in progress (hosts cluster). |
-| G2a, G3a, G1-core, G3b, G6, G4a, G5, G15, G7, G9, G10-core, H3, H5-core, H2, R4 | Completion-gate cluster + engine-side host items | in progress (gate) | — | — |
-| A1, A5-core, A4, R13, A2, A10, A8, A9, A3, A11 | Asks cluster | in progress (asks) | — | — |
+| R3 | Missing tree-sitter is visible | partial | c04792c | Tests skip without the extra. The `doctor` warning is coming from the store cluster; README install line → lead. |
+| A1 | Irreversible asks are never rationed, deduplicated or dropped | done | e6577ad | Includes the Codex test re-pinned to "denied again". |
+| R5 | Cheap index refresh: linear test map, one `lstat` per file | done | b3f7604 | 42k files: rebuild 2,462→22.7 ms, scan 3,898→309 ms. Pebble per-edit 138→38 ms. |
+| G5-support | `RepoIndex.refresh_delta()` | done | 49b59b5 | Engine wiring pending (G5 Bash part). |
+| R7 | SQLite hygiene: rollback on error, 100 ms hot busy timeout, `transaction()`, `record_event_and_decision` | done | 56a3a8c | Engine switch to the single-transaction API pending. |
+| A5-core | MODIFY only rewrites what it can make provably safe; risk check first | done | ce9d21e | — |
+| H1 | HostCapabilities profiles + rendering ladder; Codex and Claude routed through it; `docs/ADAPTER-CONTRACT.md` | done | af861de | Codex sign-off wording changed (pinned). |
+| G3a | Test runners recognised by command position | done | 2452ecc | Mention-only commands 12/15 → 0/15; missed real runners 14/14 → 0/14. |
+| R12 | Refuse to index `$HOME`, `/` or huge non-git trees | done | 95886b9 | SessionStart 5,037→32 ms; post-Bash 19.5 s→0.2 ms on a 205k-file home. |
+| R1-store | Store never raises at construction; degraded store | done | 739c9ac | Engine in-memory task ids + ledger counters (R1-engine) pending. |
+| G2a, G1-core, G3b, G6, G4a, G5, G15, G7, G9, G10-core, H3, H5-core, H2, R4 | Completion-gate cluster + engine-side host items | in progress (gate) | — | — |
+| A4, R13, A2, A10, A8, A9, A3, A11 | Asks cluster | in progress (asks) | — | — |
 | H4, R16, R9-core, M6, M8 | Adapter registry + host-neutral lint, auth bytes, degraded health, CI, latency tests | in progress (hosts) | — | — |
-| R5, G5-support, R12, R18, E1, R15 | Index, scanner and evidence precision | in progress (repo) | — | — |
-| R7, R1-store, R17, R11 | Store hygiene, degraded store, redaction, config/doctor | in progress (store) | — | — |
+| R18, E1, R15 | Path case, evidence precision, build yield | in progress (repo) | — | — |
+| R17, R11 | Redaction; config/doctor | in progress (store) | — | — |
 | R1-engine, R6, R14, R8, G2b, G8, G16, G4b, G11, G12, G13, G14, A6, A7, H6, H7, H8 | Later items | not started | — | — |
 | G1/A5/G10/H5/R9/R10 adapter halves | — | done by the adapter builders | e087bf5 (merge) | — |
 | R2 | Windows shim | out of scope | — | Windows is unsupported this release; it must fail open. |
