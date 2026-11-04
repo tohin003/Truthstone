@@ -186,15 +186,50 @@ the core declares them. The core reads each one only if it is present.
 
 ## (d) The adapter protocol and registry
 
-An adapter is a module with:
+### The protocol
 
-- `to_event(payload) -> AgentEvent | None` — `None` for payloads the core should not see;
-- `from_decision(event, decision, hook_name) -> dict` — the hook's stdout JSON; `{}` is
-  "no opinion";
-- optionally `handle_payload(guard, payload) -> dict` — for hosts whose one payload stands
-  for several actions (a Codex patch editing several files): it calls `guard.handle` per
-  action and combines the answers. When present, the daemon uses it instead of the
-  three-step path.
+`agentguard.core.hosts.Adapter` (a `typing.Protocol`) is what the daemon needs from a
+host adapter:
 
-The daemon serves each adapter at `POST /hook/<name>` (`claude-code`, `codex`) and lists
-the names under `adapters` in `/health`.
+| Member | Contract |
+|---|---|
+| `name` | the route, `POST /hook/<name>`, and normally `AgentEvent.agent` |
+| `to_event(payload) -> AgentEvent \| None` | the host's payload as a core event; `None` for a payload the core should not see (an ignored event, a read, a host notification) |
+| `from_decision(event, decision, hook_name) -> dict` | the hook's stdout JSON, `{}` meaning "no opinion". It spells `hosts.render(decision, profile, phase)` as in (b) and decides nothing itself |
+| `handle_payload(guard, payload) -> dict`, or `None` | optional. For hosts whose one payload stands for several actions (a Codex patch editing several files): it calls `guard.handle` per action and combines the answers. When present, the daemon uses it instead of the three steps |
+
+Every member fails open: a payload it cannot read is "no opinion", never an exception the
+host sees. An adapter module provides `to_event`, `from_decision` and, optionally,
+`handle_payload` as functions; it may also define `hook_name(payload)` if its host does
+not put the hook's name in `hook_event_name`.
+
+### The registry
+
+`agentguard.adapters.registry` maps route names to adapters:
+
+- **Built-in hosts** are listed by dotted module path (`claude-code` →
+  `agentguard.adapters.claude_code.translate`, `codex` →
+  `agentguard.adapters.codex.translate`) and imported on first use.
+- **Any other host registers explicitly:** `registry.register("cursor",
+  "my_pkg.cursor.translate")` (imported lazily) or `registry.register(name, module)`.
+  Names are lowercase route segments; registering a taken name needs `replace=True`.
+- `registry.get(name)` returns a `RegisteredAdapter` (which satisfies `hosts.Adapter`), or
+  `None` when nothing is registered under that name or its adapter cannot be loaded. A
+  failed load is logged once and kept in `registry.load_errors()`.
+
+The daemon routes `POST /hook/<name>` through `registry.get`, and `/health` lists
+`registry.available()` (the registered adapters that load) under `adapters`. The daemon
+contains no host's payload or field names, so adding a host means writing an adapter and
+registering it, never editing the daemon. Hook processes never import the registry.
+
+### Adding a host
+
+1. Capture the host's real hook payloads, scrub paths to `/workspace`, and put them in
+   `tests/fixtures/hosts/<name>/*.json` (`tests/fixtures/hosts/README.md`).
+2. Verify the host's capabilities and add a `HostCapabilities` profile
+   (`hosts.register_profile`), commenting the evidence for each field.
+3. Write `to_event` / `from_decision` (and `handle_payload` if needed); spell each
+   `Rendering.kind` in the host's JSON; never send what the host would fail open on.
+4. Register it. `tests/test_host_contracts.py` then runs its payloads through a real
+   Guard and the daemon, and fails if a registered host has no captured payloads.
+5. `tests/test_core_host_neutral.py` keeps the host's vocabulary out of the core.

@@ -41,16 +41,21 @@ every action and every phase):
   empty one fails open on Codex, and helps no agent anywhere);
 * a sign-off review never degrades to a mere ``context`` on a host that can deny.
 
+It also states what an adapter is (:class:`Adapter`, H4); ``adapters/registry.py`` maps
+adapter names to implementations.
+
 This module must stay host-neutral: no host's tool, argument or field names appear in
 it (``tests/test_core_host_neutral.py``).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, fields
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from agentguard.core.enums import ChallengeCategory, DecisionAction, EventType
+from agentguard.core.events import AgentEvent
 from agentguard.core.models import Decision
 
 AskSupport = Literal["native", "fails_open", "none"]
@@ -247,6 +252,33 @@ def capabilities_for(agent: str | None) -> HostCapabilities:
     """The profile for an ``AgentEvent.agent`` value. Unknown hosts get CONSERVATIVE."""
     key = (agent or "").strip().lower().replace("_", "-")
     return _PROFILES.get(key, CONSERVATIVE)
+
+
+# -- the adapter protocol (H4) ---------------------------------------------------------------
+
+
+@runtime_checkable
+class Adapter(Protocol):
+    """What the daemon needs from a host adapter (``docs/ADAPTER-CONTRACT.md``, (d)).
+
+    * ``name`` — the route, ``POST /hook/<name>``, and normally ``AgentEvent.agent``;
+    * ``to_event(payload)`` — the host's hook payload as a core event, or ``None`` for a
+      payload the core should not see;
+    * ``from_decision(event, decision, hook_name)`` — the hook's output; ``{}`` means "no
+      opinion". It spells ``render(decision, profile, phase)`` and decides nothing itself;
+    * ``handle_payload`` — optional, ``None`` when absent. For hosts whose one payload
+      stands for several actions: it calls ``guard.handle`` per action, combines the
+      answers, and replaces the three-step path.
+
+    Every method fails open: a payload it cannot read is "no opinion", never an error.
+    """
+
+    name: str
+    handle_payload: Callable[[Any, dict[str, Any]], dict[str, Any]] | None
+
+    def to_event(self, payload: dict[str, Any]) -> AgentEvent | None: ...
+
+    def from_decision(self, event: AgentEvent, decision: Decision, hook_name: str) -> dict[str, Any]: ...
 
 
 # -- the ladder ---------------------------------------------------------------------------

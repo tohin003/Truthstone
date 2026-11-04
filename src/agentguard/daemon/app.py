@@ -9,6 +9,9 @@ blow the SPEC §8 latency budget. The daemon holds them warm.
 Why HTTP: Claude Code supports `{"type": "http"}` hooks, which it calls itself. That
 removes Python interpreter startup (30-80ms) from every single tool call. Binding is
 127.0.0.1-only and every request carries a bearer token from a 0600 handshake file.
+
+Hosts: `POST /hook/<name>` is routed through `agentguard.adapters.registry` (H4). The
+daemon knows no host's payload or field names; adding a host never means editing it.
 """
 
 from __future__ import annotations
@@ -29,8 +32,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.adapters.codex import translate as codex
+from agentguard.adapters import registry
 from agentguard.core.config import (
     DaemonSettings,
     Settings,
@@ -46,7 +48,6 @@ from agentguard.daemon.lifecycle import handshake_lock_path, interprocess_lock
 
 log = logging.getLogger(__name__)
 
-ADAPTERS = {"claude-code": claude, "codex": codex}
 MAX_HOOK_BODY_BYTES = 1_000_000
 MAX_HEALTH_BODY_BYTES = 64_000
 
@@ -214,7 +215,8 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
             # Which host routes this daemon serves. A daemon started by an older release
             # keeps running across upgrades; a hook for a host it cannot route would get
             # "no opinion" forever, so clients check this before trusting the silence.
-            "adapters": sorted(ADAPTERS),
+            # Only adapters that actually load are listed.
+            "adapters": registry.available(),
         }
 
     @app.get("/metrics")
@@ -238,7 +240,7 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
             log.warning("agentguard: rejected unauthenticated hook request")
             return JSONResponse({}, status_code=200)
 
-        adapter = ADAPTERS.get(adapter_name)
+        adapter = registry.get(adapter_name)
         if adapter is None:
             return JSONResponse({}, status_code=200)
 
@@ -267,21 +269,22 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
         try:
             # An adapter whose one host payload can stand for several actions (a Codex
             # patch editing several files) routes and combines them itself.
-            handle_payload = getattr(adapter, "handle_payload", None)
+            handle_payload = adapter.handle_payload
             if handle_payload is not None:
                 out = await run_in_threadpool(handle_payload, app.state.guard, payload)
-                return JSONResponse(out, status_code=200)
-            event = adapter.to_event(payload)
-            if event is None:
-                return JSONResponse({}, status_code=200)
-            # Guard.handle performs synchronous indexing, AST and SQLite work. Running it
-            # directly in this async route would stall health checks and every other hook
-            # whenever one repository refresh is slow. The Guard serializes state per
-            # workspace, so moving it to a worker preserves ordering without blocking the
-            # event loop.
-            decision = await run_in_threadpool(app.state.guard.handle, event)
-            out = adapter.from_decision(event, decision, payload.get("hook_event_name", ""))
-            return JSONResponse(out, status_code=200)
+            else:
+                event = adapter.to_event(payload)
+                if event is None:
+                    return JSONResponse({}, status_code=200)
+                # Guard.handle performs synchronous indexing, AST and SQLite work. Running
+                # it directly in this async route would stall health checks and every other
+                # hook whenever one repository refresh is slow. The Guard serializes state
+                # per workspace, so moving it to a worker preserves ordering without
+                # blocking the event loop.
+                decision = await run_in_threadpool(app.state.guard.handle, event)
+                out = adapter.from_decision(event, decision, adapter.hook_name(payload))
+            # An adapter bug must not put a non-object on the wire.
+            return JSONResponse(out if isinstance(out, dict) else {}, status_code=200)
         except Exception:
             log.exception("agentguard: hook handling failed; returning no-decision")
             return JSONResponse({}, status_code=200)
