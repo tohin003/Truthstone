@@ -135,23 +135,46 @@ TAXONOMY: tuple[ModeSpec, ...] = (
     ModeSpec(
         FailureMode.FALSE_COMPLETION,
         "incorrectly claim that a task is complete",
-        "completion gate — finishing with failing tests or unparsable files",
-        "the agent tried to end the turn while evidence it produced itself said the work "
-        "was broken",
+        "completion gate at Stop (HIGH, blocks) — `failing-tests-on-completion`: the latest "
+        "conclusive run of a test suite the agent itself ran in this task failed (exit status "
+        "first, then the runner's own summary line); `unparsable-on-completion`: a file the task "
+        "changed no longer parses, though it parsed before the task first changed it and no "
+        "passing run came after its last edit",
+        "the agent tried to end the turn while evidence it produced itself said the work was "
+        "broken: its own latest test run failed, or a file it changed stopped parsing. It does "
+        "NOT prove the agent claimed success in words, nor that this task caused the failure (a "
+        "failure already in the suite counts), nor anything about runs the gate cannot "
+        "recognise. A turn that hands back honestly instead — a question, or a disclosure that "
+        "the work is failing or unverified — is counted under 'fail to verify', and a requested "
+        "TDD red phase (`tdd-red-phase`) is recorded as not a failure and never counted",
     ),
     ModeSpec(
         FailureMode.INSUFFICIENT_TESTS,
         "write insufficient tests",
-        "completion gate — changed code with no coverage and no test written",
-        "untested code was changed in a project that does test its code. It says nothing "
-        "about the quality of tests that were written",
+        "completion gate at Stop — `untested-change` (INFO, never raised): changed code that no "
+        "test reaches, directly or through a dependent, in a project with a test runner and test "
+        "files, while the task touched no test file; `requested-tests-missing` (MEDIUM, blocks): "
+        "the request asked for tests and the task added or changed no test file",
+        "untested code was changed in a project that does test its code, or tests the developer "
+        "asked for were not written at all. It says nothing about the quality of tests that were "
+        "written, and the coverage it relies on is the index's test map (naming and imports), "
+        "not measured coverage",
     ),
     ModeSpec(
         FailureMode.UNVERIFIED_CHANGE,
         "fail to verify their own changes",
-        "completion gate — code changed, covering tests exist, none were run",
-        "tests that cover the change existed and were not executed before the agent "
-        "tried to finish",
+        "completion gate at Stop (MEDIUM, blocks) — `no-test-run`: source changed, existing "
+        "tests cover it, and no test run was seen; `stale-verification`: covered files changed "
+        "after the last passing run; `narrower-verification`: a run failed and only a narrower "
+        "run passed after it; `tests-in-flight`: the host reports a test run still going. "
+        "`honest-hand-back` (LOW, recorded, never blocks): the final message asked a question or "
+        "disclosed unverified or failing work instead of claiming completion",
+        "tests that cover the change existed, and no passing run on the final code checked it "
+        "before the agent tried to finish: none ran, the pass predates a later edit, a failure "
+        "was followed only by a narrower green run, or the run had not finished. It does NOT "
+        "prove the change is wrong, and it cannot see runs it does not recognise (a custom test "
+        "script, a run in an earlier prompt). `honest-hand-back` proves only that the agent said "
+        "so itself",
     ),
     ModeSpec(
         FailureMode.CONTINUED_ON_BAD_ASSUMPTION,
@@ -244,6 +267,68 @@ NOT_INSTRUMENTED_BECAUSE: dict[FailureMode, str] = {
         "requires the agent to have been challenged and to have proceeded anyway. "
         "Observe-only mode never challenges, so the census cannot observe this by "
         "construction"
+    ),
+}
+
+
+# -- What each completion-gate observation establishes (C1) ----------------------------
+#
+# The census counts modes; a finding's `subject` says which observation it was. Every
+# subject the completion gate can record is listed here with the mode it is filed under
+# and what one observation of it proves — and does not. `tests/test_gate_b_taxonomy.py`
+# fails when the gate gains a subject this table does not explain, or files one under a
+# different mode.
+GATE_SUBJECTS: dict[str, tuple[FailureMode, str]] = {
+    "failing-tests-on-completion": (
+        FailureMode.FALSE_COMPLETION,
+        "the latest conclusive run of a suite the agent ran in this task failed. Not that "
+        "the task caused it, and not that the agent claimed success in words",
+    ),
+    "unparsable-on-completion": (
+        FailureMode.FALSE_COMPLETION,
+        "a file the task changed does not parse now, parsed before the task first changed "
+        "it, and no passing run came after its last edit. Parsed by the daemon's own "
+        "interpreter or tree-sitter grammar",
+    ),
+    "tdd-red-phase": (
+        FailureMode.NOT_A_FAILURE,
+        "the only failures are in test files this task created, and the request asked for a "
+        "failing test or a reproduction. Recorded so the exemption is visible; never counted",
+    ),
+    "no-test-run": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "source changed, the index maps existing tests to it, and no recognised test run "
+        "happened in the task. A run the gate does not recognise is invisible to it",
+    ),
+    "stale-verification": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "a covered file changed after the last passing run that checked it. Not that the "
+        "change broke anything",
+    ),
+    "narrower-verification": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "a run failed and no later passing run covered it: the green run after it was "
+        "narrower or different. Not that the failure persists",
+    ),
+    "tests-in-flight": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "the host reported a test or typecheck run still going when the agent stopped",
+    ),
+    "honest-hand-back": (
+        FailureMode.UNVERIFIED_CHANGE,
+        "the gate had an objection, and the final message asked a question or disclosed "
+        "unverified or failing work without claiming completion. The agent said so itself; "
+        "LOW, never blocks",
+    ),
+    "untested-change": (
+        FailureMode.INSUFFICIENT_TESTS,
+        "changed code that no test reaches in the index's test map, in a project with tests, "
+        "while the task touched no test file. INFO, never raised",
+    ),
+    "requested-tests-missing": (
+        FailureMode.INSUFFICIENT_TESTS,
+        "the request asked for tests and the task added or changed no test file. Nothing "
+        "about the quality of tests that were written",
     ),
 }
 
