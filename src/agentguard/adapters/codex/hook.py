@@ -27,6 +27,8 @@ import os
 import socket
 import sys
 
+from agentguard import names
+
 MAX_STDIN_BYTES = 1_000_000
 MAX_RESPONSE_BYTES = 256_000
 HOT_PATH_TIMEOUT_S = 4.0
@@ -56,11 +58,11 @@ STALE_DAEMON_NOTICE = (
 
 
 def _home() -> str:
-    return os.path.expanduser(os.environ.get("AGENTGUARD_HOME") or "~/.agentguard")
+    return names.data_dir()
 
 
 def _disabled() -> bool:
-    return os.environ.get("AGENTGUARD_DISABLE", "").strip().lower() in {"1", "true", "yes", "on"}
+    return names.env_flag("AGENTGUARD_DISABLE")
 
 
 def _handshake() -> dict | None:

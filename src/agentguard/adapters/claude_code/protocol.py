@@ -1,14 +1,16 @@
 """Wire constants shared by the daemon-side adapter and the command-hook processes.
 
-Stdlib-only and import-free on purpose: ``shim.py`` and ``plugin.py`` run as hook
-processes and must not pull in pydantic or FastAPI (that would triple their start-up
-cost), while ``translate.py`` runs inside the daemon. Anything both sides must agree on
-lives here, once.
+Stdlib-only on purpose (it imports only ``agentguard.names``, itself stdlib-only):
+``shim.py`` and ``plugin.py`` run as hook processes and must not pull in pydantic or
+FastAPI (that would triple their start-up cost), while ``translate.py`` runs inside the
+daemon. Anything both sides must agree on lives here, once.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from agentguard import names
 
 HOOK_PATH = "/hook/claude-code"
 
@@ -20,18 +22,17 @@ SESSION_MODE_EVENT = "AgentGuardSessionMode"
 SESSION_MODE_FIELD = "agentguard_session_mode"
 SESSION_MODES = ("disabled", "observe", "guard")
 
-_TRUE = {"1", "true", "yes", "on"}
-
 
 def flag(environ: Any, name: str) -> bool:
-    return str(environ.get(name, "")).strip().lower() in _TRUE
+    """A boolean switch, honouring the same setting under a former product name."""
+    return names.env_flag(name, environ)
 
 
 def session_mode_from_env(environ: Any) -> str:
     """The mode a developer asked for when they launched this session."""
-    if flag(environ, "AGENTGUARD_DISABLE"):
+    if names.env_flag("AGENTGUARD_DISABLE", environ):
         return "disabled"
-    if flag(environ, "AGENTGUARD_OBSERVE"):
+    if names.env_flag("AGENTGUARD_OBSERVE", environ):
         return "observe"
     return "guard"
 

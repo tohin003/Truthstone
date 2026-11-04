@@ -115,15 +115,18 @@ class TestManifest:
 class TestPackage:
     def test_contains_only_what_it_should(self):
         files = sorted(str(p.relative_to(PLUGIN)) for p in PLUGIN.rglob("*") if p.is_file())
-        assert files == [
-            ".codex-plugin/plugin.json",
-            "assets/agentguard-icon.svg",
-            "assets/agentguard-logo-dark.svg",
-            "assets/agentguard-logo.svg",
-            "hooks/agentguard-hook.sh",
-            "hooks/hooks.json",
-            "skills/agentguard/SKILL.md",
-        ]
+        # Sorted here too, so the expectation survives a product rename reordering names.
+        assert files == sorted(
+            [
+                ".codex-plugin/plugin.json",
+                "assets/agentguard-icon.svg",
+                "assets/agentguard-logo-dark.svg",
+                "assets/agentguard-logo.svg",
+                "hooks/agentguard-hook.sh",
+                "hooks/hooks.json",
+                "skills/agentguard/SKILL.md",
+            ]
+        )
 
     def test_nothing_codex_cannot_fingerprint(self):
         for path in PLUGIN.rglob("*"):

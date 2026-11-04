@@ -37,6 +37,7 @@ import os
 import sys
 import time
 
+from agentguard import names
 from agentguard.adapters.claude_code import protocol
 
 DEFAULT_TIMEOUT_S = 2.0
@@ -71,7 +72,7 @@ def _start_timeout() -> float:
     filesystem takes longer than the default, and a developer who would rather fail fast
     than wait can say so.
     """
-    raw = os.environ.get("AGENTGUARD_START_TIMEOUT", "")
+    raw = names.env("AGENTGUARD_START_TIMEOUT") or ""
     try:
         value = float(raw)
     except ValueError:
@@ -80,7 +81,7 @@ def _start_timeout() -> float:
 
 
 def _home() -> str:
-    return os.path.expanduser(os.environ.get("AGENTGUARD_HOME") or "~/.agentguard")
+    return names.data_dir()
 
 
 def _handshake() -> dict | None:
