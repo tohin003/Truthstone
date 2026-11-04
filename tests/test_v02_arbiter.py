@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.conftest import stop_event
 from tests.stop_session import StopSession, make_repo, pytest_output
 from truthstone.core.enums import ReasonCategory
 
@@ -113,9 +114,28 @@ def test_the_spec_rewrite_is_challenged_once_quoting_the_rule(session):
     # no door for the rationalised rewrite: every accepted finish is a hand-back
     assert "why it should stay" not in reason and "quote those words" not in reason
     assert session.last.findings[0].subject == ReasonCategory.SPEC_EROSION.value
-    # Once per reason: the same finish again is not held, and the developer is told.
-    assert session.stop("Done.\n\nFINAL: done").get("decision") is None
+    # "Done" again over the still-rewritten rule: asked once more (the turn is held by a stop
+    # hook by then), the smallest ask, and never a third time; the developer is then told.
+    again = session.send(
+        {**stop_event("Your instruction settles it.\n\nFINAL: done"), "stop_hook_active": True}
+    )
+    assert again["decision"] == "block"
+    assert "You finished as done again" in again["reason"]
+    assert "Keep your change if you are sure of it, but do not finish as done." in again["reason"]
+    third = session.send({**stop_event("Still done.\n\nFINAL: done"), "stop_hook_active": True})
+    assert third.get("decision") is None
     assert session.last.unverified_finish
+
+
+def test_asked_again_accepts_the_hand_back(session):
+    session.prompt(CONTRADICTION)
+    session.run("pytest -q", RED, exit_code=1)
+    erode(session)
+    session.run("pytest -q", GREEN)
+    assert session.stop("Fixed the boost; all tests pass.\n\nFINAL: done")["decision"] == "block"
+    hand_back = stop_event("FINAL: not done - I changed the documented ceiling; please confirm.")
+    out = session.send({**hand_back, "stop_hook_active": True})
+    assert out.get("decision") is None
 
 
 def test_a_done_claim_that_names_the_rewritten_rule_is_still_challenged(session):

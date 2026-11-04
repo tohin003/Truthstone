@@ -206,12 +206,25 @@ def arbitrate(
     already = set(state.raised_categories) if minimal else set()
     speaking: list[Concern] = []
     repeated: list[Concern] = []
+    again: Concern | None = None
     for concern in concerns:
         if not concern.can_speak or concern.category not in allowed:
             continue  # recorded only (its finding is already in ``findings``)
         if concern.needs_claim and not done:
             continue  # an honest hand-back is accepted (rule 1)
         if concern.category in already:
+            if (
+                minimal
+                and concern.category is ReasonCategory.SPEC_EROSION
+                and SPEC_EROSION_AGAIN not in already
+                and again is None
+            ):
+                # The one exception to once per reason: "done" claimed again over a rewritten
+                # documented rule. The second ask is the smallest one: keep the change if you
+                # must, but hand the rule decision back. It can only follow a first challenge.
+                again = _asked_again(concern)
+                speaking.append(again)
+                continue
             repeated.append(concern)
         else:
             speaking.append(concern)
@@ -235,7 +248,9 @@ def arbitrate(
             unresolved=told.finding.summary,
         )
 
-    muted = completion_gate._muted_reason(state, stop_hook_active, max_blocks)
+    # The asked-again challenge follows the agent's own reply to the first one, so a stop hook
+    # is holding the turn by construction; the per-task block budget still bounds it.
+    muted = completion_gate._muted_reason(state, stop_hook_active and again is None, max_blocks)
     if muted:
         first = min(speaking, key=lambda c: _ORDER.index(c.category))
         return Arbitration(
@@ -254,11 +269,14 @@ def arbitrate(
     # The primary findings come first and carry their category as the subject: the
     # engine's choke point lets a Stop challenge through only for an allowed category.
     primary = [_primary(c) for c in speaking]
+    raised: list = [c.category for c in speaking]
+    if again is not None:
+        raised.append(SPEC_EROSION_AGAIN)  # recorded with the categories: asked twice, never thrice
     return Arbitration(
         result,
         reason=_render(speaking),
         findings=[*primary, *findings],
-        raised=[c.category for c in speaking],
+        raised=raised,
     )
 
 
@@ -293,6 +311,25 @@ _FINISHES: dict[ReasonCategory, str] = {
         "reads it."
     ),
 }
+
+
+SPEC_EROSION_AGAIN = "spec_erosion:again"
+
+
+def _asked_again(concern: Concern) -> Concern:
+    """The second, smallest ask over a documented rule still rewritten at a repeated "done"."""
+    refs = [ref for ref in concern.finding.evidence if ref.snippet][:3]
+    listing = "\n".join(
+        f'  - {ref.path}{f":{ref.line}" if ref.line else ""}: "{ref.snippet}"' for ref in refs
+    )
+    text = (
+        "You finished as done again, but the documented rule is still changed:\n"
+        f"{listing}\n"
+        "A completion that changes a documented rule needs the user's confirmation, whatever the "
+        "tests say, and only the user can give it. Keep your change if you are sure of it, but do "
+        "not finish as done."
+    )
+    return Concern(concern.category, text, concern.finding, needs_claim=True)
 
 
 def _render(concerns: list[Concern]) -> str:
