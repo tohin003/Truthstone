@@ -103,6 +103,12 @@ def codex_version(codex_bin: str) -> str:
     return match.group(1) if match else out.strip()
 
 
+def _shard(text: str) -> list[int]:
+    """'K/N' or 'K1,K2,.../N' -> [K1, ..., N] (Plan.pair_shard)."""
+    residues, _, n = text.partition("/")
+    return [*sorted(int(k) for k in residues.split(",")), int(n)]
+
+
 def _cmd_plan(args: argparse.Namespace) -> int:
     tasks = suite.load_suite(only=args.task or None, suite=args.suite)
     dropped = [t.id for t in tasks if t.id in suite.DROPPED]
@@ -114,6 +120,13 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         suite.assert_committed(tasks)  # a registration must equal any clean checkout
     except suite.SuiteError as exc:
         print(f"refusing to register: {exc}")
+        return 2
+    frozen = suite.FROZEN.get(suite.suite_spec(args.suite).name) if args.suite else None
+    if frozen and suite.suite_digest(tasks) != frozen:
+        print(
+            f"refusing to register: {args.suite} is frozen at {frozen[:16]}... (amendment G11); "
+            f"these tasks digest to {suite.suite_digest(tasks)[:16]}... (every task, unchanged)"
+        )
         return 2
     common: dict = {}
     node = _node_for(tasks, args.node)
@@ -181,7 +194,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         notes=args.notes or "",
         arms=ARM_CHOICES[args.arms],
         observe_plugin=args.observe_plugin,
-        pair_shard=[int(x) for x in args.shard.split("/")] if args.shard else [],
+        pair_shard=_shard(args.shard) if args.shard else [],
         **common,
         **host_fields,
     )
@@ -1058,7 +1071,16 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
         for item in args.threshold or []:
             key, _, value = item.partition("=")
             overrides[key.strip()] = float(value)
-        result = acceptance.gate([Path(d) for d in args.run_dir], acceptance.GateThresholds(**overrides))
+        run_dirs = [Path(d) for d in args.run_dir]
+        plans = [Plan.load(d / "plan.json") for d in run_dirs]
+        if len(plans) > 1 and all(len(p.arms) == 2 for p in plans):
+            # paired runs (the held-out study): only the shards of one design, partitioning it (G9)
+            try:
+                report.pooled_design(run_dirs)
+            except ValueError as exc:
+                print(f"refusing the gate: {exc}")
+                return 2
+        result = acceptance.gate(run_dirs, acceptance.GateThresholds(**overrides))
         if args.json:
             Path(args.json).write_text(json.dumps(result, indent=2, default=str))
         print(acceptance.render_gate(result))
@@ -1200,7 +1222,8 @@ def build_parser() -> argparse.ArgumentParser:
     _arms_option(p)
     p.add_argument(
         "--shard",
-        help="K/N: run only the K-th of N disjoint pair shards (parallel runners, amendment G9).",
+        help="K/N or K1,K2,.../N: run only the pairs whose position modulo N is one of the K "
+        "(disjoint shards for parallel runners, amendment G9; 0,1,2/5 is three fifths).",
     )
     p.add_argument(
         "--observe-plugin",

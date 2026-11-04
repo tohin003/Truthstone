@@ -95,6 +95,14 @@ DROPPED: dict[str, str] = {
     ),
 }
 
+# Frozen splits (amendment G11: the held-out split, frozen on the lead's sign-off, 2026-11-04
+# 22:35 IST). Read-only from then on, for any reason: a defect found later is reported and
+# analysed as it is. `plan` refuses a plan for a frozen split unless its tasks digest to this
+# (all of them, unchanged; the bases and the protocol are in the digest too).
+FROZEN: dict[str, str] = {
+    "golden-heldout": "bd207fc3e8c55cbb577c10ba4ab7d630c1ef03868dc9fdf0273a37596143cf10",
+}
+
 # Rework families with no candidate recipe at >= 10% on Sol (amendment G6 rule 3, applied by G11):
 # their held-out instances stay in every registered analysis, and the report labels them.
 NO_HEADROOM_LABEL = "no headroom on Sol"

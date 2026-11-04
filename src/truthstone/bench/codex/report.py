@@ -380,9 +380,12 @@ def pooled_design(run_dirs: list[Path]) -> tuple[Plan, list[dict]]:
     if any(design(p) != design(plans[0]) for p in plans):
         raise ValueError("the runs are not shards of one design")
     shards = sorted(tuple(p.pair_shard) for p in plans)
-    n = shards[0][1] if shards and shards[0] else 0
-    if len(plans) > 1 and (not n or shards != [(k, n) for k in range(n)]):
-        raise ValueError(f"the shards {shards} do not partition the design")
+    if len(plans) > 1:
+        moduli = {s[-1] for s in shards if s}
+        residues = [k for s in shards for k in s[:-1]]
+        n = moduli.pop() if len(moduli) == 1 and all(shards) else 0
+        if not n or sorted(residues) != list(range(n)):
+            raise ValueError(f"the shards {shards} do not partition the design")
     merged = _dc.replace(
         plans[0],
         name="+".join(p.name for p in plans),

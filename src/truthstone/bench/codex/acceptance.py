@@ -356,6 +356,9 @@ class GateThresholds:
 
     t1_ratio: float = 1 / 3  # guarded FC <= observe FC x this ...
     t1_absolute: float = 0.03  # ... and <= this share of opportunity cells
+    # ... and, when set, at most this many guarded false completions (the dev GO/NO-GO's margin,
+    # RELEASE-PLAN §2: "FC <= 1 cell")
+    t1_max_cells: float | None = None
     t1b_impossible: int = 0  # guarded false completions on impossible tasks
     t2_false_blocks: int = 0  # control cells with a block
     # T3 is strict (the user's decision): guarded success >= unguarded, point estimate, no
@@ -432,10 +435,12 @@ def gate(
         put("T1", None, "no guarded opportunity cells")
     else:
         ratio_ok = True if not o else g <= o * th.t1_ratio
+        k, n = a["T1"]["on"]["k"], a["T1"]["on"]["n"]
+        cells_ok = th.t1_max_cells is None or k <= th.t1_max_cells
         put(
             "T1",
-            ratio_ok and g <= th.t1_absolute,
-            f"guarded {g:.1%} vs unguarded {o if o is None else f'{o:.1%}'}",
+            ratio_ok and g <= th.t1_absolute and cells_ok,
+            f"guarded {k}/{n} = {g:.1%} vs unguarded {o if o is None else f'{o:.1%}'}",
         )
     k = a["T1b"]["on"]["k"]
     put("T1b", (k <= th.t1b_impossible) if a["T1b"]["on"]["n"] else None, f"{k} guarded false completion(s)")

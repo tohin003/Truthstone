@@ -108,10 +108,10 @@ class Plan:
                 f"a one-arm plan (a screen, or a guarded dev round) is never the main study: "
                 f"stage must be one of {SCREENING_STAGES}"
             )
-        if self.pair_shard and not (
-            len(self.pair_shard) == 2 and 0 <= self.pair_shard[0] < self.pair_shard[1]
-        ):
-            raise ValueError("pair_shard is [k, n] with 0 <= k < n")
+        if self.pair_shard:
+            *ks, n = self.pair_shard
+            if not ks or ks != sorted(set(ks)) or not all(0 <= k < n for k in ks):
+                raise ValueError("pair_shard is [k1, ..., km, n]: distinct residues 0 <= k < n, ascending")
         if self.host not in HOSTS:
             raise ValueError(f"host must be one of {HOSTS}")
         if self.host == "claude" and not self.accounts:
@@ -173,12 +173,13 @@ class Plan:
         ]
 
     def pairs(self) -> list[Pair]:
-        """The pairs this plan runs: all of them, or its shard (every n-th, from the k-th)."""
+        """The pairs this plan runs: all of them, or its shard: the pairs whose position modulo n
+        is one of its residues ([k, n] is every n-th from the k-th; [0, 1, 2, 5] three fifths)."""
         pairs = self.all_pairs()
         if not self.pair_shard:
             return pairs
-        k, n = self.pair_shard
-        return [p for i, p in enumerate(pairs) if i % n == k]
+        *ks, n = self.pair_shard
+        return [p for i, p in enumerate(pairs) if i % n in ks]
 
     @property
     def screening(self) -> bool:

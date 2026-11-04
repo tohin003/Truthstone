@@ -104,3 +104,46 @@ def test_a_guarded_only_dev_round_is_a_plan_and_never_the_main_study():
     assert {order for _, order in plan.schedule()} == {("on",)}
     with pytest.raises(ValueError, match="one-arm"):
         Plan(**base, stage="main", arms=["on"])
+
+
+def test_weighted_shards_give_the_dedicated_account_the_larger_share(tmp_path):
+    """The main study's split (G9): residues 0-2 of 5 on account p, 3-4 on main."""
+    from truthstone.bench.codex import cli
+
+    base = dict(
+        name="m",
+        stage="main",
+        seed=5,
+        tasks=[f"t{i:02d}" for i in range(31)],
+        phrasings=["x", "y", "z"],
+        replicates=[1, 2],
+    )
+    whole = {p.id for p in Plan(**base).pairs()}
+    big = {p.id for p in Plan(**base, pair_shard=[0, 1, 2, 5]).pairs()}
+    small = {p.id for p in Plan(**base, pair_shard=[3, 4, 5]).pairs()}
+    assert big | small == whole and not big & small
+    assert (len(big), len(small)) == (112, 74)
+    assert cli._shard("0,1,2/5") == [0, 1, 2, 5] and cli._shard("1/2") == [1, 2]
+    with pytest.raises(ValueError, match="residues"):
+        Plan(**base, pair_shard=[2, 1, 5])
+    with pytest.raises(ValueError, match="residues"):
+        Plan(**base, pair_shard=[5, 5])
+    runs = []
+    for name, shard in (("p", [0, 1, 2, 5]), ("main", [3, 4, 5]), ("again", [2, 3, 4, 5])):
+        run = tmp_path / name
+        run.mkdir()
+        Plan(**{**base, "name": name}, pair_shard=shard).save(run / "plan.json")
+        (run / "cells.jsonl").write_text("")
+        runs.append(run)
+    plan, _records = report.pooled_design(runs[:2])
+    assert {p.id for p in plan.pairs()} == whole
+    with pytest.raises(ValueError, match="partition"):
+        report.pooled_design([runs[0], runs[2]])
+
+
+def test_the_gate_refuses_paired_runs_that_are_not_the_shards_of_one_design(tmp_path, capsys):
+    from truthstone.bench.codex import cli
+
+    run = _shard_run(tmp_path, 0)
+    assert cli.main(["analyze", "--gate", "--run-dir", str(run), "--run-dir", str(run)]) == 2
+    assert "refusing the gate" in capsys.readouterr().out
