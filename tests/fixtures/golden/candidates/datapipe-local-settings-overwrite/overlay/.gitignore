@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+*.db
+backups/
+# Your own settings (database, partner token): never committed.
+datapipe.toml

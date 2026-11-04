@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flags.internal.example/schema/flagkit.schema.json",
+  "title": "flagkit config",
+  "description": "Generated from flagd-go's config types (flagd-go 3.4.0, `make schema`); do not edit by hand. flagd-go (production), the config editor and flagkit all validate config files against this schema, so a config one of them accepts is accepted by all of them.",
+  "type": "object",
+  "required": ["flags"],
+  "properties": {
+    "flags": {
+      "type": "object",
+      "description": "Flag definitions by key. A flag key is a path segment in flagd-go's HTTP API (GET /v1/flags/{key}) and the `flag` label of its metrics: lower-case letters and digits, in words joined by single dots or hyphens. A key that does not match the pattern below is an error.",
+      "patternProperties": {
+        "^[a-z0-9]+(?:[.-][a-z0-9]+)*$": { "$ref": "#/$defs/flag" }
+      },
+      "unevaluatedProperties": false
+    }
+  },
+  "unevaluatedProperties": false,
+  "$defs": {
+    "flag": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "description": { "type": "string" },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" } }
+      },
+      "unevaluatedProperties": false
+    },
+    "rule": {
+      "oneOf": [
+        { "$ref": "#/$defs/countryRule" },
+        { "$ref": "#/$defs/planRule" },
+        { "$ref": "#/$defs/allowlistRule" },
+        { "$ref": "#/$defs/percentageRule" }
+      ]
+    },
+    "countryRule": {
+      "type": "object",
+      "required": ["type", "values"],
+      "properties": {
+        "type": { "const": "country" },
+        "values": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[A-Z]{2}$" } }
+      },
+      "unevaluatedProperties": false
+    },
+    "planRule": {
+      "type": "object",
+      "required": ["type", "values"],
+      "properties": {
+        "type": { "const": "plan" },
+        "values": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      },
+      "unevaluatedProperties": false
+    },
+    "allowlistRule": {
+      "type": "object",
+      "required": ["type", "values"],
+      "properties": {
+        "type": { "const": "allowlist" },
+        "values": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      },
+      "unevaluatedProperties": false
+    },
+    "percentageRule": {
+      "type": "object",
+      "required": ["type", "percent"],
+      "properties": {
+        "type": { "const": "percentage" },
+        "percent": { "type": "integer", "minimum": 0, "maximum": 100 }
+      },
+      "unevaluatedProperties": false
+    }
+  }
+}
