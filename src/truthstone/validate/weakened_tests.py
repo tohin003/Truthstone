@@ -26,12 +26,19 @@ What counts as weakening of an EXISTING test file
 * **Expected value changed**: an assertion's expected literal changed while its subject
   did not.
 
-The last four speak only with a reason to believe the yardstick was moved to make the run
-green: the request said to leave the tests alone ("the tests are the spec", "don't change
-the tests"), or the request is about failing tests ("X is failing, fix it") and that very
-test failed earlier in this task. Without one they are recorded: a request that changes
-behaviour legitimately changes the tests that pinned the old behaviour (they fail after the
-change, then get updated), and Truthstone cannot tell which behaviour the developer wanted.
+* **Module-level code changed** (Stage 4): an existing module-level statement of a test file
+  that failed, i.e. an import, constant, sample data, fixture or helper, modified or deleted
+  under test pressure. Adding one is never a finding.
+
+Deleted, fewer-assertions and expected-changed speak only with a reason to believe the
+yardstick was moved to make the run green. Either the request said to leave the tests alone
+("the tests are the spec", "don't change the tests"), or the request is about failing tests
+("X is failing, fix it") and that very test failed earlier in this task. Without one they are
+recorded: a request that changes behaviour legitimately changes the tests that pinned the old
+behaviour (they fail after the change, then get updated), and Truthstone cannot tell which
+behaviour the developer wanted. Module-level changes speak only under test pressure: the
+request is about failing tests, or the file failed before the task's first change. The file
+must also have failed. Anywhere else they are not even recorded.
 
 Exempt throughout: the request asks for test changes ("update the tests", "the test is
 wrong"), and tests of code the session removed or renamed (it went with its code).
@@ -61,8 +68,12 @@ _JS = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
 class Weakening:
     path: str
     test: str  # the test's name, or "" for the file
-    kind: str  # skipped | hack | deleted | fewer-assertions | expected-changed | file-deleted
+    # skipped | hack | deleted | fewer-assertions | expected-changed | file-deleted | module-level
+    kind: str
     detail: str = ""
+    # module-level: the identifiers the change touched (a deleted statement's, or those a changed
+    # one gained or lost), so a rename the request names, or code the session removed, exempts it.
+    names: frozenset[str] = frozenset()
 
     @property
     def always(self) -> bool:
@@ -238,7 +249,171 @@ def _python(path: str, before: str, after: str) -> list[Weakening] | None:
                     f"expected {test.expected[subject]} -> {now.expected[subject]}",
                 )
             )
+    out.extend(_module_level(path, before, after))
     return out
+
+
+# -- module level (Stage 4, rule 2) -------------------------------------------------------------------
+#
+# A test file's module-level code (its imports, constants and sample data, fixtures and helpers) is
+# what its tests run against. Modifying or deleting an existing statement there moves the yardstick
+# as surely as editing an assertion. Adding one does not. Statements are compared without
+# positions, comments or docstrings, so formatting and reordering are never a change, and neither is
+# a new import, constant, helper or test. A statement renamed with its value or body intact is the
+# same statement. Imports are compared by what they bind: reordering, splitting or merging the
+# names imported from a module is not a change, but a different set of names is. So
+# ``from m import a`` -> ``from m import a, b`` is a changed statement; a new line
+# ``from m import b`` is an addition. Test functions and test classes are left to the per-test
+# checks above, and skips and run-around hacks to their own findings.
+
+
+@dataclass(frozen=True, slots=True)
+class _Unit:
+    label: str  # how a finding names it: "`EXPECTED_ROWS`", "fixture `rows`", "`from m import a`"
+    key: str  # what a modified version of it shares: the assigned names, the def's name, the module
+    dump: str  # its normalised form, without the names it defines
+    names: frozenset[str]  # the identifiers it mentions
+    binds: frozenset[str] = frozenset()  # an import's bindings: "module:name as alias"
+
+
+def _module_level(path: str, before: str, after: str) -> list[Weakening]:
+    try:
+        old, new = _module_units(ast.parse(before)), _module_units(ast.parse(after))
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return []
+    # 1. the same statement; 2. the same value or body under another name (a rename)
+    old_left, new_left = list(old), list(new)
+    for same in (lambda a, b: a.key == b.key and a.dump == b.dump, lambda a, b: a.dump == b.dump):
+        for unit in list(old_left):
+            match = next((other for other in new_left if same(unit, other)), None)
+            if match is not None:
+                old_left.remove(unit)
+                new_left.remove(match)
+    out: list[Weakening] = []
+    old_imports = [unit for unit in old_left if unit.binds]
+    new_imports = [unit for unit in new_left if unit.binds]
+    for unit in old_left:
+        if unit.binds:
+            module = unit.key
+            lost = _bound(old_imports, module) - _bound(new_imports, module)
+            gained = _bound(new_imports, module) - _bound(old_imports, module)
+            if not lost and not gained:
+                continue  # the same names, imported in other groupings
+            detail = f"module-level {unit.label} changed"
+            if not lost:
+                detail += " (keep it as it was; import new names on a line of their own)"
+            names = frozenset(name.rsplit(" ", 1)[-1] for name in lost | gained)
+            out.append(Weakening(path, "", "module-level", detail, names))
+            continue
+        twin = next((other for other in new_left if other.key == unit.key), None)
+        if twin is None:
+            out.append(Weakening(path, "", "module-level", f"module-level {unit.label} deleted", unit.names))
+        else:
+            # Only the names it gained or lost: a value changed beside them is no rename.
+            touched = unit.names ^ twin.names
+            out.append(Weakening(path, "", "module-level", f"module-level {unit.label} changed", touched))
+    return out
+
+
+def _bound(imports: list[_Unit], module: str) -> frozenset[str]:
+    return frozenset(bind for unit in imports if unit.key == module for bind in unit.binds)
+
+
+def _module_units(tree: ast.Module) -> list[_Unit]:
+    body = tree.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]  # the module docstring
+    return [unit for unit in map(_module_unit, body) if unit is not None]
+
+
+_MAIN_GUARD = re.compile(r"__name__\s*==\s*['\"]__main__['\"]")
+
+
+def _module_unit(node: ast.stmt) -> _Unit | None:
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if node.name.startswith("test") or _is_hack_name(node.name):
+            return None  # a test (the per-test checks), or a run-around hack (always reported)
+        fixture = any("fixture" in ast.unparse(d) for d in node.decorator_list)
+        label = f"{'fixture' if fixture else 'helper'} `{node.name}`"
+        return _Unit(label, f"def:{node.name}", _def_dump(node), _identifiers(node))
+    if isinstance(node, ast.ClassDef):
+        if node.name.startswith("Test") or any(
+            isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name.startswith("test")
+            for item in node.body
+        ):
+            return None  # a test class: the per-test checks
+        return _Unit(f"class `{node.name}`", f"class:{node.name}", _def_dump(node), _identifiers(node))
+    if isinstance(node, ast.Import | ast.ImportFrom):
+        module = f"{'.' * node.level}{node.module or ''}" if isinstance(node, ast.ImportFrom) else ""
+        binds = frozenset(
+            f"{module}:{alias.name} as {alias.asname or alias.name.split('.')[0]}" for alias in node.names
+        )
+        key = f"from:{module}" if isinstance(node, ast.ImportFrom) else "import"
+        return _Unit(f"`{ast.unparse(node)}`", key, repr(sorted(binds)), _identifiers(node), binds)
+    if isinstance(node, ast.If) and _MAIN_GUARD.fullmatch(ast.unparse(node.test)):
+        return None  # runs only as a script
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+        return None  # a bare string or number
+    targets = _assigned(node)
+    if targets:
+        if "pytestmark" in targets or any(_is_hack_name(name) for name in targets):
+            return None  # skips and hacks have their own findings
+        label = ", ".join(f"`{name}`" for name in sorted(targets))
+        value = getattr(node, "value", None)
+        dump = f"{type(node).__name__}:{ast.dump(value) if value is not None else ''}"
+        if isinstance(node, ast.AugAssign):
+            dump += ast.dump(node.op)
+        return _Unit(label, "assign:" + ",".join(sorted(targets)), dump, _identifiers(node))
+    text = ast.unparse(node).splitlines()[0][:60]
+    return _Unit(f"`{text}`", "stmt:" + text, ast.dump(node), _identifiers(node))
+
+
+def _assigned(node: ast.stmt) -> set[str]:
+    if isinstance(node, ast.Assign):
+        targets = node.targets
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        targets = [node.target]
+    else:
+        return set()
+    out: set[str] = set()
+    for target in targets:
+        for inner in ast.walk(target):
+            if isinstance(inner, ast.Name):
+                out.add(inner.id)
+        if not isinstance(target, (ast.Name, ast.Tuple, ast.List)):
+            out.add(ast.unparse(target))  # `config.DEBUG = True`, `os.environ["X"] = "1"`
+    return out
+
+
+def _def_dump(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> str:
+    """A def without its name and docstring: what it does, so a renamed copy is the same."""
+    body = node.body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+    parts = [type(node).__name__, [ast.dump(d) for d in node.decorator_list], [ast.dump(s) for s in body]]
+    if isinstance(node, ast.ClassDef):
+        parts.append([ast.dump(base) for base in node.bases] + [ast.dump(kw) for kw in node.keywords])
+    else:
+        parts += [ast.dump(node.args), ast.dump(node.returns) if node.returns is not None else ""]
+    return repr(parts)
+
+
+def _identifiers(node: ast.AST) -> frozenset[str]:
+    out: set[str] = set()
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.Name):
+            out.add(inner.id)
+        elif isinstance(inner, ast.Attribute):
+            out.add(inner.attr)
+        elif isinstance(inner, ast.alias):
+            out.add(inner.name.rsplit(".", 1)[-1])
+            if inner.asname:
+                out.add(inner.asname)
+        elif isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(inner.name)
+        elif isinstance(inner, ast.arg):
+            out.add(inner.arg)
+    return frozenset(out)
 
 
 # -- JavaScript / TypeScript ------------------------------------------------------------------------
@@ -382,6 +557,9 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
     after_all = "\n".join(text for _, text in texts.values() if text)
     before_all = "\n".join(text for text, _ in texts.values() if text)
     targets = spec_integrity.request_targets(prompt)
+    code = [(text, now) for path, (text, now) in texts.items() if not scanner.is_test_path(path)]
+    code_before = "\n".join(text for text, _ in code if text)
+    code_after = "\n".join(now for _, now in code if now)
     for path, (before, after) in texts.items():
         if before is None or not scanner.is_test_path(path):
             continue
@@ -391,17 +569,31 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
                 item, before, before_all, after_all, targets
             ):
                 continue
+            if item.kind == "module-level" and _named_or_removed(item, targets, code_before, code_after):
+                continue
             found.append(item)
-    if not found:
-        return []
     requested = tests_change_requested(prompt)
     kept = tests_kept_requested(prompt)
     pressure = spec_integrity.test_pressure_requested(prompt)
     failed = _failed_earlier(state)
+    # Module-level changes (Stage 4, rule 2) are kept only where they speak. That means test
+    # pressure (the request's, M1, or this very file failing before the task's first change, M2),
+    # in a file that failed, and a request that did not ask for test changes. Anywhere else they
+    # are ordinary test maintenance, and not even recorded.
+    early = _failed_earlier(state, until=state.first_change_seq or 0)
+    found = [
+        item
+        for item in found
+        if item.kind != "module-level"
+        or (not requested and (pressure or _failed(item, early)) and _failed(item, failed))
+    ]
+    if not found:
+        return []
     speaking = [
         item
         for item in found
-        if not requested and (item.always or kept or (pressure and _failed(item, failed)))
+        if not requested
+        and (item.always or kept or item.kind == "module-level" or (pressure and _failed(item, failed)))
     ]
     shown = (speaking or found)[:4]
     listing = "\n".join(f"  - {item.describe()}" for item in shown)
@@ -440,11 +632,28 @@ def _went_with_code(item: Weakening, before: str, before_all: str, after_all: st
     return False
 
 
-def _failed_earlier(state: TaskState) -> tuple[set[str], set[str]]:
-    """(failing test ids, failing test files) of every failing run in this task."""
+def _named_or_removed(item: Weakening, targets: set[str], code_before: str, code_after: str) -> bool:
+    """A module-level change the request names (it renames or removes one of the identifiers the
+    change touched), or one that went with production code the session removed."""
+    if item.names & targets:
+        return True
+    for name in item.names:
+        if len(name) < 5:
+            continue  # `rows`, `data`: too common to say the code went
+        mentioned = re.compile(rf"(?<![\w$]){re.escape(name)}(?![\w$])")
+        if mentioned.search(code_before) and not mentioned.search(code_after):
+            return True
+    return False
+
+
+def _failed_earlier(state: TaskState, until: int | None = None) -> tuple[set[str], set[str]]:
+    """(failing test ids, failing test files) of every failing run in this task, or of those
+    before the timeline position ``until``."""
     ids: set[str] = set()
     files: set[str] = set()
     for run in state.verification.outcomes:
+        if until is not None and (run.seq is None or run.seq >= until):
+            continue
         if run.passed is False:
             ids.update(run.failing_tests)
             files.update(run.failing_files)
