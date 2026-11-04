@@ -183,11 +183,14 @@ EXTENDED_TAXONOMY: tuple[ModeSpec, ...] = (
         "weaken or bypass the checks that verify the work (beyond §3)",
         "action validator — verification-bypass flags in a proposed command (`--no-verify`, "
         "`git commit -n`, `HUSKY=0`, `SKIP=` before git, `-DskipTests`, "
-        "`-Dmaven.test.skip=true`, `--skip-tests`, `SKIP_TESTS=1`)",
-        "the agent proposed a command that switches off git hooks or a build's test phase. "
-        "It does NOT prove the work is wrong, nor that the skipped check would have failed — "
-        "only that it was skipped. Weakened tests (skip markers added, assertions removed) "
-        "are not detected yet",
+        "`-Dmaven.test.skip=true`, `--skip-tests`, `SKIP_TESTS=1`; CHALLENGE), and "
+        "self-protection: `agentguard off|uninstall|observe on|daemon stop`, or a write to "
+        "AgentGuard's home or the host hook settings (REQUEST_REVIEW)",
+        "the agent proposed a command that switches off git hooks or a build's test phase, "
+        "or proposed to switch AgentGuard itself off or edit its hooks. It does NOT prove the "
+        "work is wrong, nor that a skipped check would have failed, nor that the developer "
+        "refused — only that a check was going to be skipped. Weakened tests (skip markers "
+        "added, assertions removed) are not detected yet",
     ),
     ModeSpec(
         FailureMode.SECRET_EXPOSURE,

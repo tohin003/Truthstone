@@ -60,7 +60,9 @@ def validate(
     # into a command that still deletes home (IMPROVEMENTS.md A5). A safe narrowing still
     # beats interrupting anyone, but only when the one serious problem is the one the
     # rewrite fixes; `modify.propose` enforces that and re-checks its own output.
-    risky = checks.risky_command(event)
+    # Self-protection (A9) is a risk finding like any other: turning AgentGuard off, or
+    # writing its home or the host's hook settings, needs the developer's yes.
+    risky = checks.risky_command(event) + checks.self_protection(event)
     rewrite = modify.propose(event, risky)
     if rewrite is not None:
         finding = modify.finding_for(rewrite, event)

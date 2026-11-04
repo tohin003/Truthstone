@@ -15,10 +15,13 @@ the whole layer off.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
+from agentguard.core.config import agentguard_home
 from agentguard.core.enums import (
     ChallengeCategory,
     EscalationLevel,
@@ -27,7 +30,7 @@ from agentguard.core.enums import (
     Severity,
     Verdict,
 )
-from agentguard.core.events import AgentEvent
+from agentguard.core.events import SHELL_TOOLS, AgentEvent
 from agentguard.core.models import EvidenceRef, Finding
 from agentguard.core.taskstate import DEFAULT_UNRELATED_LIMIT, TaskState
 from agentguard.repo import manifests, scanner
@@ -864,6 +867,223 @@ def verification_bypass(event: AgentEvent) -> list[Finding]:
         )
         for concern, spelling in found.items()
     ]
+
+
+# -- self-protection (IMPROVEMENTS.md A9) ---------------------------------------------
+#
+# A command or a write that would switch AgentGuard off — its CLI's off switches, its own
+# home (configuration, token, state), or the host settings its hooks live in — is the
+# developer's decision, every time. Pebble asks the same way for its own data and the
+# agents' settings (`shell_policy.py:47-83`, `policy.py:13-26`). Reading any of it is fine.
+
+_SELF_OFF: tuple[tuple[str, ...], ...] = (("off",), ("uninstall",), ("observe", "on"), ("daemon", "stop"))
+_CLI_MODULES = frozenset({"agentguard", "agentguard.cli", "agentguard.cli.main"})
+_LAUNCH_VALUED = frozenset({"--from", "--with", "--python", "-p", "--spec", "--index-url"})
+_DELETERS = frozenset({"rm", "rmdir", "unlink", "srm", "trash", "shred"})
+_COPIERS = frozenset({"cp", "ln", "install", "rsync", "ditto", "gcp"})
+_IN_PLACE_EDITORS = frozenset({"sed", "gsed", "perl"})
+_SELF_TEXT = re.compile(r"\bagentguard\s++(?:off|uninstall|observe\s++on|daemon\s++stop)\b")
+_PROTECTED_HINT = re.compile(
+    r"\.agentguard|\.claude/settings[^/\s]*\.json|\.codex/(?:hooks\.json|config\.toml)"
+)
+_WRITE_HINT = re.compile(
+    r">(?!&)|\btee\b|\b(?:sed|perl)\s++(?:-\w++\s++)*-\w*i|\b(?:rm|mv|cp|ln|truncate|dd)\b"
+)
+_MAX_PATHS = 64
+
+
+def _agentguard_command(argv: tuple[str, ...], depth: int = 0) -> tuple[str, ...] | None:
+    """The arguments given to the AgentGuard CLI, however it is launched, or None."""
+    if not argv or depth > 2:
+        return None
+    name = PurePosixPath(argv[0]).name
+    args = list(argv[1:])
+    if name == "agentguard":
+        return tuple(args)
+    if name.startswith("python") and len(args) >= 2 and args[0] == "-m" and args[1] in _CLI_MODULES:
+        return tuple(args[2:])
+    if (name == "uv" and args[:1] == ["run"]) or (name == "pipx" and args[:1] == ["run"]) or name == "uvx":
+        rest = args[1:] if args[:1] == ["run"] else args
+        while rest and rest[0].startswith("-"):
+            rest = rest[2:] if rest[0] in _LAUNCH_VALUED else rest[1:]
+        return _agentguard_command(tuple(rest), depth + 1)
+    return None
+
+
+def _switches_off(part: shell.Part) -> str:
+    """The AgentGuard off switch this part throws, or ""."""
+    cli = _agentguard_command(part.argv)
+    if cli is not None:
+        words = tuple(arg for arg in cli if not arg.startswith("-"))
+        for switch in _SELF_OFF:
+            if words[: len(switch)] == switch:
+                return "agentguard " + " ".join(switch)
+    if part.name in ("pkill", "killall") and any("agentguard" in arg.lower() for arg in part.argv[1:]):
+        return f"{part.name} agentguard"
+    return ""
+
+
+def _protected_roots() -> tuple[str, ...]:
+    """AgentGuard's home, as configured and by default, lexically and resolved."""
+    return _spellings(str(agentguard_home()), str(Path.home() / ".agentguard"))
+
+
+def _codex_homes() -> tuple[str, ...]:
+    return _spellings(os.environ.get("CODEX_HOME") or str(Path.home() / ".codex"))
+
+
+@lru_cache(maxsize=16)
+def _spellings(*paths: str) -> tuple[str, ...]:
+    """Each path lexically normalised and resolved, case-folded (APFS ignores case)."""
+    out: set[str] = set()
+    for path in paths:
+        expanded = os.path.expanduser(path)
+        out.add(os.path.normpath(expanded).casefold())
+        out.add(os.path.realpath(expanded).casefold())
+    return tuple(sorted(out))
+
+
+def protected_path(raw: str, cwd: str) -> str:
+    """Why writing `raw` would touch AgentGuard's own switches, or "".
+
+    `raw` is the path as given (a tool's `file_path`, a shell word), so a path outside the
+    workspace — which the index never sees — is judged as well.
+    """
+    if not isinstance(raw, str) or not raw or "\x00" in raw:
+        return ""
+    expanded = os.path.expanduser(raw)
+    for variable, value in (
+        ("$HOME", str(Path.home())),
+        ("${HOME}", str(Path.home())),
+        ("$AGENTGUARD_HOME", str(agentguard_home())),
+        ("${AGENTGUARD_HOME}", str(agentguard_home())),
+    ):
+        if expanded.startswith(variable):
+            expanded = value + expanded[len(variable) :]
+            break
+    if "$" in expanded:
+        return ""  # an expansion that cannot be known here
+    joined = expanded if os.path.isabs(expanded) else os.path.join(cwd or ".", expanded)
+    candidates = {os.path.normpath(joined).casefold(), os.path.realpath(joined).casefold()}
+    roots, codex = _protected_roots(), _codex_homes()
+    for candidate in candidates:
+        if any(candidate == root or candidate.startswith(root + os.sep) for root in roots):
+            return "AgentGuard's own configuration and state"
+        parent, name = os.path.split(candidate)
+        if os.path.basename(parent) == ".claude" and name.startswith("settings") and name.endswith(".json"):
+            return "Claude Code's settings, where AgentGuard's hooks are installed"
+        in_codex = os.path.basename(parent) == ".codex" or parent in codex
+        if name in ("hooks.json", "config.toml") and in_codex:
+            return "Codex's hook configuration"
+    return ""
+
+
+def _written_paths(part: shell.Part) -> list[str]:
+    """The paths a simple command visibly writes, moves or deletes."""
+    paths = [target for op, target in part.redirects if ">" in op and target and not target.startswith("&")]
+    name, args = part.name, part.argv[1:]
+    operands = [arg for arg in args if not arg.startswith("-")]
+    if name == "tee" or name in _DELETERS or name in ("mv", "truncate"):
+        paths += operands
+    elif name in _COPIERS and len(operands) > 1:
+        paths.append(operands[-1])
+    elif name in _IN_PLACE_EDITORS and any(
+        arg.startswith("--in-place") or re.fullmatch(r"-[A-Za-z]{0,3}i\S*", arg) for arg in args
+    ):
+        paths += operands[1:] if not any(a in ("-e", "--expression", "-f") for a in args) else operands
+    elif name == "dd":
+        paths += [arg[3:] for arg in args if arg.startswith("of=")]
+    return paths[:_MAX_PATHS]
+
+
+def _self_finding(subject: str, summary: str, detail: str, note: str) -> Finding:
+    return Finding(
+        category=ChallengeCategory.RISK,
+        verdict=Verdict.REQUIRES_HUMAN,
+        # Switching off the guard is the most complete way to bypass the checks that
+        # verify the work. Asked every time (A1), never decided by AgentGuard itself.
+        failure_mode=FailureMode.VERIFICATION_TAMPERING,
+        severity=Severity.HIGH,
+        subject=subject[:80],
+        summary=summary,
+        detail=detail,
+        evidence=[EvidenceRef(source="runtime", note=note[:200])],
+        suggestion="Only the developer can turn AgentGuard off or change its hooks.",
+        level=EscalationLevel.DETERMINISTIC,
+    )
+
+
+def self_protection(event: AgentEvent) -> list[Finding]:
+    """Turning AgentGuard off, or writing its home or the host hook settings: a sign-off."""
+    if event.is_mutating:  # every file-writing or deleting tool, in the core's vocabulary
+        raw = event.arg("file_path") or event.arg("notebook_path")
+        why = protected_path(raw, event.workspace) if isinstance(raw, str) else ""
+        if not why:
+            return []
+        return [
+            _self_finding(
+                raw,
+                f"Self-protection: this writes {why}",
+                f"`{raw}`",
+                f"{event.tool} {raw}",
+            )
+        ]
+    if event.tool not in SHELL_TOOLS:  # PowerShell can switch AgentGuard off too
+        return []
+    command = event.arg("command")
+    if not isinstance(command, str) or not command.strip():
+        return []
+
+    cwd = event.workspace
+    found: list[Finding] = []
+    parsed = shell.parse(command)
+    # What cannot be read is judged together, as Pebble reads an opaque line whole: a loop
+    # names the file in one piece (`for f in .claude/settings*.json`) and edits it in the
+    # next (`do sed -i ... $f`).
+    unread = "\n".join(part.text for part in parsed.parts if part.opaque)
+    writes_hooks = bool(_PROTECTED_HINT.search(unread) and _WRITE_HINT.search(unread))
+    if unread and (_SELF_TEXT.search(unread) or writes_hooks):
+        found.append(
+            _self_finding(
+                "an unreadable command",
+                "Self-protection: this command may turn AgentGuard off or change its hooks",
+                f"`{command.strip()[:200]}`",
+                command.strip(),
+            )
+        )
+    for part in parsed.parts:
+        if part.opaque:
+            continue
+        if part.depth == 0 and part.name == "cd" and part.scope == 0:
+            target = part.argv[1] if len(part.argv) > 1 else "~"
+            cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(target))) if target != "-" else ""
+            continue
+        switch = _switches_off(part)
+        if switch:
+            found.append(
+                _self_finding(
+                    switch,
+                    f"Self-protection: `{switch}` turns AgentGuard off",
+                    f"`{command.strip()[:200]}`",
+                    command.strip(),
+                )
+            )
+        if not cwd:
+            continue
+        for path in _written_paths(part):
+            why = protected_path(path, cwd)
+            if why:
+                found.append(
+                    _self_finding(
+                        path,
+                        f"Self-protection: this command writes {why}",
+                        f"`{path}` in `{command.strip()[:160]}`",
+                        command.strip(),
+                    )
+                )
+                break
+    # One finding per subject is enough for the developer.
+    return list({finding.subject: finding for finding in found}.values())[:3]
 
 
 # -- repository consistency (SPEC §16 CONSISTENCY · SPEC §3 "ignore existing patterns") --

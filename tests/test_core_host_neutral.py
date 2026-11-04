@@ -73,6 +73,10 @@ ALLOWED: dict[tuple[str, str], int] = {
     # check. Bash stays the core's shell vocabulary until canonical actions (H6).
     ("agentguard.validate.checks", "Bash"): 3,
     ("agentguard.validate.checks", "Edit"): 1,
+    # A9 self-protection reads the raw target path of a write (it may lie outside the
+    # workspace, where the normalised path is empty). Canonical actions (H6) remove it.
+    ("agentguard.validate.checks", "file_path"): 1,
+    ("agentguard.validate.checks", "notebook_path"): 1,
     ("agentguard.validate.checks", "MultiEdit"): 1,
     ("agentguard.validate.checks", "Write"): 2,
     ("agentguard.validate.modify", "Bash"): 1,
