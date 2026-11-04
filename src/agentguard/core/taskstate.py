@@ -40,8 +40,19 @@ class TaskState:
     stop_blocks: int = 0
     scope_challenged: bool = False
 
+    # Verification is a timeline (G2a). Every change and every test run takes the next
+    # number, so the gate can ask what a run actually saw: the latest run decides, and a
+    # change made after the latest pass leaves that pass stale.
+    seq: int = 0
+    last_change_seq: dict[str, int] = field(default_factory=dict)
+
+    def next_seq(self) -> int:
+        self.seq += 1
+        return self.seq
+
     def touch(self, path: str) -> None:
         self.touched_files.add(path)
+        self.last_change_seq[path] = self.next_seq()
 
     @property
     def changed_files(self) -> set[str]:

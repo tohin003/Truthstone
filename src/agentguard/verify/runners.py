@@ -19,6 +19,7 @@ Running the suite independently remains available for Level-3 verification
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,33 +47,39 @@ class TestOutcome:
     summary: str = ""
     command: str = ""
     exit_code: int | None = None  # the command's exit status, when the host reported one
+    # Where the run sits on the task's timeline (G2a). None: an outcome recorded without
+    # a position, which is never judged stale.
+    seq: int | None = None
+    family: str = ""  # the suite it verifies: python, js, go, rust, ... (commands.py)
+    key: str = ""  # the normalised command: what makes two runs "the same run"
+    scope: tuple[str, ...] = ()  # what narrowed it (paths, -k, --lf, ...); () = everything
 
     @property
     def is_failure(self) -> bool:
         return self.passed is False
 
+    @property
+    def suite(self) -> str:
+        return self.family or self.runner
+
 
 @dataclass(slots=True)
 class VerificationState:
-    """Everything observed about verification during one task."""
+    """Everything observed about verification during one task, in order.
+
+    ``outcomes`` holds the runs that reached a verdict and ``inconclusive`` the ones that
+    did not (interrupted, unreadable, no tests). Nothing here is sticky: the gate reads
+    the timeline (``assess_timeline``), so a failure that a later run fixed is history,
+    not a verdict.
+    """
 
     outcomes: list[TestOutcome] = field(default_factory=list)
     commands_seen: list[str] = field(default_factory=list)
+    inconclusive: list[TestOutcome] = field(default_factory=list)
 
     @property
     def ran_tests(self) -> bool:
         return bool(self.outcomes)
-
-    @property
-    def any_failed(self) -> bool:
-        return any(outcome.is_failure for outcome in self.outcomes)
-
-    @property
-    def all_passed(self) -> bool:
-        return bool(self.outcomes) and all(o.passed is True for o in self.outcomes)
-
-    def latest_failure(self) -> TestOutcome | None:
-        return next((o for o in reversed(self.outcomes) if o.is_failure), None)
 
 
 # -- detection --------------------------------------------------------------------
@@ -177,8 +184,11 @@ def parse_output(command: str, output: str) -> TestOutcome:
     tests on the strength of an unparsed string would be worse than silence.
     """
     command = command or ""
-    runner = runner_for_command(command)
+    invocation = commands.test_invocation(command)
+    runner = invocation.runner if invocation is not None else "unknown"
     outcome = TestOutcome(runner=runner, passed=None, command=command.strip()[:200])
+    if invocation is not None:
+        outcome.family, outcome.key, outcome.scope = invocation.family, invocation.key, invocation.selectors
     summary = parsers.parse(runner, output or "")
     if summary is None:
         return outcome
@@ -279,6 +289,123 @@ def outcome_from_result(command: str, result: Any) -> TestOutcome | None:
     elif not outcome.summary:
         outcome.summary = f"exit status {exit_code}"
     return outcome
+
+
+# -- the timeline (G2a) --------------------------------------------------------------------
+#
+# `any_failed` never forgot, so fail -> fix -> pass ended in "your tests are failing":
+# probe B, and 62 of 81 real VERIFICATION_FAILED blocks in the lead's corpus were false
+# because the latest run was green (docs/IMPROVEMENTS.md G2a). And a pass was accepted
+# however much changed after it (probe C). Pebble's rule (guard.py:710-756): the latest
+# run decides, and only a run on the current files counts.
+
+
+@dataclass(slots=True)
+class Timeline:
+    """What the task's test runs say, read in order. At most one field is set."""
+
+    failing: TestOutcome | None = None  # the latest conclusive run of a suite failed
+    open_failure: TestOutcome | None = None  # a failure no later passing run covered...
+    narrower_pass: TestOutcome | None = None  # ...because the latest pass was narrower
+    stale: list[str] = field(default_factory=list)  # changed after the latest pass
+    latest_pass: TestOutcome | None = None
+    changed_after_failure: list[str] = field(default_factory=list)
+
+    @property
+    def conclusive(self) -> bool:
+        return self.failing is not None or self.latest_pass is not None
+
+
+def covers(later: TestOutcome, earlier: TestOutcome) -> bool:
+    """Whether a passing run re-checked everything an earlier run checked.
+
+    The whole suite covers anything; the same command covers itself; otherwise the later
+    run may not add a filter the earlier one lacked (``-k``, ``--lf``, ``-run``), and
+    every path the earlier run named must lie inside a path the later one named.
+    """
+    if not later.scope or (later.key and later.key == earlier.key):
+        return True
+    if not earlier.scope:
+        return False
+    later_paths, later_filters = _split_scope(later.scope)
+    earlier_paths, earlier_filters = _split_scope(earlier.scope)
+    if not later_filters <= earlier_filters:
+        return False
+    if not later_paths:
+        return True
+    if not earlier_paths:
+        return False
+    return all(any(_inside(path, outer) for outer in later_paths) for path in earlier_paths)
+
+
+def _split_scope(scope: tuple[str, ...]) -> tuple[set[str], set[str]]:
+    """(paths, filters). ``-k=x``, ``--lf`` and ``workspace=api`` are filters."""
+    filters = {item for item in scope if item.startswith("-") or _OPTION_LIKE.match(item)}
+    return set(scope) - filters, filters
+
+
+_OPTION_LIKE = re.compile(r"^[\w.-]+=")
+
+
+def _inside(path: str, outer: str) -> bool:
+    outer = outer.removesuffix("/...")
+    return path == outer or path.startswith((outer + "/", outer + "::", outer + "."))
+
+
+def assess_timeline(
+    verification: VerificationState, last_change_seq: dict[str, int], candidates: set[str]
+) -> Timeline:
+    """Read the runs per suite, in order; ``candidates`` are the changed files a re-run
+    would check (the gate filters out files no test reaches).
+
+    1. A suite's latest conclusive run failed → ``failing`` (the most recent such run).
+    2. The latest runs passed, but an earlier failure was never re-run by a pass that
+       covers it (the green run was narrower) → ``open_failure``/``narrower_pass``.
+    3. Otherwise a candidate changed after the latest run on record → ``stale``. Any
+       recognised run counts as "a run after the change", even one whose result could
+       not be read: could not tell is never a failure.
+    """
+    runs = [outcome for outcome in verification.outcomes if outcome.passed is not None]
+    if not runs:
+        return Timeline()
+    position = {id(outcome): index for index, outcome in enumerate(runs)}
+    suites: dict[str, list[TestOutcome]] = {}
+    for outcome in runs:
+        suites.setdefault(outcome.suite, []).append(outcome)
+
+    failing: list[TestOutcome] = []
+    open_failures: list[tuple[TestOutcome, TestOutcome]] = []
+    passes: list[TestOutcome] = []
+    for suite_runs in suites.values():
+        latest = suite_runs[-1]
+        if latest.passed is False:
+            failing.append(latest)
+            continue
+        passes.append(latest)
+        for index, run in enumerate(suite_runs):
+            if run.passed is False and not any(
+                later.passed and covers(later, run) for later in suite_runs[index + 1 :]
+            ):
+                open_failures.append((run, latest))
+
+    if failing:
+        worst = max(failing, key=lambda outcome: position[id(outcome)])
+        after = (
+            sorted(p for p in candidates if last_change_seq.get(p, 0) > worst.seq)
+            if worst.seq is not None
+            else []
+        )
+        return Timeline(failing=worst, changed_after_failure=after)
+    latest_pass = max(passes, key=lambda outcome: position[id(outcome)])
+    if open_failures:
+        failure, narrower = max(open_failures, key=lambda pair: position[id(pair[0])])
+        return Timeline(open_failure=failure, narrower_pass=narrower, latest_pass=latest_pass)
+    if any(outcome.seq is None for outcome in runs):
+        return Timeline(latest_pass=latest_pass)  # runs recorded without a position
+    seen = [outcome.seq for outcome in verification.inconclusive if outcome.seq is not None]
+    last_run = max([*(outcome.seq for outcome in passes if outcome.seq is not None), *seen])
+    stale = sorted(path for path in candidates if last_change_seq.get(path, 0) > last_run)
+    return Timeline(stale=stale, latest_pass=latest_pass)
 
 
 def affected_tests(index: RepoIndex, changed: set[str], limit: int = 20) -> list[str]:

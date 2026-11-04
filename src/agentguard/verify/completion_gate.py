@@ -134,33 +134,23 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
             ],
         )
 
-    # 2. Did the tests the agent ran actually pass?
+    # 2. What do the agent's own test runs say, read in order (G2a)? The latest run of
+    #    each suite decides; a failure it fixed is history, and a pass the agent edited
+    #    past is stale.
     verification = state.verification
-    if verification.any_failed:
-        failure = verification.latest_failure()
-        evidence = [EvidenceRef(source="runtime", note=f"{failure.runner}: {failure.summary}")]
+    rerun = {path for path in changed if _needs_rerun(path, index)}
+    timeline = runners.assess_timeline(verification, state.last_change_seq, rerun)
+    if timeline.failing is not None:
+        return _failing(timeline, observations)
+    if (timeline.open_failure is not None or timeline.stale) and state.spec.tests_waived:
         return GateVerdict(
-            GateResult.VERIFICATION_FAILED,
-            reason=(
-                f"The test run reported failures — `{failure.command}`"
-                + (f": {failure.summary}" if failure.summary else "")
-                + ". The task is not complete while its own tests are failing."
-            ),
-            evidence=evidence,
-            findings=[
-                _finding(
-                    FailureMode.FALSE_COMPLETION,
-                    Severity.HIGH,
-                    subject="failing-tests-on-completion",
-                    summary=f"finished while `{failure.command}` was reporting failures",
-                    detail=failure.summary,
-                    evidence=evidence,
-                ),
-                *observations,
-            ],
+            GateResult.PASS, "the request explicitly waived running tests", findings=observations
         )
-
-    if verification.all_passed:
+    if timeline.open_failure is not None:
+        return _narrower(timeline, observations)
+    if timeline.stale:
+        return _stale(timeline, observations)
+    if timeline.latest_pass is not None:
         return GateVerdict(GateResult.PASS, "tests ran and passed", findings=observations)
 
     # 3. Nothing was run. Only a problem if there was something to run *and* the
@@ -211,6 +201,107 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
             *observations,
         ],
     )
+
+
+# -- the timeline's verdicts (G2a) ---------------------------------------------------
+
+
+def _failing(timeline: runners.Timeline, observations: list[Finding]) -> GateVerdict:
+    failure = timeline.failing
+    evidence = [EvidenceRef(source="runtime", note=f"{failure.runner}: {failure.summary}")]
+    after = timeline.changed_after_failure
+    reason = (
+        f"The test run reported failures — `{failure.command}`"
+        + (f": {failure.summary}" if failure.summary else "")
+        + ". The task is not complete while its own tests are failing."
+    )
+    if after:
+        reason += (
+            f" {_listing(after)} changed after that run; re-run `{failure.command}` "
+            "to show whether the change fixed it."
+        )
+    return GateVerdict(
+        GateResult.VERIFICATION_FAILED,
+        reason=reason,
+        evidence=evidence,
+        findings=[
+            _finding(
+                FailureMode.FALSE_COMPLETION,
+                Severity.HIGH,
+                subject="failing-tests-on-completion",
+                summary=f"finished while `{failure.command}` was reporting failures",
+                detail=failure.summary,
+                evidence=evidence,
+            ),
+            *observations,
+        ],
+    )
+
+
+def _narrower(timeline: runners.Timeline, observations: list[Finding]) -> GateVerdict:
+    failure, green = timeline.open_failure, timeline.narrower_pass
+    evidence = [
+        EvidenceRef(source="runtime", note=f"failed: {failure.command}"),
+        EvidenceRef(source="runtime", note=f"passed: {green.command}"),
+    ]
+    return GateVerdict(
+        GateResult.INCOMPLETE,
+        reason=(
+            f"Re-run `{failure.command}`: it reported failures"
+            + (f" ({failure.summary})" if failure.summary else "")
+            + f", and the latest green run, `{green.command}`, was narrower, so it does not show "
+            "that those failures are fixed. Run it before finishing and report what it said."
+        ),
+        evidence=evidence,
+        findings=[
+            _finding(
+                FailureMode.UNVERIFIED_CHANGE,
+                Severity.MEDIUM,
+                subject="narrower-verification",
+                summary=f"`{failure.command}` failed and was never re-run; only `{green.command}` passed",
+                detail=failure.summary,
+                evidence=evidence,
+            ),
+            *observations,
+        ],
+    )
+
+
+def _stale(timeline: runners.Timeline, observations: list[Finding]) -> GateVerdict:
+    green, stale = timeline.latest_pass, timeline.stale
+    evidence = [EvidenceRef(source="filesystem", path=path) for path in stale[:5]]
+    return GateVerdict(
+        GateResult.INCOMPLETE,
+        reason=(
+            f"{_listing(stale)} changed after the last passing test run (`{green.command}`), so "
+            f"that run does not cover the final code. Re-run `{green.command}` before finishing "
+            "and report what it said."
+        ),
+        evidence=evidence,
+        findings=[
+            _finding(
+                FailureMode.UNVERIFIED_CHANGE,
+                Severity.MEDIUM,
+                subject="stale-verification",
+                summary=f"{len(stale)} file(s) changed after the last passing test run",
+                detail=", ".join(stale[:6]) + ("…" if len(stale) > 6 else ""),
+                evidence=evidence,
+            ),
+            *observations,
+        ],
+    )
+
+
+def _listing(paths: list[str]) -> str:
+    shown = ", ".join(paths[:4]) + (f" and {len(paths) - 4} more" if len(paths) > 4 else "")
+    return f"{len(paths)} file(s) ({shown})" if len(paths) > 1 else shown
+
+
+def _needs_rerun(path: str, index: RepoIndex) -> bool:
+    """A change a test run would check: a test itself, or code some test reaches. A new
+    module nothing tests is not made "stale" by an earlier run; re-running would not
+    check it either."""
+    return _looks_like_test(path, index) or _has_any_coverage(path, index)
 
 
 # -- §3.15 "write insufficient tests" ---------------------------------------------

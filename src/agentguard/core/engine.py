@@ -443,8 +443,13 @@ class Guard:
         outcome = runners.outcome_from_result(command, event.result)
         if outcome is None:
             return
+        # Its place on the task's timeline (G2a): the latest run decides, and a change
+        # made after it leaves it stale.
+        outcome.seq = state.next_seq()
         state.verification.commands_seen.append(command.strip()[:200])
-        if outcome.passed is not None:
+        if outcome.passed is None:
+            state.verification.inconclusive.append(outcome)
+        else:
             state.verification.outcomes.append(outcome)
             ws.store.finish_verification(
                 ws.store.start_verification(state.task_id, outcome.runner),
