@@ -18,6 +18,7 @@ produce more data from a broken instrument.
 
 from __future__ import annotations
 
+import dataclasses
 import difflib
 import json
 import os
@@ -119,6 +120,7 @@ class Runner:
     log: Callable[[str], None] = print
     contexts: dict[str, guards.ArmContext] = field(default_factory=dict)
     consecutive_voids: int = 0
+    allow_partial: bool = False  # start even if the allowance cannot finish the plan
 
     @property
     def cells_path(self) -> Path:
@@ -222,6 +224,7 @@ class Runner:
             return {"pairs_run": 0, "stopped": "nothing to do"}
         self.setup_arms()
         try:
+            self._check_allowance(2 * (len(queue) if max_pairs is None else min(max_pairs, len(queue))))
             self.manipulation_checks()
             while queue and (max_pairs is None or done_pairs < max_pairs):
                 pair, order = queue[0]
@@ -281,6 +284,17 @@ class Runner:
         summary = {"pairs_run": done_pairs, "stopped": stopped, "remaining": len(queue)}
         (self.run_dir / "last-session.json").write_text(json.dumps(summary, indent=2))
         return summary
+
+    def _check_allowance(self, cells: int) -> None:
+        """Refuse to start a study the plan's weekly allowance cannot finish."""
+        if self.limits_reader is None:
+            return
+        verdict = limits.feasibility(self.limits_reader(), cells, self.plan.budget_policy())
+        self.log(f"allowance: {verdict.reason}")
+        record = {"ts": time.time(), "cells": cells, **dataclasses.asdict(verdict)}
+        (self.run_dir / "allowance.json").write_text(json.dumps(record, indent=2))
+        if not verdict.ok and not self.allow_partial:
+            raise Halt(f"refusing to start: {verdict.reason}. Pass --allow-partial to run what fits.")
 
     def _budget(self) -> limits.BudgetDecision:
         if self.limits_reader is None:

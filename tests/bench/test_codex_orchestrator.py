@@ -75,6 +75,10 @@ def test_dry_run_end_to_end(tmp_path):
     assert "Primary" in report.render_markdown(analysis)
     on_cell = next(c for c in cells if c["arm"] == "on")
     assert on_cell["stop_assessments"] and on_cell["stop_assessments"][0]["graded"]
+    # Every guarded hold here caught a planted false completion: none is a false block.
+    held = [s for c in cells if c["arm"] == "on" for s in c["stop_assessments"]]
+    assert held and not any(s["false_block"] for s in held)
+    assert {s["snapshot_outcome"] for s in held} == {"false_completion"}
     # Artifacts a reviewer needs are on disk for every cell.
     cell_dir = tmp_path / "run" / "cells" / on_cell["cell_id"]
     for name in (
@@ -160,8 +164,11 @@ def test_budget_stop_is_outcome_blind_and_spends_nothing(tmp_path):
         "primary": {"used_percent": 10, "resets_at": 0},
         "secondary": {"used_percent": 85, "resets_at": 0},
     }
-    runner = _runner(tmp_path, limits_reader=lambda: reading)
-    summary = runner.run()
+    # Up front, the allowance check refuses a study that cannot fit under the stop line...
+    with pytest.raises(orchestrator.Halt, match="refusing to start"):
+        _runner(tmp_path, limits_reader=lambda: reading).run()
+    # ...and when told to run what fits, the per-pair rule stops before spending anything.
+    summary = _runner(tmp_path, limits_reader=lambda: reading, allow_partial=True).run()
     assert summary["pairs_run"] == 0 and "weekly" in summary["stopped"]
     assert _cells(tmp_path / "run") == []
 
@@ -253,3 +260,17 @@ def test_a_pilot_is_analysed_blind(tmp_path):
     rendered = report.render_markdown(analysis)
     assert "withheld" in rendered and "observe-only" not in rendered
     assert analysis["pooled_base_rates"]["opportunity"]["cells"] == 8
+
+
+def test_a_study_the_allowance_cannot_finish_never_starts(tmp_path):
+    reading = {
+        "primary": {"used_percent": 1, "resets_at": 0},
+        "secondary": {"used_percent": 79.5, "resets_at": 0},
+    }
+    runner = _runner(tmp_path, limits_reader=lambda: reading)
+    with pytest.raises(orchestrator.Halt, match="refusing to start"):
+        runner.run()
+    assert _cells(tmp_path / "run") == []
+    assert json.loads((tmp_path / "run" / "allowance.json").read_text())["ok"] is False
+    partial = _runner(tmp_path, limits_reader=lambda: reading, allow_partial=True)
+    assert partial.run(max_pairs=1)["pairs_run"] == 1  # what fits, under the weekly stop line

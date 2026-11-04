@@ -68,6 +68,46 @@ class BudgetPolicy:
     pause_primary_at: float = 90.0  # percent of the 5-hour window: wait for its reset
     max_wait_s: int = 6 * 3600  # a longer wait ends the session; resume later
     reset_slack_s: int = 90
+    # Expected weekly-window percent per cell, for refusing a study the allowance cannot
+    # finish. Conservative until the pilot measures it (two smoke cells moved the weekly
+    # reading by less than its 1% resolution; ~0.06-0.09 credits each).
+    weekly_percent_per_cell: float | None = 0.1
+
+
+@dataclass(frozen=True, slots=True)
+class Feasibility:
+    ok: bool
+    projected_percent: float | None
+    headroom_percent: float | None
+    reason: str
+
+
+def feasibility(reading: dict | None, remaining_cells: int, policy: BudgetPolicy) -> Feasibility:
+    """Can the current weekly window finish the remaining cells before the stop line?
+
+    Outcome-blind: usage readings and a pre-registered per-cell estimate only. The
+    projection ignores a reset that may happen mid-run, so it errs toward refusing.
+    """
+    if not reading or not isinstance(reading.get("secondary"), dict):
+        return Feasibility(False, None, None, "the plan's usage windows could not be read")
+    if reading.get("limit_reached") or reading.get("ordinary_usage_allowed") is False:
+        return Feasibility(False, None, 0.0, "a usage limit is in force right now")
+    used = reading["secondary"].get("used_percent")
+    if not isinstance(used, (int, float)):
+        return Feasibility(False, None, None, "the weekly window reported no usage figure")
+    headroom = policy.stop_weekly_at - float(used)
+    per_cell = policy.weekly_percent_per_cell
+    if per_cell is None:
+        return Feasibility(headroom > 0, None, headroom, "no per-cell estimate; only the stop line applies")
+    projected = remaining_cells * per_cell
+    verdict = "fits" if projected <= headroom else "does NOT fit"
+    return Feasibility(
+        projected <= headroom,
+        projected,
+        headroom,
+        f"{remaining_cells} cells x {per_cell:g}% = {projected:.1f}% of the week {verdict} in the "
+        f"{headroom:.1f}% left before the {policy.stop_weekly_at:g}% stop line (weekly window at {used:g}%)",
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -21,6 +21,7 @@ from agentguard.bench.codex import (
     appserver,
     guards,
     homes,
+    limits,
     orchestrator,
     report,
     scripted,
@@ -30,7 +31,7 @@ from agentguard.bench.codex.plan import Plan
 
 DEFAULT_CODEX = shutil.which("codex") or str(Path.home() / ".local" / "bin" / "codex")
 DEFAULT_UV = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
-RESULTS = suite.SUITE_ROOT / "results"
+RESULTS = suite.BENCH_ROOT / "results"
 
 
 # -- model-free commands ----------------------------------------------------------
@@ -177,6 +178,7 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
             return None
 
     runner.limits_reader = read_limits
+    runner.allow_partial = bool(getattr(args, "allow_partial", False))
     return runner
 
 
@@ -278,6 +280,74 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def read_allowance(codex_bin: str) -> dict | None:
+    """The plan's usage windows, read through a throwaway, isolated CODEX_HOME.
+
+    ``account/rateLimits/read`` on ``codex app-server``: no prompt, no model call. The
+    home holds only a symlink to the user's login, which is never opened here.
+    """
+    root = homes.private_dir(
+        homes.default_work_root("allowance") / homes.neutral_name(os.getpid(), time.time())
+    )
+    home = homes.private_dir(root / "c")
+    try:
+        homes.link_auth(home)
+        env = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(root),
+            "CODEX_HOME": str(home),
+            "USER": os.environ.get("USER", "dev"),
+            "LANG": "en_US.UTF-8",
+        }
+        with appserver.AppServer(codex_bin, env) as server:
+            return appserver.plan_type_and_windows(server.rate_limits())
+    except (appserver.AppServerError, homes.IsolationError) as exc:
+        print(f"could not read usage windows: {exc}")
+        return None
+    finally:
+        homes.unlink_auth(home)
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def _cmd_allowance(args: argparse.Namespace) -> int:
+    reading = read_allowance(args.codex)
+    if reading is None:
+        return 2
+
+    def show(window: dict | None, label: str) -> str:
+        if not window:
+            return f"{label}: unavailable"
+        resets = window.get("resets_at")
+        when = time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(resets)) if isinstance(resets, int) else "?"
+        return f"{label}: {window.get('used_percent')}% used, resets {when}"
+
+    print(
+        f"plan: {reading.get('plan_type')}; limit reached: {reading.get('limit_reached')}; "
+        f"ordinary usage allowed: {reading.get('ordinary_usage_allowed')}"
+    )
+    print(show(reading.get("primary"), "5-hour window"))
+    print(show(reading.get("secondary"), "weekly window"))
+    status = 0
+    if args.plan:
+        plan = Plan.load(Path(args.plan))
+        run_dir = Path(args.run_dir) if args.run_dir else RESULTS / plan.name
+        states = orchestrator.pair_states(
+            orchestrator.load_records(run_dir / "cells.jsonl"), plan.max_attempts
+        )
+        remaining = sum(
+            1
+            for p in plan.pairs()
+            if not states.get(p.id, orchestrator.PairState()).complete
+            and not states.get(p.id, orchestrator.PairState()).excluded
+        )
+        verdict = limits.feasibility(reading, 2 * remaining, plan.budget_policy())
+        print(f"plan {plan.name}: {verdict.reason}")
+        status = 0 if verdict.ok else 1
+    if args.json:
+        print(json.dumps(reading, indent=2))
+    return status
+
+
 def _cmd_analyze(args: argparse.Namespace) -> int:
     run_dir = Path(args.run_dir)
     analysis = report.analyze(run_dir)
@@ -350,6 +420,11 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--max-pairs", type=int, default=None if name == "run" else 1)
         p.add_argument("--confirm-live", action="store_true")
         p.add_argument(
+            "--allow-partial",
+            action="store_true",
+            help="Start even if the weekly allowance cannot finish the plan (stops at the weekly line).",
+        )
+        p.add_argument(
             "--max-agent-runs",
             type=int,
             default=None if name == "run" else 2,
@@ -368,6 +443,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", action="store_true")
     p.add_argument("--quiet", action="store_true")
     p.set_defaults(func=_cmd_dry_run)
+
+    p = sub.add_parser("allowance", help="Read the ChatGPT plan's Codex usage windows (no model call).")
+    p.add_argument("--codex", default=DEFAULT_CODEX)
+    p.add_argument("--plan", help="Also check whether this plan's remaining cells fit the weekly window.")
+    p.add_argument("--run-dir")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_allowance)
 
     p = sub.add_parser("analyze", help="Pre-registered analysis of a run directory.")
     p.add_argument("--run-dir", required=True)

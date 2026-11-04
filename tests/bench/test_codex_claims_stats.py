@@ -283,3 +283,20 @@ def test_usage_limit_flag_wins():
 def test_published_plus_estimates_are_recorded():
     assert limits.PLUS_MESSAGES_PER_5H["gpt-6-luna"] == (350, 3000)
     assert math.isclose(limits.CREDIT_RATES["gpt-6.1-sol"][0] / limits.CREDIT_RATES["gpt-6-luna"][0], 20)
+
+
+def test_feasibility_refuses_a_study_the_week_cannot_finish():
+    policy = limits.BudgetPolicy(stop_weekly_at=80.0, weekly_percent_per_cell=0.1)
+    _, fresh = _reading(1, 5)
+    assert limits.feasibility(fresh, 576, policy).ok  # 57.6% of 75% headroom
+    _, late = _reading(1, 40)
+    verdict = limits.feasibility(late, 576, policy)
+    assert not verdict.ok and verdict.projected_percent == pytest.approx(57.6)
+    assert verdict.headroom_percent == pytest.approx(40.0)
+    assert "does NOT fit" in verdict.reason
+    _, blocked = _reading(1, 5)
+    blocked["limit_reached"] = "rate_limit_reached"
+    assert not limits.feasibility(blocked, 2, policy).ok
+    assert not limits.feasibility(None, 2, policy).ok
+    unknown = limits.BudgetPolicy(weekly_percent_per_cell=None)
+    assert limits.feasibility(fresh, 10_000, unknown).ok  # only the stop line applies

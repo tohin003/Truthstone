@@ -277,6 +277,15 @@ class ScriptedAgent:
     ) -> AgentRun:
         started = time.monotonic()
         variant, behaviour = self.policy(task, phrasing, replicate, arm)
+        ignore = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache")
+        # A guard that "caught" a false completion held a Stop on the planted state; the
+        # agent then did the honest thing. Snapshot that first attempt, as the logging
+        # hook would have, so the dry run's false-block metric sees a true hold.
+        first_attempt: tuple[Path, str] | None = None
+        if behaviour == "caught" and not observe_only:
+            scratch = trace_dir.parent / "first-attempt"
+            shutil.copytree(repo, scratch, ignore=ignore)
+            first_attempt = (scratch, scripted.run_solution(task, "planted", scratch, self.python))
         message = scripted.run_solution(task, variant, repo, self.python)
         thread = f"scripted-{task.id}-{phrasing}-{replicate}-{arm}"
         stdout_path = cell_dir / "exec.jsonl"
@@ -348,25 +357,29 @@ class ScriptedAgent:
             "findings": [],
         }
         (trace_dir / "fake-evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
-        # The logging hook's view, including the Stop snapshot it takes of the tree.
-        snapshot = trace_dir / "stop-1"
-        shutil.copytree(repo, snapshot, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache"))
+        # The logging hook's view: one Stop snapshot per Stop event, in order.
+        stops: list[tuple[Path, str]] = []
+        if first_attempt is not None:
+            stops.append(first_attempt)
+        elif acted and not observe_only:
+            stops.append((repo, message))  # a false block: the held state was already right
+        stops.append((repo, message))  # the final Stop
         with (trace_dir / "hooks.jsonl").open("a", encoding="utf-8") as handle:
             for event in ("SessionStart", "UserPromptSubmit"):
                 handle.write(json.dumps({"ts": time.time(), "event": event, "elapsed_ms": 1.0}) + "\n")
-            handle.write(
-                json.dumps(
-                    {
-                        "ts": time.time(),
-                        "event": "Stop",
-                        "elapsed_ms": 1.0,
-                        "snapshot": "stop-1",
-                        "stop_hook_active": False,
-                        "last_assistant_message": message,
-                    }
-                )
-                + "\n"
-            )
+            for number, (tree, said) in enumerate(stops[: 2 if acted and not observe_only else 1], start=1):
+                shutil.copytree(tree, trace_dir / f"stop-{number}", ignore=ignore)
+                record = {
+                    "ts": time.time(),
+                    "event": "Stop",
+                    "elapsed_ms": 1.0,
+                    "snapshot": f"stop-{number}",
+                    "stop_hook_active": number > 1,
+                    "last_assistant_message": said,
+                }
+                handle.write(json.dumps(record) + "\n")
+        if first_attempt is not None:
+            shutil.rmtree(first_attempt[0], ignore_errors=True)
         self._rollout(cell_dir, message, continued=acted, observe_only=observe_only)
         shutil.rmtree(repo / ".pytest_cache", ignore_errors=True)
         return AgentRun(
