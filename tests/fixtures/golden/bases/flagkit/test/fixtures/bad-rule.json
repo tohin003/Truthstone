@@ -1,0 +1,8 @@
+{
+  "flags": {
+    "beta-banner": {
+      "enabled": true,
+      "rules": [{ "type": "weekday", "values": ["MO"] }]
+    }
+  }
+}
