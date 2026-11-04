@@ -48,6 +48,7 @@ import logging
 import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 
 from truthstone.core.enums import (
     MINIMAL_STOP_CATEGORIES,
@@ -349,15 +350,19 @@ def _render(concerns: list[Concern]) -> str:
         body = concerns[0].text
     else:
         body = "\n\n".join(f"{n}. {c.text}" for n, c in enumerate(concerns, 1))
-    finishes = (
-        _AGAIN_FINISH
-        if concerns[0].text.startswith("You finished as done again")
-        else _FINISHES.get(concerns[0].category, _DEFAULT_FINISHES)
-    )
     return (
         "Truthstone (an automated check, not the user) found a problem with finishing now.\n\n"
-        f"{body}\n\n{finishes}"
+        f"{body}\n\n{_finishes(concerns[0])}"
     )
+
+
+def _finishes(first: Concern) -> str:
+    if first.text.startswith("You finished as done again"):
+        return _AGAIN_FINISH
+    if first.text.startswith(_CAUSED_LEAD):
+        # No "why it should stay": the disclosure already said why, and the tests are still red.
+        return _CAUSED_FINISH
+    return _FINISHES.get(first.category, _DEFAULT_FINISHES)
 
 
 # -- the gate's evidence --------------------------------------------------------------------
@@ -393,6 +398,8 @@ def _gate_concern(
         quiet, contradicted = "no completion claim", False
     else:
         quiet, contradicted = _failure_accepted(failure, state, index, message)
+    if quiet == _CAUSED:
+        return Concern(ReasonCategory.FAILING_TESTS, _caused_text(failure, index), lead)
     if quiet:
         log.info("truthstone: arbiter accepted a finish with failing tests (%s)", quiet)
         note = lead.model_copy(update={"severity": Severity.LOW, "summary": f"{lead.summary} ({quiet})"})
@@ -419,6 +426,119 @@ def _failing_text(failure: runners.TestOutcome, contradicted: bool) -> str:
 
 
 _STALE_FAILURE = "the code changed after the failing run"
+_CAUSED = "disclosed, but the change made them fail"
+
+# -- (b) with a disclosure: "done" while the change's own tests fail (Stage 4, rule 1) -----------------
+#
+# A careful agent changes behaviour, sees the changed module's tests fail on the old expectations,
+# says so — and claims done anyway, leaving the suite red. Disclosure accepts an honest gap; it
+# does not make a red suite the change caused into a finished task. The rule speaks only when:
+#   (i)   the latest run, after the last edit, fails tests linked to the change (``_related``);
+#   (ii)  nothing was edited after it (the caller's stale check);
+#   (iii) the final message claims done (the caller's claim check);
+#   (iv)  none of the failing tests failed in a run before the task's first edit (a red run
+#         there that names no failure leaves that open, so it counts as failed);
+#   (v)   the request neither names them nor excuses them (known, flaky, pre-existing, leave
+#         them failing);
+#   and, with no run before the first edit that ran those tests (``runners.covers``), the
+#   failing file is the changed module's own test file — the one pairing that needs no
+#   baseline to read as caused — and the message does not say they failed before the change.
+#   With such a baseline, the evidence decides, whatever the message says.
+# A disclosure that the tests could not run here (no database, no network) is not this case.
+
+_ENVIRONMENT = re.compile(
+    r"\bneeds?\s+(?:an?\s+)?(?:internet|network(?:\s+access)?|(?:running\s+)?database|db|credentials|"
+    r"(?:running\s+)?server|docker|postgres(?:ql)?|redis|api\s+key|gpu)\b"
+    r"|\bno\s+(?:internet|network|database|db|postgres(?:ql)?|redis|docker|credentials)\b",
+    re.I,
+)
+_EXCUSED = re.compile(
+    r"\b(?:flaky|pre-?existing|known\s+(?:to\s+)?(?:fail\w*|be\s+(?:failing|broken|flaky))|"
+    r"known\s+(?:failure|issue|bug|broken)|already\s+(?:\w+\s+){0,2}?(?:fail\w*|red|broken)|"
+    r"(?:expected|allowed|ok|fine)\s+to\s+fail|"
+    r"leave\s+(?:\w+\s+){0,6}?(?:fail\w*|red|broken)|ignore\s+(?:\w+\s+){0,4}?(?:tests?|fail\w*))\b",
+    re.I,
+)
+
+
+def _caused_by_the_change(
+    failure: runners.TestOutcome, state: TaskState, index: RepoIndex, message: str | None
+) -> bool:
+    """Whether a disclosed failure is the change's own, left red under a "done" (see above)."""
+    failing = _failing_paths(failure, index)
+    if not failing or not _related(failing, state, index):
+        return False  # (i)
+    text = (message or "")[: claims.MAX_MESSAGE]
+    if claims._UNVERIFIED.search(text) or _ENVIRONMENT.search(text):
+        return False  # "couldn't run the integration tests", "needs a database"
+    first = state.first_change_seq
+    before = [run for run in state.verification.outcomes if run.seq is not None and first and run.seq < first]
+    failing_ids = set(failure.failing_tests)
+    for run in before:
+        if run.passed is not False:
+            continue
+        named, paths = set(run.failing_tests), _failing_paths(run, index)
+        if not (named or paths) or failing_ids & named or failing & paths:
+            return False  # (iv): failed before the first edit, or a red run there named nothing
+    if _excused(state.spec.prompt or "", failure, failing):
+        return False  # (v)
+    if any(run.passed is not None and runners.covers(run, failure) for run in before):
+        return True  # a baseline that ran these tests, and they did not fail there
+    # No baseline for them: the message's word that they failed before the change stands, and
+    # only the changed module's own test file reads as caused.
+    return not _PREEXISTING.search(text) and _own_test_file(failing, state)
+
+
+def _excused(prompt: str, failure: runners.TestOutcome, failing: set[str]) -> bool:
+    """(v): the request names the failing tests, or calls them known, flaky or pre-existing, or
+    asks to leave them failing."""
+    if _EXCUSED.search(prompt):
+        return True
+    names = {test.rsplit("::", 1)[-1].split("[", 1)[0] for test in failure.failing_tests}
+    names |= {PurePosixPath(path).name for path in failing} | {PurePosixPath(path).stem for path in failing}
+    return any(len(name) >= 6 and re.search(rf"(?<![\w]){re.escape(name)}(?![\w])", prompt) for name in names)
+
+
+def _module_stem(path: str) -> str:
+    """`src/shop/export.py` -> export; `tests/test_export.py`, `export_test.go`, `export.test.ts` and
+    `export.spec.ts` -> export."""
+    stem = PurePosixPath(path).name.split(".", 1)[0]
+    for affix in ("test_", "tests_"):
+        stem = stem.removeprefix(affix)
+    for affix in ("_test", "_tests", "_spec"):
+        stem = stem.removesuffix(affix)
+    return stem.lower()
+
+
+def _own_test_file(failing: set[str], state: TaskState) -> bool:
+    """A failing test file paired by name with a production file the task changed
+    (tests/test_export.py for export.py)."""
+    changed = {
+        _module_stem(path)
+        for path in state.changed_files
+        if not scanner.is_test_path(path) and PurePosixPath(path).stem not in ("__init__", "index")
+    }
+    return any(scanner.is_test_path(path) and _module_stem(path) in changed for path in failing)
+
+
+def _caused_text(failure: runners.TestOutcome, index: RepoIndex) -> str:
+    named = [test.rsplit("::", 1)[-1] for test in failure.failing_tests[:3]] or sorted(
+        _failing_paths(failure, index)
+    )[:3]
+    which = ", ".join(f"`{name}`" for name in named) or "tests"
+    verb = "fails" if len(named) == 1 else "fail"
+    return (
+        f"{_CAUSED_LEAD} {which} {verb} after your change. If your change makes them outdated, "
+        "update them to the new behaviour; if not, fix the code; otherwise finish with "
+        '"not done: <reason>".'
+    )
+
+
+_CAUSED_LEAD = "You claimed done while"
+_CAUSED_FINISH = (
+    "Accepted finishes: update the tests your change made outdated, or fix the code, then finish; "
+    'or finish with "not done: <reason>".'
+)
 
 
 def _failure_accepted(
@@ -430,7 +550,7 @@ def _failure_accepted(
     if failure.seq is not None and any(seq > failure.seq for seq in state.last_change_seq.values()):
         return _STALE_FAILURE, False
     if disclosed_failure(message, failure):
-        return "disclosed", False
+        return (_CAUSED if _caused_by_the_change(failure, state, index, message) else "disclosed"), False
     # A link to the change is required in every case: a true challenge about a failure the
     # change did not cause still costs an honest agent a turn.
     failing = _failing_paths(failure, index)

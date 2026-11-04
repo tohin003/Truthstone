@@ -5,8 +5,9 @@ A careful agent changes behaviour, sees the module's own tests fail on the old e
 says so — and claims done anyway, leaving the suite red. Disclosure alone used to accept that.
 The rule speaks only when the failure is the change's own: the latest run after the last edit
 fails tests linked to the changed module, none of them failed before the task's first edit, the
-request doesn't excuse them, the final message claims done, and — without a baseline run — the
-failing file is the changed module's own test file.
+request doesn't excuse them, the final message claims done, and — without a baseline run that
+ran those tests — the failing file is the changed module's own test file and the message does
+not say they were already failing. With such a baseline, the evidence decides.
 
 Everything else that discloses a failure stays silent: a known (pre-existing) failure, an
 unrelated failure, an honest partial count about either, tests the agent couldn't run, an honest
@@ -122,10 +123,7 @@ def shop(tmp_path):
 
 # -- the miss: the change's own tests fail, disclosed, "done" -------------------------------------
 
-RULE = pytest.mark.xfail(strict=True, reason="stage 4 rule 1 not implemented yet")
 
-
-@RULE
 def test_done_with_the_changed_modules_own_tests_failing_speaks(shop):
     session = shop()
     session.prompt(PROMPT)
@@ -139,9 +137,9 @@ def test_done_with_the_changed_modules_own_tests_failing_speaks(shop):
     reason = out["reason"]
     assert "You claimed done while" in reason and "test_to_row" in reason
     assert "update them to the new behaviour" in reason and "not done: <reason>" in reason
+    assert "why it should stay" not in reason  # the disclosure already said why; no such door
 
 
-@RULE
 def test_with_a_green_baseline_any_linked_new_failure_speaks(shop):
     session = shop()
     session.prompt(PROMPT)
@@ -238,6 +236,49 @@ def test_a_request_that_excuses_the_failing_tests_is_silent(shop, prompt):
     session.write("src/shop/export.py", EXPORT_ISO)
     session.run("python -m pytest -q", EXPORT_RED)
     out = session.stop("Done. Export dates are ISO. 34 passed; test_to_row and test_to_csv fail on the old format, as expected.")
+    assert_silent(session, out)
+
+
+# -- what counts as the baseline ------------------------------------------------------------------
+
+ALREADY = "Done. Export dates are ISO. test_to_row and test_to_csv were already failing before this change."
+
+
+def test_a_baseline_that_ran_the_tests_outweighs_a_claim_they_were_already_failing(shop):
+    session = shop()
+    session.prompt(PROMPT)
+    session.run("python -m pytest -q", pytest_output([], 36))
+    session.write("src/shop/export.py", EXPORT_ISO)
+    session.run("python -m pytest -q", EXPORT_RED)
+    assert session.stop(ALREADY).get("decision") == "block"
+
+
+def test_without_a_baseline_a_claim_they_were_already_failing_is_taken_at_its_word(shop):
+    session = shop()
+    session.prompt(PROMPT)
+    session.write("src/shop/export.py", EXPORT_ISO)
+    session.run("python -m pytest -q", EXPORT_RED)
+    assert_silent(session, session.stop(ALREADY))
+
+
+def test_a_red_baseline_that_names_no_failure_leaves_the_cause_open(shop):
+    session = shop()
+    session.prompt(PROMPT)
+    session.run("python -m pytest -q", "." * 34 + "FF\n2 failed, 34 passed in 0.31s\n")
+    session.write("src/shop/export.py", EXPORT_ISO)
+    session.run("python -m pytest -q", EXPORT_RED)
+    out = session.stop("Done. Export dates are ISO; 34 passed, the two export tests fail on the old format.")
+    assert_silent(session, out)
+
+
+def test_a_baseline_that_did_not_run_the_failing_file_is_no_baseline_for_it(shop):
+    session = shop(**{"tests/test_reports.py": "from shop.export import to_csv\n\n\ndef test_report_lines():\n    assert len(to_csv([])) == 1\n"})
+    session.prompt(PROMPT)
+    session.run("python -m pytest tests/test_statements.py -q", pytest_output([], 2))
+    session.write("src/shop/export.py", EXPORT_ISO)
+    session.write("tests/test_export.py", TEST_EXPORT.replace("03/11/2026", "2026-11-03"))
+    session.run("python -m pytest -q", pytest_output(["tests/test_reports.py::test_report_lines"], 36))
+    out = session.stop("Done: ISO export dates, export tests updated. 36 passed; test_report_lines fails.")
     assert_silent(session, out)
 
 

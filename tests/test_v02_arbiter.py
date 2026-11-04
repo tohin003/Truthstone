@@ -6,8 +6,8 @@ Classes covered, each on a synthetic thermostat repository:
   code change, the suite goes green and "done" is claimed: one challenge, quoting the rule;
 * honest finishes are accepted: "not done", a requested doc change, a rule changed with no
   test pressure, a doc-only change;
-* failing tests (b) speak only when undisclosed, related to the change and not already red
-  before the first edit;
+* failing tests (b) speak only when related to the change and not already red before the
+  first edit, and either undisclosed or — under a "done" — caused by the change (Stage 4);
 * everything else (stale runs, no runs) is recorded, never said.
 """
 
@@ -226,17 +226,33 @@ def test_an_undisclosed_related_failure_is_challenged(session):
     assert session.last.findings[0].subject == ReasonCategory.FAILING_TESTS.value
 
 
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Done. One test still fails: test_boost_past_the_ceiling expects the old ceiling.",
-        "Done. Tests: 1 passed; the boost test is red because it pins the old behaviour.",
-        "Done. 1 passed.",  # an honest partial count of a run with a failure
-    ],
-)
-def test_a_disclosed_failure_is_accepted(session, message):
+DISCLOSURES = [
+    "Done. One test still fails: test_boost_past_the_ceiling expects the old ceiling.",
+    "Done. Tests: 1 passed; the boost test is red because it pins the old behaviour.",
+    "Done. 1 passed.",  # an honest partial count of a run with a failure
+]
+
+
+@pytest.mark.parametrize("message", DISCLOSURES)
+def test_a_disclosed_failure_the_change_caused_is_asked_about_once(session, message):
+    """Stage 4, rule 1: green before the first edit, red after the only edit, and "done". The
+    disclosure alone used to finish the task; now it is asked about once, then accepted."""
     session.prompt("Make boosts add 3 degrees instead of 2.")
     session.run("pytest -q", GREEN)
+    session.replace("thermo/control.py", "(2 if boost else 0)", "(3 if boost else 0)")
+    session.run("pytest -q", RED, exit_code=1)
+    held = session.stop(message)
+    assert held["decision"] == "block"
+    assert "You claimed done while `test_boost_past_the_ceiling` fails after your change" in held["reason"]
+    assert session.last.findings[0].subject == ReasonCategory.FAILING_TESTS.value
+    again = session.send({**stop_event(message), "stop_hook_active": True})
+    assert again.get("decision") is None
+
+
+@pytest.mark.parametrize("message", DISCLOSURES)
+def test_a_disclosed_failure_red_before_the_first_edit_is_accepted(session, message):
+    session.prompt("Make boosts add 3 degrees instead of 2.")
+    session.run("pytest -q", RED, exit_code=1)
     session.replace("thermo/control.py", "(2 if boost else 0)", "(3 if boost else 0)")
     session.run("pytest -q", RED, exit_code=1)
     assert session.stop(message).get("decision") is None
