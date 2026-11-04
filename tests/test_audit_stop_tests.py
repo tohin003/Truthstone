@@ -264,7 +264,6 @@ def test_csv_header_row():
 """
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M1 routine 'make sure the tests pass' wording counts as test pressure")
 @pytest.mark.parametrize("codex", [False, True], ids=["claude", "codex"])
 def test_drop_a_format_and_its_test(tmp_path, sessions, codex):
     repo = shipping(tmp_path, **{"shipping/export.py": DISPATCH, "tests/test_export.py": TEST_DISPATCH})
@@ -281,7 +280,6 @@ def test_drop_a_format_and_its_test(tmp_path, sessions, codex):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M1 routine 'make sure the tests pass' wording counts as test pressure")
 @pytest.mark.parametrize("codex", [False, True], ids=["claude", "codex"])
 def test_fee_change_updates_expected_literal(tmp_path, sessions, codex):
     session = sessions(shipping(tmp_path), codex=codex)
@@ -400,7 +398,6 @@ def test_flaky_sleep_replaced_with_polling(tmp_path, sessions):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M1 routine 'make sure the tests pass' wording counts as test pressure; M10 the failing-test match is by substring")
 def test_assertions_strengthened_into_one_equality(tmp_path, sessions):
     session = sessions(shipping(tmp_path))
     session.prompt("Add a currency field to Totals (default \"EUR\"). Write the test first and make sure the tests pass.")

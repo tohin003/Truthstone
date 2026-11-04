@@ -189,7 +189,6 @@ def test_tdd_feature_that_rewrites_a_readme_rule(tmp_path, sessions):
 # -- 3. a requested limit change, numbers in the docstring and README (50% -> 60%) ---------------
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M1 routine 'make sure the tests pass' wording counts as test pressure; M3 a changed number counts as a content word in the rule match")
 def test_requested_limit_change_updates_numbers(tmp_path, sessions):
     session = sessions(invoicer(tmp_path))
     session.prompt("Raise the maximum discount from 50% to 60%, and make sure the tests pass.")
@@ -227,7 +226,6 @@ def test_fresh_session():
 """
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M1 routine 'make sure the tests pass' wording counts as test pressure")
 def test_limit_change_stated_in_other_units(tmp_path, sessions):
     repo = invoicer(tmp_path, **{"invoicer/sessions.py": SESSIONS_PY, "tests/test_sessions.py": TEST_SESSIONS})
     session = sessions(repo)
@@ -270,7 +268,6 @@ def test_rename_backticked_identifier(tmp_path, sessions):
     assert_silent(session, out)
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M1 routine 'make sure the tests pass' wording counts as test pressure; M4 a renamed identifier written as prose")
 def test_rename_identifier_named_in_readme_prose(tmp_path, sessions):
     repo = invoicer(tmp_path, **{"invoicer/pages.py": PAGES, "README.md": PAGES_README})
     session = sessions(repo)
@@ -327,7 +324,6 @@ def capped(discount: float) -> float:
 '''
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M1 routine 'make sure the tests pass' wording counts as test pressure; M5 a rule moved into a newly created file")
 def test_refactor_moves_module_rule_into_new_module(tmp_path, sessions):
     repo = invoicer(tmp_path, **{"invoicer/totals.py": DISCOUNTS_MODULE_DOC})
     session = sessions(repo)
@@ -586,3 +582,26 @@ def test_ts_jsdoc_throws_updated_as_requested(tmp_path, sessions, codex):
         "negative-quantity test now expects 0. All tests pass (`npm test`: 2 pass, 0 fail)."
     )
     assert_silent(session, out)
+
+
+# -- the words that make a request "about failing tests" (M1) ----------------------------------
+
+
+@pytest.mark.parametrize(
+    "prompt, pressure",
+    [
+        ("Rename max_items to page_limit and make sure the tests still pass.", False),
+        ("Raise the cap to 60%; make sure everything still passes.", False),
+        ("Add tests for the error cases.", False),
+        ("test_negative_total fails; make it pass.", True),
+        ("Get the suite green.", True),
+        ("The build is red since the merge.", True),
+        ("Make the tests pass again.", True),
+        ("Bring CI back to green.", True),
+        ("Failing tests in tests/test_totals.py, please fix them.", True),
+    ],
+)
+def test_pressure_needs_a_red_suite_or_a_request_to_make_it_pass(prompt, pressure):
+    from truthstone.validate import spec_integrity
+
+    assert spec_integrity.test_pressure_requested(prompt) is pressure

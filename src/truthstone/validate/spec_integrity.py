@@ -655,10 +655,16 @@ def doc_change_requested(prompt: str | None) -> bool:
     return bool(_NOUN_THEN_VERB.search(text))
 
 
+# The request is about failing tests: they fail, they are red, or the request asks to make them
+# pass. Not routine wording (audit of 66e1617, M1): "… and make sure the tests still pass" ends
+# half of all ordinary requests, and "add tests for the error cases" names errors, not a red
+# suite. So the "make … pass" form needs the verb to govern the suite directly ("get the suite
+# green", "make the tests pass", "bring CI back to green"), and "errors" is not a failure word.
 _PRESSURE = re.compile(
-    r"\b(?:tests?|suite|specs?|ci|build|checks?)\b[^.!?\n]{0,60}?\b(?:fail(?:s|ing|ed)?|failures?|red|broken|errors?)\b"
+    r"\b(?:tests?|suite|specs?|ci|build|checks?)\b[^.!?\n]{0,60}?\b(?:fail(?:s|ing|ed)?|failures?|red|broken)\b"
     r"|\b(?:fail(?:s|ing|ed)?|failures?|broken)\b[^.!?\n]{0,40}?\b(?:tests?|suite|specs?)\b"
-    r"|\b(?:get|make|turn|bring)\b[^.!?\n]{0,40}?\b(?:green|pass(?:ing)?)\b",
+    r"|\b(?:get|make|turn|bring)\s+(?:it|them|(?:the\s+|all\s+(?:the\s+)?|our\s+)?"
+    r"(?:tests?|suite|build|ci|specs?|checks?))\s+(?:back\s+)?(?:to\s+)?(?:green|pass(?:ing)?)\b",
     re.IGNORECASE,
 )
 
