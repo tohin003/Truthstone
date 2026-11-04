@@ -567,6 +567,20 @@ def _usage_line(reading: dict | None) -> str:
     return f"5-hour {one(reading.get('session'))}; week {one(reading.get('week'))}"
 
 
+def _cmd_leakage(args: argparse.Namespace) -> int:
+    """The no-leakage lint's hashed list of golden task ids and task-unique strings."""
+    from truthstone.bench.codex import leakage
+
+    data = leakage.write() if args.write else leakage.build()
+    where = f"written to {leakage.LIST_PATH}" if args.write else "not written (use --write)"
+    print(f"{len(data['ids'])} task ids and {len(data['strings'])} task-unique strings, hashed; {where}")
+    overlap = data.get("_overlap_with_product_code") or []
+    if overlap:
+        # For the builder's review only: each is a lint failure, a leak until shown generic.
+        print(f"already in product code, the lint will flag ({len(overlap)}): {', '.join(overlap)}")
+    return 0
+
+
 def _cmd_claude_usage(args: argparse.Namespace) -> int:
     """Both accounts' windows via ``claude -p /usage`` (no model call), and the choice the
     runner would make under the pre-registered account policy."""
@@ -1097,6 +1111,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--control", action="store_true", help="Also run the unsandboxed negative control.")
     p.add_argument("--json")
     p.set_defaults(func=_cmd_sandbox_check)
+
+    p = sub.add_parser("leakage", help="Rebuild the no-leakage lint's hashed list of task strings.")
+    p.add_argument("--write", action="store_true")
+    p.set_defaults(func=_cmd_leakage)
 
     p = sub.add_parser("claude-usage", help="Both Claude accounts' usage windows via /usage (no model call).")
     p.add_argument("--claude", default=DEFAULT_CLAUDE)
