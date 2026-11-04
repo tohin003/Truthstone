@@ -62,8 +62,8 @@ def test_shim_ensure_daemon_works_under_trusted_symlinked_home(tmp_path, monkeyp
         assert shim.health_body(hs) is not None
         assert (real / "daemon.json").is_file() and (real / "daemon.start.lock").is_file()
         assert codex_hook._handshake() == hs
-        lifecycle_hs, notice = codex_hook._lifecycle()
-        assert lifecycle_hs == hs and notice == ""
+        lifecycle_hs, notice, health = codex_hook._lifecycle()
+        assert lifecycle_hs == hs and notice == "" and health["pid"] == hs["pid"]
     finally:
         _stop(hs)
 

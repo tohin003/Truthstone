@@ -81,7 +81,7 @@ class TestFailOpen:
 
 class TestUnguardedNotice:
     def test_session_start_without_a_daemon_warns_once_per_session(self, monkeypatch, capsys):
-        monkeypatch.setattr(hook, "_lifecycle", lambda: (None, hook.UNGUARDED_NOTICE))
+        monkeypatch.setattr(hook, "_lifecycle", lambda: (None, hook.UNGUARDED_NOTICE, None))
         code, out = run(monkeypatch, capsys, fixture("SessionStart"), ("session-start",))
         assert code == 0
         assert json.loads(out) == {"systemMessage": hook.UNGUARDED_NOTICE}

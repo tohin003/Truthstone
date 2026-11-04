@@ -602,10 +602,37 @@ def _doctor_daemon(report: _DoctorReport, settings: Settings) -> None:
             )
         else:
             _warn("the running daemon is OBSERVE-ONLY: findings are recorded, nothing is said")
+    for line in _degraded_lines(health):
+        _warn(line)
+
+
+def _degraded_lines(health: dict) -> list[str]:
+    """Every reason `/health` gives for guarding less than it seems (R9), with its detail.
+
+    ``degraded_detail`` (code, message and counts) when the daemon sends it; the plain
+    ``degraded`` messages of an older daemon otherwise.
+    """
+    detail = health.get("degraded_detail")
+    if isinstance(detail, list) and detail:
+        lines = []
+        for item in detail:
+            if not isinstance(item, dict) or not str(item.get("message") or "").strip():
+                continue
+            facts = [f"code={item.get('code')}"] if item.get("code") else []
+            for key, value in sorted(item.items()):
+                if key in ("code", "message"):
+                    continue
+                if key == "since" and isinstance(value, int | float):
+                    facts.append(f"since {max(0.0, time.time() - value):.0f}s ago")
+                else:
+                    facts.append(f"{key}={value}")
+            suffix = f" ({', '.join(facts)})" if facts else ""
+            lines.append(f"degraded: {str(item['message']).strip()}{suffix}")
+        return lines
     degraded = health.get("degraded")
-    if isinstance(degraded, list):
-        for reason in degraded[:5]:
-            _warn(f"degraded: {reason}")
+    if not isinstance(degraded, list):
+        return []
+    return [f"degraded: {reason}" for reason in degraded if isinstance(reason, str) and reason.strip()]
 
 
 def _read_token() -> str | None:
