@@ -27,6 +27,9 @@ import os
 import socket
 import sys
 
+# `os` and `stat` only (no pathlib): where the home is, by the rule every entry point shares.
+from agentguard.daemon import private_paths
+
 MAX_STDIN_BYTES = 1_000_000
 MAX_RESPONSE_BYTES = 256_000
 HOT_PATH_TIMEOUT_S = 4.0
@@ -56,7 +59,9 @@ STALE_DAEMON_NOTICE = (
 
 
 def _home() -> str:
-    return os.path.expanduser(os.environ.get("AGENTGUARD_HOME") or "~/.agentguard")
+    """The home the daemon uses: resolved through trusted symlinks, by the rule every
+    entry point shares (R11)."""
+    return private_paths.home()
 
 
 def _disabled() -> bool:
@@ -64,7 +69,10 @@ def _disabled() -> bool:
 
 
 def _handshake() -> dict | None:
-    path = os.path.join(_home(), "daemon.json")
+    home, trusted = private_paths.resolve_home(private_paths.configured_home())
+    if not trusted:
+        return None  # behind a link someone else could swap: not the daemon's handshake
+    path = os.path.join(home, "daemon.json")
     try:
         if os.path.islink(path):
             return None

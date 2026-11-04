@@ -22,85 +22,23 @@ from typing import Any
 
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 
+from agentguard.daemon import private_paths
+
 ENV_DISABLE = "AGENTGUARD_DISABLE"
 ENV_HOME = "AGENTGUARD_HOME"
 ENV_OBSERVE = "AGENTGUARD_OBSERVE"
 PRIVATE_DIR_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
-_TRUSTED_SYSTEM_ALIASES = {
-    Path("/tmp"): Path("/private/tmp"),
-    Path("/var"): Path("/private/var"),
-}
-# The account that owns the operating system's own layout. A module constant so tests
-# can stand in for root without being root.
-_ROOT_UID = 0
 
 
 def _trusted_system_alias(path: Path, mode: int) -> bool:
     """A symlink only the system could have placed — never a user's.
 
-    macOS's /tmp and /var aliases (by exact target), and any root-owned link inside a
-    root-owned directory nobody else can write: Fedora Silverblue's `/home -> var/home`,
-    FreeBSD's `/home -> usr/home`. Root can redirect anything anyway, so trusting root's
-    own links costs nothing, and refusing them made AgentGuard refuse to run on those
-    systems (R11).
+    macOS's /tmp and /var aliases, and any root-owned link in a root-owned directory
+    nobody else can write (Fedora Silverblue's `/home -> var/home`). One rule for every
+    entry point: ``daemon/private_paths.py`` (R11).
     """
-    target = _TRUSTED_SYSTEM_ALIASES.get(path)
-    try:
-        info = os.lstat(path)
-        if target is not None:
-            return info.st_uid == 0 and mode & 0o022 == 0 and path.resolve(strict=False) == target
-        if info.st_uid != _ROOT_UID:
-            return False
-        parent = os.stat(path.parent)
-        return parent.st_uid == _ROOT_UID and not parent.st_mode & 0o022
-    except OSError:
-        return False
-
-
-def _trusted_home_link(path: Path) -> bool:
-    """For the configured home only: a link that root or this user placed, where nobody
-    else can swap it (an owner-only directory, or a sticky one such as /tmp)."""
-    getuid = getattr(os, "getuid", None)
-    if getuid is None:  # pragma: no cover - Windows: no POSIX ownership to reason about
-        return False
-    try:
-        info = os.lstat(path)
-        if _trusted_system_alias(path, info.st_mode):
-            return True
-        parent = os.stat(path.parent)
-    except OSError:
-        return False
-    owners = (_ROOT_UID, getuid())
-    if info.st_uid not in owners or parent.st_uid not in owners:
-        return False
-    return not parent.st_mode & 0o022 or bool(parent.st_mode & stat.S_ISVTX)
-
-
-def _canonical_home(home: Path) -> Path:
-    """Resolve, then compare: a home reached through trusted symlinks becomes canonical.
-
-    A symlinked ancestor of the home — `/home -> var/home` on Silverblue, a dotfiles
-    manager's link — used to make AgentGuard refuse to run, because every private path
-    is checked for symlink components (they could redirect credentials). Resolve the
-    configured home once, here, when each link on the way is one root or this user
-    placed in a directory nobody else can change; everything downstream then uses the
-    canonical path and keeps refusing symlinks. Any other link leaves the path as it
-    was, so the private-path checks still refuse it with their usual error.
-    """
-    absolute = home if home.is_absolute() else Path.cwd() / home
-    links = []
-    current = absolute
-    while True:
-        with contextlib.suppress(OSError):
-            if stat.S_ISLNK(os.lstat(current).st_mode) and current not in _TRUSTED_SYSTEM_ALIASES:
-                links.append(current)
-        if current.parent == current:
-            break
-        current = current.parent
-    if links and all(_trusted_home_link(link) for link in links):
-        return Path(os.path.realpath(absolute))
-    return home
+    return private_paths.trusted_system_link(str(path), mode)
 
 
 def _assert_no_symlink_components(path: Path) -> None:
@@ -131,15 +69,22 @@ def _assert_no_symlink_components(path: Path) -> None:
 
 
 def agentguard_home() -> Path:
-    """``AGENTGUARD_HOME``, or ``~/.agentguard``.
+    """``AGENTGUARD_HOME``, or ``~/.agentguard``, resolved through trusted symlinks.
 
     An empty value means unset, exactly as the shim and the Codex hook read it
     (``environ.get(...) or default``): ``Path("")`` is the current directory, which put
     the token in the project, chmod-ed it 0700, and disagreed with the shim's home.
+
+    A symlinked ancestor — Silverblue's `/home -> var/home`, a dotfiles manager's link —
+    is resolved once, here, when root or this user placed it where nobody else can change
+    it; everything downstream sees the canonical path and keeps refusing symlinks. Any
+    other link leaves the path as configured, so the private-path checks refuse it. The
+    shim, the Codex hook and the lifecycle helpers apply the same rule
+    (``daemon/private_paths.py``), so every entry point finds the same home (R11).
     """
     raw = os.environ.get(ENV_HOME, "")
     home = Path(raw).expanduser() if raw else Path.home() / ".agentguard"
-    return _canonical_home(home)
+    return Path(private_paths.canonical_home(str(home)))
 
 
 def ensure_private_dir(path: Path | None = None) -> Path:

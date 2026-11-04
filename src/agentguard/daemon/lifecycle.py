@@ -15,6 +15,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 
+from agentguard.daemon import private_paths
+
 try:  # POSIX (Linux/macOS/BSD), where AgentGuard normally runs.
     import fcntl
 except ImportError:  # pragma: no cover - exercised only on Windows.
@@ -33,22 +35,13 @@ POLL_S = 0.025
 # many old files: at most about (DAEMON_LOG_BACKUPS + 1) * DAEMON_LOG_MAX_BYTES in all.
 DAEMON_LOG_MAX_BYTES = 4 * 1024 * 1024
 DAEMON_LOG_BACKUPS = 2
-_TRUSTED_SYSTEM_ALIASES = {
-    Path("/tmp"): Path("/private/tmp"),
-    Path("/var"): Path("/private/var"),
-}
 
 
 def _trusted_system_alias(path: Path, mode: int) -> bool:
-    """Allow macOS's root-owned /tmp and /var aliases, but no user symlink."""
-    target = _TRUSTED_SYSTEM_ALIASES.get(path)
-    if target is None:
-        return False
-    try:
-        info = os.lstat(path)
-        return info.st_uid == 0 and mode & 0o022 == 0 and path.resolve(strict=False) == target
-    except OSError:
-        return False
+    """A link only the system could have placed, never a user's — the same rule as
+    ``core/config.py`` (``daemon/private_paths.py``). It used to accept macOS's /tmp and
+    /var aliases only, so a lock under Silverblue's `/home -> var/home` was refused."""
+    return private_paths.trusted_system_link(str(path), mode)
 
 
 def _assert_no_symlink_components(path: Path) -> None:

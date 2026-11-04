@@ -18,8 +18,9 @@ are per-session switches, but the shared daemon cannot see this session's enviro
 so its `http` hooks would keep guarding regardless (R10). The shim can, and registers the
 mode with the daemon; the adapter applies it.
 
-Deliberately stdlib-only, with no import of `agentguard.core` or `agentguard.daemon`
-(those pull in pydantic/fastapi and would triple startup time). The handshake-reading
+Deliberately stdlib-only, with no import of `agentguard.core` or the daemon's app
+(those pull in pydantic/fastapi and would triple startup time); only the stdlib helpers
+`daemon/private_paths.py` and, lazily, `daemon/lifecycle.py`. The handshake-reading
 code below is duplicated from `daemon/app.py` for exactly that reason.
 
 Transport failures return no decision and exit 0. The one intentional exception is an
@@ -38,6 +39,9 @@ import sys
 import time
 
 from agentguard.adapters.claude_code import protocol
+
+# `os` and `stat` only: where the home is, by the rule every entry point shares.
+from agentguard.daemon import private_paths
 
 DEFAULT_TIMEOUT_S = 2.0
 DAEMON_START_TIMEOUT_S = 8.0
@@ -80,11 +84,21 @@ def _start_timeout() -> float:
 
 
 def _home() -> str:
-    return os.path.expanduser(os.environ.get("AGENTGUARD_HOME") or "~/.agentguard")
+    """The same home the daemon and the CLI use: resolved through trusted symlinks (R11).
+
+    Unresolved, a symlinked ancestor such as Silverblue's `/home -> var/home` made the
+    lifecycle helpers refuse the startup lock, so no daemon was ever started.
+    """
+    return private_paths.home()
 
 
 def _handshake() -> dict | None:
-    path = os.path.join(_home(), "daemon.json")
+    home, trusted = private_paths.resolve_home(private_paths.configured_home())
+    if not trusted:
+        # Behind a link someone else could swap: the daemon would never publish here, so
+        # whatever is there is not its handshake — and it names where the token goes.
+        return None
+    path = os.path.join(home, "daemon.json")
     try:
         if os.path.islink(path):
             return None

@@ -18,7 +18,6 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import agentguard.core.config as config
 from agentguard.cli.main import app
 from agentguard.core.config import (
     Settings,
@@ -30,6 +29,7 @@ from agentguard.core.config import (
     get_or_create_token,
 )
 from agentguard.core.store import Database
+from agentguard.daemon import private_paths
 
 
 def _write_config(home: Path, text: str) -> None:
@@ -194,7 +194,7 @@ class TestHome:
         link.symlink_to(real, target_is_directory=True)
         with pytest.raises(RuntimeError):
             ensure_private_dir(link / "alice" / ".claude")  # a user's link: refused
-        monkeypatch.setattr(config, "_ROOT_UID", os.getuid())  # stand in for root
+        monkeypatch.setattr(private_paths, "ROOT_UID", os.getuid())  # stand in for root
         assert ensure_private_dir(link / "alice" / ".claude").is_dir()
 
 
