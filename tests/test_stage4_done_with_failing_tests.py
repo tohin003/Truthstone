@@ -355,10 +355,8 @@ def test_without_a_baseline_a_failing_file_that_is_not_the_modules_own_is_silent
 
 # -- without a baseline, only the message's own admission speaks ----------------------------------
 
-S4 = pytest.mark.xfail(strict=True, reason="stage 4 misfire S4: no baseline, a failure the message never ties to the change")
 
 
-@S4
 @pytest.mark.parametrize(
     "words",
     [

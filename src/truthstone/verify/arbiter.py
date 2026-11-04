@@ -490,9 +490,44 @@ def _caused_by_the_change(
         return False  # (v)
     if any(run.passed is not None and runners.covers(run, failure) for run in before):
         return True  # a baseline that ran these tests, and they did not fail there
-    # No baseline for them: the message's word that they are not the change's stands, and only
-    # the changed module's own test file reads as caused.
-    return not _not_the_changes(text, failure) and _own_test_file(failing, state)
+    # No baseline for them: only the message's own admission that the change made them fail
+    # ("they expect the old format") speaks, never against its word that they are not the
+    # change's, and only for the changed module's own test file. Plain words for a known
+    # failure ("was red when I started", "times out here") are too many to list (audit S4).
+    return (
+        _attributed(text, failure) and not _not_the_changes(text, failure) and _own_test_file(failing, state)
+    )
+
+
+# What a message says to tie a failure to the change: the tests expect, pin or assert the old
+# behaviour, are outdated, or fail because of (after, with) the change.
+_ATTRIBUTED = re.compile(
+    r"\bexpect(?:s|ed|ing)?\s+(?:the\s+|an?\s+)?(?:old|previous|former|original|legacy|prior)\b"
+    r"|\bstill\s+(?:expect|assert|check|pin|want)\w*\b"
+    r"|\b(?:pin|assert|encode|hard-?code)(?:s|ed|ing)?\s+(?:the\s+)?(?:old|previous|former|original|legacy|prior)\b"
+    r"|\b(?:outdated|out\s+of\s+date|obsolete|stale)\b"
+    r"|\b(?:old|previous|former|legacy|prior)\s+(?:\w+\s+)?(?:format|behaviou?r|value|output|layout|default|"
+    r"api|signature|wording|expectations?|rules?|limits?|ceiling)\b"
+    r"|\b(?:because\s+of|due\s+to|after|by|with)\s+(?:my|this|the)\s+(?:\w+\s+)?change\b",
+    re.I,
+)
+
+
+_PASS_WORD = re.compile(r"\bpass(?:ed|es|ing)?\b", re.I)
+
+
+def _attributed(text: str, failure: runners.TestOutcome) -> bool:
+    names = [test.rsplit("::", 1)[-1].split("[", 1)[0] for test in failure.failing_tests]
+    for sentence in _PLAIN_SENTENCES.split(text):
+        about = (
+            _FAIL_WORD.search(sentence)
+            or _TESTS_NOUN.search(sentence)
+            or _PASS_WORD.search(sentence)  # "34 passed; two still expect DD/MM/YYYY"
+            or any(name and name in sentence for name in names)
+        )
+        if about and _ATTRIBUTED.search(sentence):
+            return True
+    return False
 
 
 # What a message says to put a failure outside the change: it predates the change, is unrelated
