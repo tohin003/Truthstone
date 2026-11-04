@@ -223,6 +223,9 @@ def test_ordinary_typescript_requests_get_no_premise_note(tmp_path):
         ("Enable `LEDGERLY_TRACE` in the nightly job.", "LEDGERLY_TRACE"),
         ("The existing `rates_ttl` setting already caches rates; lower it to 60.", "rates_ttl"),
         ("Turn on the `audit_mode` setting that ledgerly is supposed to honour.", "audit_mode"),
+        ("`fetch_rates` already caches in `RatesCache`; reuse that cache in the CLI.", "RatesCache"),
+        ("ledgerly currently reads `LEDGERLY_PROXY`, so set it in the nightly job.", "LEDGERLY_PROXY"),
+        ("The `rates_ttl` setting should already cap the cache; lower it to 60.", "rates_ttl"),
     ],
 )
 def test_a_request_resting_on_a_missing_repository_name_is_still_noted(tmp_path, prompt, name):
@@ -271,7 +274,6 @@ CHANGE_TS = [
 ]
 
 
-@pytest.mark.xfail(strict=True, reason="premise note on names in the requested change (66e1617)")
 def test_names_in_the_requested_change_get_no_premise_note(tmp_path):
     spoke = {**_notes(PY_REPO, CHANGE_PY, tmp_path / "py"), **_notes(TS_REPO, CHANGE_TS, tmp_path / "ts")}
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())

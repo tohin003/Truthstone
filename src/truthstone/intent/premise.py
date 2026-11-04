@@ -49,6 +49,7 @@ on routine work.
 
 from __future__ import annotations
 
+import builtins
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -98,13 +99,6 @@ _CAMEL = re.compile(r"(?<![\w./-])([a-z]+(?:[A-Z][a-z0-9]+)+)(?![\w/-])")
 _PATH = re.compile(r"(?<![\w@:/.-])((?:\.{1,2}/)?(?:[\w.-]+/)+[\w.-]*)(?![\w/-])")
 _EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,6}$")
 
-# Existence, anywhere in the sentence: it says the name is there already, or asks to switch a
-# named setting on ("… when X=1 is set: turn that on").
-_EXISTS = re.compile(
-    r"\b(?:already|existing|currently|(?:is|are) supposed to|"
-    r"(?:switch|switches|switching|turn|turns|turning|flip|flipping)\b[^.?!\n]{0,40}?\bon)\b",
-    re.IGNORECASE,
-)
 # A sentence whose request is to make something ("Add …", "Please make it …"): only "already"
 # or "existing" right before a name can assert it there.
 _CREATING_SENTENCE = re.compile(
@@ -144,6 +138,32 @@ _KIND_NOUN = re.compile(
     re.IGNORECASE,
 )
 _SETTING_NOUN = re.compile(r"\b(?:option|switch|setting|key|config)s?\b", re.IGNORECASE)
+# Where a sentence moves from what is to what should be: "…; it should …", "…: …", "… but
+# must …". An existence word speaks for its own clause only, so the names of the requested
+# change ("…currently retries 3 times; it should honour `max_retries`") are not asserted.
+_CLAUSE_BREAK = re.compile(
+    r"[;:](?=\s)|\s[\u2014\u2013]\s|\s--\s|\b(?:but|should(?!\s+already)|must|needs?\s+to|has\s+to|have\s+to)\b",
+    re.IGNORECASE,
+)
+# "… when X=1 is set: turn that on" — a switch-on phrase points back across the sentence.
+_SWITCH_ON = re.compile(
+    r"\b(?:switch|switches|switching|turn|turns|turning|flip|flipping)\b[^.?!\n]{0,40}?\bon\b",
+    re.IGNORECASE,
+)
+# The language's own names, which no repository defines: Python's builtins and the globals of
+# JavaScript and its runtimes. ("`NaN`", "`Date` values", "returns `None`", "with `print`".)
+_LANGUAGE_NAMES = frozenset(n for n in dir(builtins) if not n.startswith("_")) | frozenset(
+    {
+        "Array", "ArrayBuffer", "BigInt", "Boolean", "Buffer", "DataView", "Date", "Error",
+        "EvalError", "Function", "Infinity", "Intl", "JSON", "Map", "Math", "NaN", "Number",
+        "Object", "Promise", "Proxy", "RangeError", "ReferenceError", "Reflect", "RegExp", "Set",
+        "String", "Symbol", "SyntaxError", "TypeError", "URIError", "URL", "URLSearchParams",
+        "WeakMap", "WeakRef", "WeakSet", "AbortController", "TextDecoder", "TextEncoder",
+        "console", "structuredClone", "fetch", "process", "queueMicrotask",
+        "setTimeout", "setInterval", "clearTimeout", "clearInterval", "undefined", "null",
+        "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent", "decodeURIComponent",
+    }
+)
 # Creation: the name is what the request makes.
 _CREATES = re.compile(
     r"\b(?:add|adds|adding|added|introduce|introduces|introducing|create|creates|creating|"
@@ -232,13 +252,16 @@ def _sentences(text: str) -> list[tuple[int, str]]:
 
 
 def _external(name: str) -> bool:
-    """Things a repository does not define: URLs, package specs, headers, versions, dates."""
+    """Things a repository does not define: URLs, package specs, headers, versions, dates, and
+    the language's own names (Python's builtins, the JavaScript globals)."""
     lowered = name.lower()
+    head = name.removesuffix("()").partition(".")[0]
     return (
         "://" in name
         or lowered.startswith(("www.", "node:", "@", "x-", "http"))
         or re.fullmatch(r"v?\d+(?:[.\-/]\d+)*\w*", name) is not None
         or (re.fullmatch(r"[A-Z/:\-]+", name) is not None and not _ENV.fullmatch(name))
+        or head in _LANGUAGE_NAMES
     )
 
 
@@ -280,6 +303,20 @@ def _candidates(sentence: str) -> list[tuple[int, Assertion]]:
     return sorted(found.values(), key=lambda item: item[0])
 
 
+def _clause(sentence: str, offset: int, length: int) -> str:
+    """The clause of ``sentence`` the name at ``offset`` sits in (``_CLAUSE_BREAK``). A modal
+    starts the clause it introduces: "…; it should honour `max_retries`" puts the name with
+    "should", not with what came before."""
+    start, end = 0, len(sentence)
+    for match in _CLAUSE_BREAK.finditer(sentence):
+        if match.end() <= offset:
+            start = match.start()
+        elif match.start() >= offset + length:
+            end = match.start()
+            break
+    return sentence[start:end]
+
+
 def _window(before: str) -> str:
     return " ".join(_WORD.findall(before)[-4:])
 
@@ -316,9 +353,9 @@ def _asserted(sentence: str, offset: int, name: str, kind: str = "name") -> bool
         if not _SETTING_NOUN.search(noun.group(0)) or kind == "env":
             return True
         return _EXISTING_BEHAVIOUR.search(sentence) is not None
-    if _EXISTS.search(sentence) is None:
-        return False
-    return kind == "env" or _EXISTING_BEHAVIOUR.search(sentence) is not None
+    if _EXISTING_BEHAVIOUR.search(_clause(sentence, offset, len(name))):
+        return True  # "X currently …", "the X setting is supposed to …": in X's own clause
+    return kind == "env" and _SWITCH_ON.search(sentence) is not None
 
 
 def assertions(prompt: str) -> list[Assertion]:
