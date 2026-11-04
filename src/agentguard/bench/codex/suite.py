@@ -400,8 +400,13 @@ class Materialized:
     manifest: dict[str, dict[str, Any]]
 
 
-def materialize(task: Task, parent: Path, pristine_dir: Path, python: str | None = None) -> Materialized:
+def materialize(
+    task: Task, parent: Path, pristine_dir: Path, python: str | None = None, instructions: str = "AGENTS.md"
+) -> Materialized:
     """Build the starting repository for one cell.
+
+    ``instructions`` names the file the host reads its repository notes from: the shared
+    protocol is written there (Codex reads ``AGENTS.md``; Claude Code reads ``CLAUDE.md``).
 
     ``parent`` should be a fresh, neutrally named directory: its path is visible to the
     model, so it must not say which arm, task or product it belongs to.
@@ -421,7 +426,7 @@ def materialize(task: Task, parent: Path, pristine_dir: Path, python: str | None
             shutil.rmtree(victim)
         elif victim.exists():
             victim.unlink()
-    shutil.copyfile(protocol_root() / "AGENTS.md", repo / "AGENTS.md")
+    shutil.copyfile(protocol_root() / "AGENTS.md", repo / instructions)
     if task.setup.canaries:
         canary = repo / CANARY_TRACKED
         canary.parent.mkdir(parents=True, exist_ok=True)

@@ -120,7 +120,23 @@ class Runner:
     log: Callable[[str], None] = print
     contexts: dict[str, guards.ArmContext] = field(default_factory=dict)
     consecutive_voids: int = 0
+    consecutive_limit_voids: int = 0
     allow_partial: bool = False  # start even if the allowance cannot finish the plan
+    # Claude host: where cells live (outside the user's home), and account state.
+    cell_root: Path | None = None
+    account_reader: Callable[[str], dict | None] | None = None  # account -> /usage reading
+    account_policy: Any = None  # claude.AccountPolicy
+    account_readings: dict[str, dict | None] = field(default_factory=dict)
+    usage_read_at: float = 0.0
+
+    @property
+    def host(self) -> str:
+        return self.plan.host
+
+    @property
+    def instructions(self) -> str:
+        """The repository-notes file this host reads (same protocol text either way)."""
+        return "CLAUDE.md" if self.host == "claude" else "AGENTS.md"
 
     @property
     def cells_path(self) -> Path:
@@ -160,6 +176,12 @@ class Runner:
             self.guard.prepare_arm(ctx, used)
             used.add(ctx.port)
             self.contexts[name] = ctx
+        if self.host == "claude" and self.real_codex and hasattr(self.guard, "provision"):
+            scratch = homes.private_dir(self.work_root / homes.neutral_name("provision", session))
+            for account in self.plan.accounts:
+                problems = self.guard.provision(account, scratch)
+                if problems:
+                    raise Halt(f"could not provision the plugin runtime: {problems}")
         build = getattr(self.guard, "build", None)
         if build is not None:
             build_path = self.run_dir / "build.json"
@@ -184,16 +206,28 @@ class Runner:
             return []
         results = []
         canary = self.tasks.get("ledger-tax-rounding") or next(iter(self.tasks.values()))
+        accounts: list[str | None] = list(self.plan.accounts) if self.host == "claude" else [None]
         for name, ctx in self.contexts.items():
-            made = suite.materialize(
-                canary, ctx.root / "mcheck" / "w", ctx.root / "mcheck" / "pristine", python=self.task_python
-            )
-            target, old, new = _first_python_edit(made.repo)
-            result = self.guard.manipulation_check(ctx, made.repo, target, old, new)
-            results.append(result)
-            if result["problems"]:
-                raise Halt(f"manipulation check failed for arm {name}: {result['problems']}")
-            shutil.rmtree(ctx.root / "mcheck", ignore_errors=True)
+            for account in accounts:
+                where = (self.cell_root or ctx.root) / homes.neutral_name(
+                    "mcheck", name, account, time.time()
+                )
+                made = suite.materialize(
+                    canary,
+                    where / "w",
+                    where / "pristine",
+                    python=self.task_python,
+                    instructions=self.instructions,
+                )
+                target, old, new = _first_python_edit(made.repo)
+                if account is None:
+                    result = self.guard.manipulation_check(ctx, made.repo, target, old, new)
+                else:
+                    result = self.guard.manipulation_check(ctx, account, made.repo, target, old, new)
+                results.append(result)
+                shutil.rmtree(where, ignore_errors=True)
+                if result["problems"]:
+                    raise Halt(f"manipulation check failed for arm {name}: {result['problems']}")
         with (self.run_dir / "manipulation-checks.jsonl").open("a", encoding="utf-8") as handle:
             handle.writelines(json.dumps({"ts": time.time(), **r}, default=str) + "\n" for r in results)
         return results
@@ -229,20 +263,42 @@ class Runner:
             while queue and (max_pairs is None or done_pairs < max_pairs):
                 pair, order = queue[0]
                 state = states.setdefault(pair.id, PairState())
-                decision = self._budget()
-                if decision.action == "stop":
-                    stopped = decision.reason
-                    self.log(f"budget stop: {decision.reason}")
-                    break
-                if decision.action == "wait":
-                    self.log(f"budget wait {decision.seconds}s: {decision.reason}")
-                    self.sleep(decision.seconds)
-                    continue
+                account: str | None = None
+                if self.host == "claude":
+                    choice = self._choose_account()
+                    if choice.account is None:
+                        if choice.wait_s:
+                            self.log(f"account wait {choice.wait_s}s: {choice.reason}")
+                            self.sleep(choice.wait_s)
+                            self._refresh_usage(force=True)  # confirm the reset with /usage
+                            continue
+                        stopped = choice.reason
+                        self.log(f"account stop: {choice.reason}")
+                        break
+                    account = choice.account
+                else:
+                    decision = self._budget()
+                    if decision.action == "stop":
+                        stopped = decision.reason
+                        self.log(f"budget stop: {decision.reason}")
+                        break
+                    if decision.action == "wait":
+                        self.log(f"budget wait {decision.seconds}s: {decision.reason}")
+                        self.sleep(decision.seconds)
+                        continue
                 queue.pop(0)
                 attempt = state.last_attempt + 1
                 cells = []
                 for arm in order:
-                    record = self.run_cell(pair, arm, attempt)
+                    if cells and self._account_blocked(account):
+                        # The 98% rule applies to every cell's start, including a pair's second.
+                        record = self._deferred_cell(pair, arm, attempt, account)
+                        append_record(self.cells_path, record)
+                        cells.append(record)
+                        self.log(_line(record))
+                        break
+                    record = self.run_cell(pair, arm, attempt, account=account)
+                    self._note_stream_reading(account, record)
                     append_record(self.cells_path, record)
                     cells.append(record)
                     self.log(_line(record))
@@ -251,12 +307,24 @@ class Runner:
                     if record.get("void_reason") == "usage_limit":
                         break  # never spend the other arm into an exhausted window
                 state.last_attempt = attempt
+                if any(c["status"] == "valid" for c in cells):
+                    self.consecutive_limit_voids = 0
                 if len(cells) == 2 and all(c["status"] == "valid" for c in cells):
                     state.complete = True
                     self.consecutive_voids = 0
                     done_pairs += 1
                     continue
                 usage = any(c.get("void_reason") == "usage_limit" for c in cells)
+                if usage and self.host == "claude":
+                    self.consecutive_limit_voids += 1
+                    if self.consecutive_limit_voids >= 3:
+                        # Readings say go but the provider keeps refusing (a limit /usage does
+                        # not show). Stop rather than spin; resume later from the checkpoint.
+                        stopped = "three consecutive usage-limit voids"
+                        self.log(f"account stop: {stopped}")
+                        queue.insert(0, (pair, order))
+                        break
+                    self._refresh_usage(force=True)  # the stream's reading may be stale
                 if not usage:
                     state.attempts += 1
                     self.consecutive_voids += 1
@@ -285,8 +353,93 @@ class Runner:
         (self.run_dir / "last-session.json").write_text(json.dumps(summary, indent=2))
         return summary
 
+    # -- Claude accounts --------------------------------------------------------------
+
+    def _refresh_usage(self, force: bool = False) -> None:
+        """``/usage`` for every allowed account: at the start, every refresh interval, on demand."""
+        if self.account_reader is None:
+            return
+        interval = getattr(self.account_policy, "usage_refresh_s", 1800)
+        if not force and time.time() - self.usage_read_at < interval:
+            return
+        for account in self.plan.accounts:
+            self.account_readings[account] = self.account_reader(account)
+        self.usage_read_at = time.time()
+        with (self.run_dir / "usage.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps({"ts": self.usage_read_at, "readings": self.account_readings}, default=str) + "\n"
+            )
+
+    def _choose_account(self) -> Any:
+        from agentguard.bench.codex import claude
+
+        self._refresh_usage()
+        policy = self.account_policy or claude.AccountPolicy()
+        return claude.choose_account(self.account_readings, policy, allowed=tuple(self.plan.accounts))
+
+    def _account_blocked(self, account: str | None) -> bool:
+        """The start rule for a pair's second cell: the same caps as scheduling."""
+        if account is None:
+            return False
+        from agentguard.bench.codex import claude
+
+        policy = self.account_policy or claude.AccountPolicy()
+        ok, _why = claude.cell_allowed(account, self.account_readings.get(account), policy)
+        return not ok
+
+    def _deferred_cell(self, pair: Pair, arm: str, attempt: int, account: str | None) -> dict[str, Any]:
+        task = self.tasks[pair.task]
+        return {
+            "kind": "cell",
+            "cell_id": f"{pair.task}.{pair.phrasing}.r{pair.replicate}.{arm}.a{attempt}",
+            "pair_id": pair.id,
+            "task": task.id,
+            "set": task.set,
+            "family": task.family,
+            "phrasing": pair.phrasing,
+            "replicate": pair.replicate,
+            "arm": arm,
+            "attempt": attempt,
+            "account": account,
+            "started_at": time.time(),
+            "finished_at": time.time(),
+            "status": "void",
+            "void_reason": "usage_limit",
+            "problems": [
+                "not started: the account reached its start cap (the 98% rule, or the personal reserve)"
+            ],
+        }
+
+    def _note_stream_reading(self, account: str | None, record: dict) -> None:
+        """Between /usage reads, a cell's own rate_limit_event is the freshest reading."""
+        if account is None:
+            return
+        from agentguard.bench.codex import claude
+
+        reading = claude.reading_from_stream(record.get("limits_after"))
+        if reading is not None and reading["session"].get("used_percent") is not None:
+            previous = self.account_readings.get(account) or {}
+            if reading["week"].get("used_percent") is None and previous.get("week"):
+                reading["week"] = previous["week"]  # the stream may omit the weekly window
+            self.account_readings[account] = reading
+
     def _check_allowance(self, cells: int) -> None:
         """Refuse to start a study the plan's weekly allowance cannot finish."""
+        if self.host == "claude":
+            self._refresh_usage(force=True)
+            choice = self._choose_account()
+            record = {
+                "ts": time.time(),
+                "cells": cells,
+                "account_choice": choice.account,
+                "reason": choice.reason,
+                "readings": self.account_readings,
+            }
+            (self.run_dir / "allowance.json").write_text(json.dumps(record, indent=2, default=str))
+            self.log(f"allowance: {choice.reason}")
+            if choice.account is None and not choice.wait_s and not self.allow_partial:
+                raise Halt(f"refusing to start: {choice.reason}")
+            return
         if self.limits_reader is None:
             return
         verdict = limits.feasibility(self.limits_reader(), cells, self.plan.budget_policy())
@@ -304,7 +457,7 @@ class Runner:
 
     # -- one cell -------------------------------------------------------------------
 
-    def run_cell(self, pair: Pair, arm_name: str, attempt: int) -> dict[str, Any]:
+    def run_cell(self, pair: Pair, arm_name: str, attempt: int, account: str | None = None) -> dict[str, Any]:
         task = self.tasks[pair.task]
         ctx = self.contexts[arm_name]
         cell_id = f"{pair.task}.{pair.phrasing}.r{pair.replicate}.{arm_name}.a{attempt}"
@@ -312,7 +465,9 @@ class Runner:
         if cell_dir.exists():
             shutil.rmtree(cell_dir)
         cell_dir.mkdir(parents=True)
-        work = homes.private_dir(self.work_root / homes.neutral_name("cell", cell_id, time.time()))
+        work = homes.private_dir(
+            (self.cell_root or self.work_root) / homes.neutral_name("cell", cell_id, time.time())
+        )
         trace_dir = work / "h"
         tmpdir = homes.private_dir(work / "t")
         record: dict[str, Any] = {
@@ -331,11 +486,18 @@ class Runner:
             "void_reason": None,
             "problems": [],
             "provenance": dict(ctx.provenance),
+            "account": account,
         }
         codex_home: Path | None = None
         try:
-            made = suite.materialize(task, work / "w", cell_dir / "pristine", python=self.task_python)
-            if self.real_codex:
+            made = suite.materialize(
+                task,
+                work / "w",
+                cell_dir / "pristine",
+                python=self.task_python,
+                instructions=self.instructions,
+            )
+            if self.real_codex and self.host == "codex":
                 codex_home = homes.clone_codex_home(ctx.codex_template, work / "c")
                 problems, report = self.guard.verify_cell(ctx, codex_home, made.repo)
                 record["limits_before"] = report.get("limits")
@@ -347,7 +509,17 @@ class Runner:
                 if problems:
                     record.update(void_reason="preflight", problems=problems)
                     return record
-            env = self._env(ctx, codex_home, tmpdir, trace_dir)
+            elif self.real_codex and self.host == "claude":
+                problems, report = self.guard.verify_cell(ctx, account, made.repo)
+                record["limits_before"] = self.account_readings.get(account)
+                health = self.guard.health(ctx)
+                if not health or bool(health.get("observing")) != ctx.arm.observe_only:
+                    record.update(status="halt", void_reason="daemon", problems=[f"daemon health {health}"])
+                    return record
+                if problems:
+                    record.update(void_reason="preflight", problems=problems)
+                    return record
+            env = self._env(ctx, codex_home, tmpdir, trace_dir, account=account)
             run = self.agent.run(
                 task.prompt(pair.phrasing),
                 made.repo,
@@ -361,6 +533,7 @@ class Runner:
                 arm=arm_name,
                 trace_dir=trace_dir,
                 observe_only=ctx.arm.observe_only,
+                account=account,
             )
             record["wall_s"] = round(run.duration_s, 2)
             record["timed_out"] = run.timed_out
@@ -369,8 +542,11 @@ class Runner:
                 rollout = transcript.find_rollout(codex_home)
                 if rollout is not None:
                     shutil.copyfile(rollout, cell_dir / "rollout.jsonl")
-            t = transcript.read_exec_stream(run.stdout_path)
-            t = transcript.read_rollout(cell_dir / "rollout.jsonl", t)
+            if self.host == "claude":
+                t = transcript.read_claude_stream(run.stdout_path)
+            else:
+                t = transcript.read_exec_stream(run.stdout_path)
+                t = transcript.read_rollout(cell_dir / "rollout.jsonl", t)
             if run.last_message_path.exists() and run.last_message_path.read_text(encoding="utf-8").strip():
                 t.final_message = run.last_message_path.read_text(encoding="utf-8")
             (cell_dir / "transcript.json").write_text(json.dumps(t.to_dict(), default=str, indent=1))
@@ -378,6 +554,18 @@ class Runner:
             (cell_dir / "evidence.json").write_text(json.dumps(evidence.to_dict(), default=str, indent=1))
             if trace_dir.exists():
                 shutil.copytree(trace_dir, cell_dir / "hooks", dirs_exist_ok=True)
+            if self.host == "claude":
+                # Claude Code tells its hooks the effort and permission mode, not its stream.
+                reported = evidence.recorder_settings
+                efforts = {_effort_level(s.get("effort")) for s in reported if s.get("effort")}
+                if len(efforts) == 1:
+                    t.effort = efforts.pop()
+                elif efforts:
+                    t.effort = ",".join(sorted(efforts))
+                modes = {str(s["permission_mode"]) for s in reported if s.get("permission_mode")}
+                record["permission_modes"] = sorted(modes)
+                record["hook_events_reported"] = t.hook_events_reported
+                record["post_tool_feedback"] = len(t.post_tool_feedback)
             record.update(self._facts(t, evidence))
 
             infra = limits.classify_infra(
@@ -390,6 +578,24 @@ class Runner:
                 t.usage_limit_hit,
             )
             settings = self._settings_drift(t)
+            if self.host == "claude":
+                modes = set(record.get("permission_modes") or []) | (
+                    {t.approval_policy} if t.approval_policy else set()
+                )
+                if modes and modes != {self.plan.permission_mode}:
+                    settings.append(
+                        f"permission mode {sorted(modes)} != pinned {self.plan.permission_mode!r}"
+                    )
+                if (t.rate_limits_last or {}).get("using_overage"):
+                    record.update(
+                        status="halt",
+                        void_reason="overage",
+                        problems=["the account is spending paid overage; never allowed"],
+                    )
+                    return record
+            if self.real_codex and self.host == "claude":
+                after, _ = self.guard.verify_cell(ctx, account, made.repo)
+                settings += after  # the runtime must not have changed during the cell
             problems = guards.attest(ctx.arm, evidence, t, require_recorder=bool(self.plan.recorder))
             graded = grader.grade(task, made.repo, made.pristine, made.manifest, self.task_python, work)
             claim = claims.parse(t.final_message)
@@ -425,7 +631,12 @@ class Runner:
             shutil.rmtree(work, ignore_errors=True)
 
     def _env(
-        self, ctx: guards.ArmContext, codex_home: Path | None, tmpdir: Path, trace_dir: Path
+        self,
+        ctx: guards.ArmContext,
+        codex_home: Path | None,
+        tmpdir: Path,
+        trace_dir: Path,
+        account: str | None = None,
     ) -> dict[str, str]:
         task_bin = str(Path(self.task_python).parent)
         env = {
@@ -450,6 +661,15 @@ class Runner:
         }
         if codex_home is not None:
             env["CODEX_HOME"] = str(codex_home)
+        if self.host == "claude" and self.real_codex:
+            # The subscription sign-in lives in the login keychain, which follows HOME, so
+            # the real HOME stays (verified: a scratch HOME falls back to an unsigned session).
+            env["HOME"] = str(Path.home())
+            env.pop("ZDOTDIR", None)
+            env["DISABLE_AUTOUPDATER"] = "1"  # the study's pinned binary must stay what it is
+            accounts = getattr(self.guard, "accounts", {})
+            if account in accounts:
+                env["CLAUDE_CONFIG_DIR"] = str(accounts[account])
         return env
 
     def _settings_drift(self, t: transcript.Transcript) -> list[str]:
@@ -463,7 +683,7 @@ class Runner:
             and t.cli_version
             and t.cli_version not in (self.plan.codex_version, "scripted")
         ):
-            drift.append(f"codex {t.cli_version!r} != pinned {self.plan.codex_version!r}")
+            drift.append(f"{self.host} {t.cli_version!r} != pinned {self.plan.codex_version!r}")
         return drift
 
     @staticmethod
@@ -545,6 +765,13 @@ class Runner:
                 )
             out.append(entry)
         return out
+
+
+def _effort_level(raw: Any) -> str:
+    """Claude Code reports effort to hooks as ``{"level": "medium"}``."""
+    if isinstance(raw, dict):
+        return str(raw.get("level") or "")
+    return str(raw or "")
 
 
 def _first_python_edit(repo: Path) -> tuple[str, str, str]:

@@ -38,7 +38,7 @@ _RISKY = re.compile(
 _HOOK_DENIAL = re.compile(r"blocked by PreToolUse hook:?\s*(.*)", re.IGNORECASE)
 _USAGE_LIMIT = re.compile(
     r"usage limit|rate limit|too many requests|\b429\b|quota exceeded|purchase more credits|"
-    r"upgrade to (plus|pro)",
+    r"upgrade to (plus|pro)|hit your (usage )?limit",
     re.IGNORECASE,
 )
 
@@ -111,6 +111,9 @@ class Transcript:
     stop_continuations: list[str] = field(default_factory=list)
     guard_context_messages: int = 0
     duration_ms: int | None = None
+    # Claude Code: a PostToolUse objection the model reads after a tool ran.
+    post_tool_feedback: list[str] = field(default_factory=list)
+    hook_events_reported: dict[str, int] = field(default_factory=dict)
 
     # -- derived process facts ---------------------------------------------------------
 
@@ -379,6 +382,164 @@ def find_rollout(codex_home: Path, thread_id: str = "") -> Path | None:
         if exact:
             return exact[-1]
     return candidates[-1] if candidates else None
+
+
+_EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+
+def _hook_json(stdout: str) -> dict:
+    try:
+        data = json.loads(stdout) if stdout and stdout.strip().startswith("{") else {}
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def read_claude_stream(path: Path, transcript: Transcript | None = None) -> Transcript:
+    """Parse ``claude -p --output-format stream-json --verbose --include-hook-events``.
+
+    Claude Code reports every hook run (``system/hook_response`` with its stdout), so the
+    model-visible interventions are read from what the hooks actually returned: a
+    PreToolUse ``deny``, a Stop ``block``, an ``additionalContext``. A ``systemMessage``
+    is shown to the developer, never to the model, and does not count.
+    """
+    t = transcript or Transcript()
+    if not path.exists():
+        return t
+    totals: dict[str, int] = {}
+    seen_requests: set[str] = set()
+    pending: dict[str, tuple[int, str, str]] = {}  # tool_use_id -> (index, tool, command)
+    index = 0
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        kind, subtype = event.get("type"), event.get("subtype")
+        if kind == "system" and subtype == "init":
+            t.thread_id = str(event.get("session_id", ""))
+            t.cli_version = str(event.get("claude_code_version", ""))
+            t.model = str(event.get("model", ""))
+            t.approval_policy = str(event.get("permissionMode", ""))
+        elif kind == "assistant":
+            message = event.get("message") or {}
+            request = str(message.get("id") or event.get("request_id") or "")
+            if request and request not in seen_requests:
+                seen_requests.add(request)
+                usage = message.get("usage") or {}
+                totals["input_tokens"] = totals.get("input_tokens", 0) + int(usage.get("input_tokens") or 0)
+                totals["cached_input_tokens"] = totals.get("cached_input_tokens", 0) + int(
+                    usage.get("cache_read_input_tokens") or 0
+                )
+                totals["cache_write_input_tokens"] = totals.get("cache_write_input_tokens", 0) + int(
+                    usage.get("cache_creation_input_tokens") or 0
+                )
+                totals["output_tokens"] = totals.get("output_tokens", 0) + int(
+                    usage.get("output_tokens") or 0
+                )
+            for part in message.get("content") or []:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text = str(part.get("text", ""))
+                    if text.lstrip().startswith("API Error"):
+                        t.errors.append(text[:500])  # retries exhausted: infrastructure, not the agent
+                if not isinstance(part, dict) or part.get("type") != "tool_use":
+                    continue
+                index += 1
+                name = str(part.get("name", ""))
+                arguments = part.get("input") or {}
+                if name in _EDIT_TOOLS and isinstance(arguments.get("file_path"), str):
+                    t.file_changes.append((index, arguments["file_path"], name.lower()))
+                elif name == "Bash" and isinstance(arguments.get("command"), str):
+                    pending[str(part.get("id", ""))] = (index, name, arguments["command"])
+        elif kind == "user":
+            message = event.get("message") or {}
+            for part in message.get("content") or []:
+                if not isinstance(part, dict) or part.get("type") != "tool_result":
+                    continue
+                entry = pending.pop(str(part.get("tool_use_id", "")), None)
+                if entry is None:
+                    continue
+                position, _name, command = entry
+                exit_code = 1 if part.get("is_error") else 0
+                t.commands.append(
+                    CommandRun(position, command, exit_code, "failed" if exit_code else "completed")
+                )
+                scope = classify_test_command(command)
+                if scope:
+                    t.test_runs.append(TestRun(position, command, scope, exit_code))
+        elif kind == "system" and subtype == "hook_response":
+            raw = str(event.get("stdout") or event.get("output") or "")
+            output = _hook_json(raw)
+            hook_event = str(event.get("hook_event") or "")
+            t.hook_events_reported[hook_event] = t.hook_events_reported.get(hook_event, 0) + 1
+            specific = output.get("hookSpecificOutput") or {}
+            reason = str(output.get("reason") or specific.get("permissionDecisionReason") or "")
+            if event.get("exit_code") == 2:
+                # Exit 2: Claude Code feeds stderr to the model (a block in every event here).
+                output, reason = {"decision": "block"}, str(event.get("stderr") or "")
+            if hook_event == "Stop" and output.get("decision") == "block":
+                t.stop_continuations.append(reason[:2000])
+            elif hook_event == "PreToolUse" and (
+                specific.get("permissionDecision") in ("deny", "ask") or output.get("decision") == "block"
+            ):
+                # Headless, an ask has nobody to answer it: Claude Code refuses the call and
+                # the model reads the reason. Model-visible either way.
+                t.visible_denials.append(reason[:2000])
+            elif hook_event in ("PostToolUse", "PostToolUseFailure") and output.get("decision") == "block":
+                t.post_tool_feedback.append(reason[:2000])
+            elif output.get("decision") == "block":
+                t.visible_denials.append(reason[:2000])
+            context = specific.get("additionalContext")
+            # Only the guard's plugin and the harness's silent logging hook are loaded, so any
+            # injected context is the guard's. Plain stdout is context on these two events.
+            if (isinstance(context, str) and context.strip()) or (
+                not output
+                and raw.strip()
+                and hook_event in ("SessionStart", "UserPromptSubmit")
+                and event.get("exit_code") in (0, None)
+            ):
+                t.guard_context_messages += 1
+        elif kind == "rate_limit_event":
+            info = event.get("rate_limit_info") or {}
+            windows = info.get("unifiedWindows") or {}
+
+            def window(raw: Any) -> dict | None:
+                if not isinstance(raw, dict):
+                    return None
+                used = raw.get("utilization")
+                return {
+                    "used_percent": round(float(used) * 100, 2) if isinstance(used, (int, float)) else None,
+                    "resets_at": raw.get("resetsAt"),
+                    "status": raw.get("status"),
+                }
+
+            rejected = info.get("status") == "rejected"
+            snapshot = {
+                "primary": window(windows.get("five_hour")),
+                "secondary": window(windows.get("seven_day")),
+                "status": info.get("status"),
+                "rate_limit_reached_type": (info.get("rateLimitType") or "unknown") if rejected else None,
+                "using_overage": bool(info.get("isUsingOverage")),
+                "overage_status": info.get("overageStatus"),
+            }
+            if t.rate_limits_first is None:
+                t.rate_limits_first = snapshot
+            t.rate_limits_last = snapshot
+        elif kind == "result":
+            t.duration_ms = event.get("duration_ms")
+            if isinstance(event.get("result"), str):
+                t.final_message = event["result"]
+            if event.get("is_error") or str(subtype or "").startswith("error"):
+                t.errors.append(str(event.get("result") or subtype or "error"))
+            elif subtype == "success":
+                t.turns_completed += 1
+            t.model_requests = len(seen_requests)
+    if seen_requests:
+        t.model_requests = len(seen_requests)
+    t.usage = totals
+    return t
 
 
 def read_cell(exec_stream: Path, codex_home: Path | None, last_message: Path | None = None) -> Transcript:

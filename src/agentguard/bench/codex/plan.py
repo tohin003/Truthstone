@@ -23,6 +23,9 @@ from typing import Any
 from agentguard.bench.codex.limits import BudgetPolicy
 
 STAGES = ("pilot", "main", "smoke", "dry-run")
+HOSTS = ("codex", "claude")
+# Fields added after the first plans were registered: omitted from the digest at default.
+_LATER_FIELDS: dict[str, Any] = {"host": "codex", "accounts": [], "permission_mode": "bypassPermissions"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,15 +65,34 @@ class Plan:
     budget: dict[str, Any] = field(default_factory=lambda: asdict(BudgetPolicy()))
     suite_digest: str = ""
     notes: str = ""
+    # Added with the Claude Code host. Left out of the digest while at their defaults, so
+    # plans registered before they existed keep their digest.
+    host: str = "codex"  # "codex" | "claude"
+    accounts: list[str] = field(default_factory=list)  # Claude: config-dir accounts allowed
+    permission_mode: str = "bypassPermissions"  # Claude
 
     def __post_init__(self) -> None:
         if self.stage not in STAGES:
             raise ValueError(f"stage must be one of {STAGES}")
         if sorted(self.arms) != ["observe", "on"]:
             raise ValueError("a plan compares exactly the 'on' and 'observe' arms")
+        if self.host not in HOSTS:
+            raise ValueError(f"host must be one of {HOSTS}")
+        if self.host == "claude" and not self.accounts:
+            raise ValueError("a Claude plan names the accounts it may use")
 
     def budget_policy(self) -> BudgetPolicy:
+        if self.host != "codex":
+            raise ValueError("a Claude plan's budget is an account policy: use account_policy()")
         return BudgetPolicy(**self.budget)
+
+    def account_policy(self) -> Any:
+        """Claude plans: the pre-registered account rules (98% rule, personal reserve)."""
+        from agentguard.bench.codex.claude import AccountPolicy
+
+        if self.host != "claude":
+            raise ValueError("only a Claude plan has an account policy")
+        return AccountPolicy(**self.budget)
 
     def pairs(self) -> list[Pair]:
         return [
@@ -95,7 +117,11 @@ class Plan:
         return asdict(self)
 
     def digest(self) -> str:
-        canonical = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
+        data = self.to_dict()
+        for key, default in _LATER_FIELDS.items():
+            if data.get(key) == default:
+                data.pop(key)
+        canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).hexdigest()
 
     def save(self, path: Path) -> None:

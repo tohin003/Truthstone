@@ -7,6 +7,7 @@ Live (spends the ChatGPT plan's usage; requires ``--confirm-live``): ``run``, ``
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import re
@@ -19,6 +20,7 @@ from pathlib import Path
 from agentguard.bench.codex import (
     agents,
     appserver,
+    claude,
     guards,
     homes,
     limits,
@@ -30,6 +32,7 @@ from agentguard.bench.codex import (
 from agentguard.bench.codex.plan import Plan
 
 DEFAULT_CODEX = shutil.which("codex") or str(Path.home() / ".local" / "bin" / "codex")
+DEFAULT_CLAUDE = claude.default_claude_bin()
 DEFAULT_UV = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
 RESULTS = suite.BENCH_ROOT / "results"
 
@@ -80,6 +83,31 @@ def codex_version(codex_bin: str) -> str:
 
 def _cmd_plan(args: argparse.Namespace) -> int:
     tasks = suite.load_suite(only=args.task or None)
+    host_fields: dict = {}
+    if args.host == "claude":
+        accounts = [a.strip() for a in (args.accounts or "work,personal").split(",") if a.strip()]
+        unknown = sorted(set(accounts) - set(claude.ACCOUNTS))
+        if unknown:
+            print(f"unknown account(s) {unknown}; known: {sorted(claude.ACCOUNTS)}")
+            return 2
+        policy = claude.AccountPolicy(
+            per_cell_session=args.per_cell_session or 0.0, per_cell_week=args.per_cell_week or 0.0
+        )
+        host_fields = {
+            "host": "claude",
+            "accounts": accounts,
+            "permission_mode": args.permission_mode,
+            "codex_version": claude.claude_version(args.claude),  # the host CLI's version
+            "trust": "session-plugin-dir",
+            "sandbox": "none",
+            "network": True,
+            "reasoning_summary": "n/a",
+            "service_tier": "n/a",
+            "budget": dataclasses.asdict(policy),
+        }
+    else:
+        host_fields = {"codex_version": codex_version(args.codex), "trust": args.trust}
+    default_model = "claude-opus-5-5" if args.host == "claude" else "gpt-6-luna"
     plan = Plan(
         name=args.name,
         stage=args.stage,
@@ -87,18 +115,19 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         tasks=[t.id for t in tasks],
         phrasings=list(args.phrasing or suite.PHRASINGS),
         replicates=[int(r) for r in args.replicates.split(",")],
-        model=args.model,
+        model=args.model or default_model,
         effort=args.effort,
         agentguard_ref=args.agentguard_ref,
-        codex_version=codex_version(args.codex),
-        trust=args.trust,
         cell_timeout_s=args.cell_timeout,
         max_attempts=args.max_attempts,
         suite_digest=suite.suite_digest(tasks),
         notes=args.notes or "",
+        **host_fields,
     )
-    if args.stop_weekly_at is not None:
+    if args.host == "codex" and args.stop_weekly_at is not None:
         plan.budget["stop_weekly_at"] = args.stop_weekly_at
+    if args.host == "codex" and args.weekly_percent_per_cell is not None:
+        plan.budget["weekly_percent_per_cell"] = args.weekly_percent_per_cell
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     plan.save(out)
@@ -134,7 +163,80 @@ class CappedAgent:
         return self.inner.run(*args, **kwargs)  # type: ignore[attr-defined]
 
 
+def freeze_tree(root: Path) -> None:
+    """Read-only for everyone: no cell can install into the shared task interpreter."""
+    for path in [root, *root.rglob("*")]:
+        if path.is_symlink():
+            continue
+        mode = path.stat().st_mode
+        os.chmod(path, mode & ~0o222)
+
+
+def thaw_tree(root: Path) -> None:
+    for path in [root, *root.rglob("*")]:
+        if not path.is_symlink():
+            os.chmod(path, path.stat().st_mode | 0o200)
+
+
+def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
+    """Claude Code cells: ``claude -p`` in scratch repos outside the user's home."""
+    tasks = {t.id: t for t in suite.load_suite(only=plan.tasks)}
+    work_root = Path(args.work_root).expanduser() if args.work_root else homes.default_work_root(plan.name)
+    homes.assert_outside_tmp(work_root)
+    homes.assert_outside_tmp(run_dir)
+    state = homes.private_dir(work_root / "state")
+    taskenv = state / "taskenv"
+    if taskenv.exists():
+        thaw_tree(taskenv)
+    task_python = homes.make_task_env(taskenv, args.uv, plan.task_python, plan.pytest_version)
+    freeze_tree(taskenv)
+    build = guards.prepare_build(
+        Path(args.agentguard_repo), plan.agentguard_ref, state / "build", args.uv, "3.12"
+    )
+    recorder = None
+    if plan.recorder:
+        script = state / "hook_recorder.py"
+        shutil.copyfile(Path(guards.__file__).with_name("hook_recorder.py"), script)
+        recorder = (task_python, script)
+    claude_bin = claude.pin_claude_bin(args.claude, state / "claude-bin")
+    version = claude.claude_version(claude_bin)
+    if plan.codex_version and version != plan.codex_version:
+        raise orchestrator.Halt(f"Claude Code {version} != pinned {plan.codex_version}")
+    guard = claude.AgentGuardClaudePlugin.from_build(build, state, claude_bin, args.uv, recorder)
+    unknown = sorted(set(plan.accounts) - set(guard.accounts))
+    if unknown:
+        raise orchestrator.Halt(f"unknown account(s) {unknown}")
+    settings = claude.ClaudeSettings(
+        model=plan.model,
+        effort=plan.effort,
+        permission_mode=plan.permission_mode,
+        timeout_s=plan.cell_timeout_s,
+    )
+    agent: object = claude.ClaudeExecAgent(claude_bin, settings)
+    if getattr(args, "max_agent_runs", None):
+        agent = CappedAgent(agent, args.max_agent_runs)
+    # Outside /Users entirely: no ancestor CLAUDE.md of the user's applies to a cell.
+    cell_root = homes.private_dir(Path("/private/tmp") / homes.neutral_name("cells", plan.name, os.getuid()))
+    runner = orchestrator.Runner(
+        plan,
+        tasks,
+        guard,
+        agent,
+        run_dir,
+        work_root,
+        str(task_python),
+        real_codex=True,
+        cell_root=cell_root,
+        account_reader=lambda account: claude.read_usage(claude_bin, guard.accounts[account]),
+        account_policy=plan.account_policy(),
+    )
+    runner.allow_partial = bool(getattr(args, "allow_partial", False))
+    return runner
+
+
 def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
+    if plan.host == "claude":
+        return _claude_runner(plan, run_dir, args)
     tasks = {t.id: t for t in suite.load_suite(only=plan.tasks)}
     work_root = Path(args.work_root).expanduser() if args.work_root else homes.default_work_root(plan.name)
     homes.assert_outside_tmp(work_root)
@@ -182,10 +284,75 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
     return runner
 
 
+def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> int:
+    """Provision the build's runtime per account, read /usage, and run the manipulation
+    checks (synthetic payloads through the plugin's own hooks). No prompt reaches a model."""
+    runner = _real_runner(plan, run_dir, args)
+    runner.bind()
+    data: dict = {"plan": plan.digest(), "claude_version": plan.codex_version, "accounts": plan.accounts}
+    runner.setup_arms()  # provisions each account's plugin runtime (``claude -p /usage``)
+    try:
+        runner._refresh_usage(force=True)
+        data["usage"] = runner.account_readings
+        data["account_choice"] = dataclasses.asdict(runner._choose_account())
+        data["manipulation_checks"] = runner.manipulation_checks()
+        for name, ctx in runner.contexts.items():
+            health = runner.guard.health(ctx)
+            data[f"daemon_{name}"] = health
+            if not health or bool(health.get("observing")) != ctx.arm.observe_only:
+                print(f"{name}: daemon health {health}")
+                return 1
+    finally:
+        runner.teardown_arms()
+    (run_dir / "preflight.json").write_text(json.dumps(data, indent=2, default=str))
+    for check in data["manipulation_checks"]:
+        print(
+            f"manipulation check {check['arm']:<8} {check['account']:<9} ok: "
+            f"{check['evidence']['interventions'] or check['evidence']['would_have']}"
+        )
+    for account, reading in data["usage"].items():
+        print(f"{account}: {_usage_line(reading)}")
+    print(f"next pair would run on: {data['account_choice']['account']} ({data['account_choice']['reason']})")
+    print(f"preflight passed; details in {run_dir / 'preflight.json'}")
+    return 0
+
+
+def _usage_line(reading: dict | None) -> str:
+    if not reading:
+        return "unavailable"
+
+    def one(window: dict | None) -> str:
+        window = window or {}
+        resets = window.get("resets_at")
+        when = (
+            time.strftime("%b %d %H:%M", time.localtime(resets)) if isinstance(resets, (int, float)) else "?"
+        )
+        return f"{window.get('used_percent')}% (resets {when})"
+
+    return f"5-hour {one(reading.get('session'))}; week {one(reading.get('week'))}"
+
+
+def _cmd_claude_usage(args: argparse.Namespace) -> int:
+    """Both accounts' windows via ``claude -p /usage`` (no model call), and the choice the
+    runner would make under the pre-registered account policy."""
+    policy = Plan.load(Path(args.plan)).account_policy() if args.plan else claude.AccountPolicy()
+    readings = {name: claude.read_usage(args.claude, path) for name, path in claude.ACCOUNTS.items()}
+    for name, reading in readings.items():
+        allowed, why = claude.cell_allowed(name, reading, policy, cells=2)
+        print(f"{name:<9} {_usage_line(reading)}  -> {'eligible' if allowed else 'not eligible'}: {why}")
+    choice = claude.choose_account(readings, policy)
+    print(f"choice: {choice.account} ({choice.reason}){f'; wait {choice.wait_s}s' if choice.wait_s else ''}")
+    if args.json:
+        print(json.dumps(readings, indent=2, default=str))
+    return 0 if choice.account else 1
+
+
 def _cmd_preflight(args: argparse.Namespace) -> int:
     """Everything a live run does before its first model call, and nothing after."""
     plan = Plan.load(Path(args.plan))
     run_dir = Path(args.run_dir) if args.run_dir else RESULTS / f"{plan.name}-preflight-{int(time.time())}"
+    if plan.host == "claude":
+        return _claude_preflight(plan, run_dir, args)
     runner = _real_runner(plan, run_dir, args)
     runner.bind()
     report_data: dict = {"plan": plan.digest(), "codex_version": codex_version(args.codex)}
@@ -224,7 +391,7 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     if not args.confirm_live:
-        print("refusing: a live run spends the ChatGPT plan's usage; pass --confirm-live")
+        print("refusing: a live run spends subscription usage; pass --confirm-live")
         return 2
     plan = Plan.load(Path(args.plan))
     run_dir = Path(args.run_dir) if args.run_dir else RESULTS / plan.name
@@ -245,6 +412,20 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
     if run_dir.exists() and not args.resume:
         shutil.rmtree(run_dir)
     python = os.path.abspath(args.python or scripted.default_python())
+    host_fields: dict = {}
+    fake = None
+    if args.host == "claude":
+        # Simulated accounts that start near their caps, so one dry run exercises the
+        # 98% rule, the personal reserve, a wait for a 5-hour reset and a mid-cell 429.
+        policy = claude.AccountPolicy(per_cell_session=1.5, per_cell_week=0.25)
+        host_fields = {
+            "host": "claude",
+            "accounts": ["work", "personal"],
+            "budget": dataclasses.asdict(policy),
+        }
+        fake = claude.FakeAccounts(
+            {"work": (90.0, 30.0), "personal": (60.0, 40.0)}, per_cell=1.5, per_cell_week=0.25
+        )
     plan = Plan(
         name=run_dir.name,
         stage="dry-run",
@@ -255,10 +436,18 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
         model="scripted",
         effort="medium",
         suite_digest=suite.suite_digest(tasks),
+        **host_fields,
     )
     work_root = Path(args.work_root) if args.work_root else run_dir / "work"
+    interrupt = {plan.schedule()[2][0].id} if fake is not None and len(plan.schedule()) > 2 else set()
     agent = agents.ScriptedAgent(
-        agents.dry_run_policy(seed=args.seed), python, model="scripted", effort="medium"
+        agents.dry_run_policy(seed=args.seed),
+        python,
+        model="scripted",
+        effort="medium",
+        host=args.host,
+        accounts=fake,
+        interrupt=interrupt,
     )
     runner = orchestrator.Runner(
         plan,
@@ -271,7 +460,17 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
         real_codex=False,
         log=(lambda _m: None) if args.quiet else print,
     )
+    if fake is not None:
+        runner.account_reader = fake.read
+        runner.account_policy = plan.account_policy()
+        runner.sleep = fake.sleep
     summary = runner.run(max_pairs=args.max_pairs)
+    if fake is not None:
+        summary["accounts"] = {
+            "cells": fake.cells,
+            "simulated_wait_s": fake.waited_s,
+            "window_resets": fake.resets,
+        }
     analysis = report.analyze(run_dir)
     (run_dir / "analysis.json").write_text(json.dumps(analysis, indent=2, default=str))
     (run_dir / "report.md").write_text(report.render_markdown(analysis))
@@ -367,6 +566,9 @@ def _live_options(p: argparse.ArgumentParser) -> None:
     p.add_argument("--run-dir")
     p.add_argument("--work-root", help="Neutral directory outside /tmp for homes and cell repos.")
     p.add_argument("--codex", default=DEFAULT_CODEX)
+    p.add_argument(
+        "--claude", default=DEFAULT_CLAUDE, help="Claude Code binary (copied and pinned per study)."
+    )
     p.add_argument("--uv", default=DEFAULT_UV)
     p.add_argument(
         "--agentguard-repo",
@@ -396,13 +598,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task", action="append")
     p.add_argument("--phrasing", action="append", choices=list(suite.PHRASINGS))
     p.add_argument("--replicates", default="1,2,3")
-    p.add_argument("--model", default="gpt-6-luna")
+    p.add_argument("--host", default="codex", choices=["codex", "claude"])
+    p.add_argument("--model", help="Default: gpt-6-luna (codex), claude-opus-5-5 (claude).")
     p.add_argument("--effort", default="medium")
+    p.add_argument("--accounts", help="Claude: comma-separated accounts the plan may use (work,personal).")
+    p.add_argument(
+        "--permission-mode", default="bypassPermissions", help="Claude: --permission-mode for cells."
+    )
+    p.add_argument("--per-cell-session", type=float, help="Claude: measured 5-hour points per cell (smoke).")
+    p.add_argument("--per-cell-week", type=float, help="Claude: measured weekly points per cell (smoke).")
+    p.add_argument("--claude", default=DEFAULT_CLAUDE)
     p.add_argument("--agentguard-ref", default="HEAD")
     p.add_argument("--trust", default="app-server", choices=["app-server", "bypass"])
     p.add_argument("--cell-timeout", type=int, default=1200)
     p.add_argument("--max-attempts", type=int, default=3)
     p.add_argument("--stop-weekly-at", type=float, help="Override the weekly stop line (smoke plans only).")
+    p.add_argument(
+        "--weekly-percent-per-cell",
+        type=float,
+        help="Measured weekly usage per cell (from the pilot), for the allowance pre-check.",
+    )
     p.add_argument("--codex", default=DEFAULT_CODEX)
     p.add_argument("--notes")
     p.add_argument("--out", required=True)
@@ -442,7 +657,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-pairs", type=int)
     p.add_argument("--resume", action="store_true")
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--host", default="codex", choices=["codex", "claude"])
     p.set_defaults(func=_cmd_dry_run)
+
+    p = sub.add_parser("claude-usage", help="Both Claude accounts' usage windows via /usage (no model call).")
+    p.add_argument("--claude", default=DEFAULT_CLAUDE)
+    p.add_argument("--plan", help="Apply this Claude plan's account policy.")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=_cmd_claude_usage)
 
     p = sub.add_parser("allowance", help="Read the ChatGPT plan's Codex usage windows (no model call).")
     p.add_argument("--codex", default=DEFAULT_CODEX)

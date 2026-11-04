@@ -195,7 +195,7 @@ def test_missing_hook_evidence_voids_cells_and_then_halts(tmp_path):
 def test_a_visible_intervention_nobody_decided_halts(tmp_path):
     # The scripted guarded arm shows a Stop continuation; the guard recorded no decision.
     runner = _runner(tmp_path, guard=SilentGuard())
-    with pytest.raises(orchestrator.Halt, match="model-visible intervention"):
+    with pytest.raises(orchestrator.Halt, match="model-visible stop hold"):
         runner.run()
 
 

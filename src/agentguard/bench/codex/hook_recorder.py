@@ -59,6 +59,10 @@ def main():
         "tool_input": payload.get("tool_input"),
         "stop_hook_active": payload.get("stop_hook_active"),
         "last_assistant_message": (payload.get("last_assistant_message") or "")[:4000] or None,
+        # Settings as the host reported them to its hooks: a per-cell check of the pins.
+        "model": payload.get("model"),
+        "effort": payload.get("effort"),
+        "permission_mode": payload.get("permission_mode"),
     }
     os.makedirs(trace, exist_ok=True)
     if event == "Stop" and payload.get("cwd"):

@@ -158,6 +158,8 @@ def analyze_blind(run_dir: Path) -> dict[str, Any]:
             "effort": plan.effort,
             "suite_digest": plan.suite_digest,
             "agentguard_ref": plan.agentguard_ref,
+            "host": plan.host,
+            "accounts": list(plan.accounts),
         },
         "blind": True,
         "build": _read_json(run_dir / "build.json"),
@@ -172,7 +174,7 @@ def render_blind(a: dict[str, Any]) -> str:
     dq = a["data_quality"]
     return "\n".join(
         [
-            f"# Codex benchmark — {a['plan']['name']} ({a['plan']['stage']}, blind)",
+            f"# {_host_label(a)} benchmark — {a['plan']['name']} ({a['plan']['stage']}, blind)",
             "",
             "Arm differences are withheld by design (pre-registration §8).",
             "",
@@ -228,6 +230,8 @@ def analyze(run_dir: Path) -> dict[str, Any]:
             "effort": plan.effort,
             "suite_digest": plan.suite_digest,
             "agentguard_ref": plan.agentguard_ref,
+            "host": plan.host,
+            "accounts": list(plan.accounts),
         },
         "build": _read_json(run_dir / "build.json"),
         "data_quality": _data_quality(cells, records, pairs, plan),
@@ -387,19 +391,35 @@ def _data_quality(cells: list[dict], records: list[dict], pairs: Pairs, plan: Pl
         "models_seen": sorted({c.get("model") or "" for c in cells}),
         "efforts_seen": sorted({c.get("effort") or "" for c in cells}),
         "codex_versions_seen": sorted({c.get("cli_version") or "" for c in cells}),
+        "cells_by_account": _count(c.get("account") for c in cells if c.get("account")),
         "agentguard_commits_seen": sorted(
             {(c.get("provenance") or {}).get("agentguard_commit") or "" for c in cells}
         ),
     }
 
 
+def _count(values: Any) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for value in values:
+        out[str(value)] = out.get(str(value), 0) + 1
+    return out
+
+
+def _host_label(a: dict[str, Any]) -> str:
+    return "Claude Code" if a["plan"].get("host") == "claude" else "Codex"
+
+
 def _budget(cells: list[dict]) -> dict[str, Any]:
     credits = [c.get("credits_est") for c in cells if isinstance(c.get("credits_est"), (int, float))]
+    tokens = [sum((c.get("usage") or {}).values()) for c in cells if c.get("usage")]
+    output = [(c.get("usage") or {}).get("output_tokens", 0) for c in cells if c.get("usage")]
     first = next((c.get("limits_before") for c in cells if c.get("limits_before")), None)
     last = next((c.get("limits_after") for c in reversed(cells) if c.get("limits_after")), None)
     return {
         "credits_est_total": sum(credits),
         "credits_est_per_cell_median": stats.median(credits),
+        "tokens_per_cell_median": stats.median(tokens),
+        "output_tokens_per_cell_median": stats.median(output),
         "windows_first": first,
         "windows_last": last,
     }
@@ -424,7 +444,7 @@ def render_markdown(a: dict[str, Any]) -> str:
         return render_blind(a)
     p = a["primary"]
     lines = [
-        f"# Codex benchmark — {a['plan']['name']} ({a['plan']['stage']})",
+        f"# {_host_label(a)} benchmark — {a['plan']['name']} ({a['plan']['stage']})",
         "",
         f"Model `{a['plan']['model']}`, effort `{a['plan']['effort']}`; plan `{a['plan']['digest'][:12]}`; "
         f"AgentGuard `{(a.get('build') or {}).get('commit', '?')[:12]}`.",

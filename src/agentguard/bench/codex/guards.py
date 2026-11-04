@@ -71,6 +71,8 @@ class HookEvidence:
     recorder_events: dict[str, int] = field(default_factory=dict)
     recorder_stops: list[dict] = field(default_factory=list)
     recorder_ms: list[float] = field(default_factory=list)
+    # (model, effort, permission_mode) as the host reported them to its hooks (Claude Code).
+    recorder_settings: list[dict] = field(default_factory=list)
 
     def interventions(self) -> list[dict]:
         return [d for d in self.decisions if d.get("action") not in ("allow", "", None)]
@@ -130,6 +132,9 @@ def read_recorder(trace_dir: Path, evidence: HookEvidence) -> HookEvidence:
         evidence.recorder_events[event] = evidence.recorder_events.get(event, 0) + 1
         if isinstance(record.get("elapsed_ms"), (int, float)):
             evidence.recorder_ms.append(float(record["elapsed_ms"]))
+        settings = {k: record.get(k) for k in ("model", "effort", "permission_mode") if record.get(k)}
+        if settings and settings not in evidence.recorder_settings:
+            evidence.recorder_settings.append(settings)
         if event == "Stop":
             evidence.recorder_stops.append(
                 {k: record.get(k) for k in ("ts", "snapshot", "stop_hook_active", "last_assistant_message")}
@@ -222,31 +227,35 @@ def attest(arm: Arm, evidence: HookEvidence, transcript: Transcript, require_rec
             Problem("halt", f"session recorded observe_only={sorted(flags)}; arm expects {arm.observe_only}")
         )
 
-    visible = len(transcript.visible_denials) + len(transcript.stop_continuations)
+    post = len(transcript.post_tool_feedback)
+    visible = len(transcript.visible_denials) + len(transcript.stop_continuations) + post
     if arm.observe_only:
         if visible or transcript.guard_context_messages:
             problems.append(
                 Problem(
                     "halt",
                     f"observe-only arm leaked to the model: {len(transcript.visible_denials)} denial(s), "
-                    f"{len(transcript.stop_continuations)} continuation(s), "
+                    f"{len(transcript.stop_continuations)} continuation(s), {post} post-tool objection(s), "
                     f"{transcript.guard_context_messages} injected message(s)",
                 )
             )
         if evidence.interventions():
             problems.append(Problem("halt", "observe-only arm recorded a non-allow decision"))
     else:
-        # Every model-visible hook intervention must be one AgentGuard decided. A launcher
-        # that crashed with exit 2 would block work in the product's name.
-        blocking = [d for d in evidence.interventions() if d.get("event_type") in ("pre_tool_use", "stop")]
-        if visible > len(blocking):
-            problems.append(
-                Problem(
-                    "halt",
-                    f"{visible} model-visible intervention(s) but only "
-                    f"{len(blocking)} AgentGuard decision(s)",
+        # Every model-visible hook intervention must be one AgentGuard decided, kind by
+        # kind. A launcher that crashed with exit 2 would block work in the product's name.
+        def decided(*types: str) -> int:
+            return sum(1 for d in evidence.interventions() if d.get("event_type") in types)
+
+        for label, seen, made in (
+            ("tool refusal", len(transcript.visible_denials), decided("pre_tool_use", "user_prompt")),
+            ("stop hold", len(transcript.stop_continuations), decided("stop")),
+            ("post-tool objection", post, decided("post_tool_use", "post_tool_failure")),
+        ):
+            if seen > made:
+                problems.append(
+                    Problem("halt", f"{seen} model-visible {label}(s) but only {made} AgentGuard decision(s)")
                 )
-            )
         for text in transcript.visible_denials:
             if not naming.MODEL_VISIBLE_MARKER.search(text):
                 problems.append(Problem("halt", f"a hook denial that is not AgentGuard's: {text[:120]!r}"))
@@ -370,6 +379,38 @@ def _health(port: int) -> dict | None:
         conn.close()
 
 
+def write_guard_config(guard_home: Path, observe_only: bool, port: int) -> None:
+    """An arm's AgentGuard config: its mode and its own loopback port (never 8787)."""
+    homes.private_dir(guard_home)
+    config = (
+        f"observe_only = {'true' if observe_only else 'false'}\n\n"
+        f'[daemon]\nhost = "127.0.0.1"\nport = {port}\n'
+    )
+    (guard_home / naming.CONFIG_FILENAME).write_text(config, encoding="utf-8")
+    os.chmod(guard_home / naming.CONFIG_FILENAME, 0o600)
+
+
+def start_arm_daemon(ctx: ArmContext, build: Build, used_ports: set[int], adapter: str) -> dict:
+    """Write the arm's config, start its daemon from the build under test, prove its mode."""
+    ctx.port = _free_port(used_ports)
+    write_guard_config(ctx.guard_home, ctx.arm.observe_only, ctx.port)
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(ctx.shell_home), naming.ENV_HOME: str(ctx.guard_home)}
+    _run([str(build.cli), "daemon", "start"], env=env, timeout=60, check=False)
+    health = _health(ctx.port)
+    if not health:
+        raise homes.IsolationError(f"{ctx.arm.name}: the guard daemon did not answer on port {ctx.port}")
+    if bool(health.get("observing")) != ctx.arm.observe_only:
+        raise homes.IsolationError(f"{ctx.arm.name}: daemon observing={health.get('observing')}")
+    if adapter not in (health.get("adapters") or []):
+        raise homes.IsolationError(f"{ctx.arm.name}: daemon does not speak {adapter}: {health}")
+    return health
+
+
+def stop_arm_daemon(guard_home: Path, build: Build, shell_home: Path) -> None:
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(shell_home), naming.ENV_HOME: str(guard_home)}
+    _run([str(build.cli), "daemon", "stop"], env=env, timeout=30, check=False)
+
+
 RECORDER_EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd")
 
 
@@ -456,23 +497,7 @@ class AgentGuardPlugin:
         return ["--dangerously-bypass-hook-trust"] if self.trust == "bypass" else []
 
     def prepare_arm(self, ctx: ArmContext, used_ports: set[int]) -> None:
-        homes.private_dir(ctx.guard_home)
-        ctx.port = _free_port(used_ports)
-        config = (
-            f"observe_only = {'true' if ctx.arm.observe_only else 'false'}\n\n"
-            f'[daemon]\nhost = "127.0.0.1"\nport = {ctx.port}\n'
-        )
-        (ctx.guard_home / naming.CONFIG_FILENAME).write_text(config, encoding="utf-8")
-        os.chmod(ctx.guard_home / naming.CONFIG_FILENAME, 0o600)
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(ctx.shell_home), naming.ENV_HOME: str(ctx.guard_home)}
-        _run([str(self.build.cli), "daemon", "start"], env=env, timeout=60, check=False)
-        health = _health(ctx.port)
-        if not health:
-            raise homes.IsolationError(f"{ctx.arm.name}: the guard daemon did not answer on port {ctx.port}")
-        if bool(health.get("observing")) != ctx.arm.observe_only:
-            raise homes.IsolationError(f"{ctx.arm.name}: daemon observing={health.get('observing')}")
-        if "codex" not in (health.get("adapters") or []):
-            raise homes.IsolationError(f"{ctx.arm.name}: daemon does not speak Codex: {health}")
+        start_arm_daemon(ctx, self.build, used_ports, adapter="codex")
 
         template = homes.private_dir(ctx.codex_template)
         homes.link_auth(template)
