@@ -625,17 +625,24 @@ def daemon_config_error(settings: Settings | None = None) -> str | None:
     return settings._daemon_config_error
 
 
+# The name of the handler `configure_logging` adds when nothing else is configured.
+DEFAULT_LOG_HANDLER = "agentguard-default"
+
+
 def configure_logging(settings: Settings | None = None) -> None:
     """Apply ``log_level`` to the ``agentguard`` loggers of this process.
 
     Meant for the daemon (its stderr is daemon.log). Adds a stderr handler only when
     nothing in the process has configured logging, so an embedding application's
-    handlers are left alone.
+    handlers are left alone. The daemon installs its own redacting handler first
+    (``daemon/logs.py``), which replaces this one if it was added earlier.
     """
     settings = settings if settings is not None else Settings.load()
     logger = logging.getLogger("agentguard")
     logger.setLevel(getattr(logging, settings.log_level, logging.WARNING))
     if not logger.handlers and not logging.getLogger().handlers:
         handler = logging.StreamHandler()
+        handler.set_name(DEFAULT_LOG_HANDLER)
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         logger.addHandler(handler)
+

@@ -22,7 +22,6 @@ import typer
 from agentguard.core.config import (
     Settings,
     agentguard_home,
-    configure_logging,
     daemon_config_error,
     describe_unknown_key,
     ensure_private_dir,
@@ -71,7 +70,7 @@ def daemon_run(
 
     settings = Settings.load()
     _refuse_invalid_daemon_endpoint(settings, explicit_port=port is not None)
-    configure_logging(settings)
+    # `run()` sets up logging itself: a redacting, rotating handler plus `log_level`.
     run(host=host, port=port, log_level=log_level)
 
 
@@ -87,7 +86,12 @@ def _refuse_invalid_daemon_endpoint(settings: Settings, explicit_port: bool = Fa
 def daemon_start(timeout: float = typer.Option(10.0, help="Seconds to wait for readiness.")) -> None:
     """Start the daemon in the background."""
     from agentguard.daemon.app import daemon_is_alive, read_handshake
-    from agentguard.daemon.lifecycle import interprocess_lock, open_private_append, startup_lock_path
+    from agentguard.daemon.lifecycle import (
+        interprocess_lock,
+        open_private_append,
+        rotate_log,
+        startup_lock_path,
+    )
 
     home = agentguard_home()
     with interprocess_lock(startup_lock_path(home), timeout=timeout) as locked:
@@ -105,6 +109,8 @@ def daemon_start(timeout: float = typer.Option(10.0, help="Seconds to wait for r
         from agentguard.adapters.claude_code.shim import daemon_python_argv
 
         home.mkdir(parents=True, exist_ok=True)
+        # Bounded across restarts; the daemon also rotates it while it runs (R17).
+        rotate_log(home / "daemon.log")
         log_file = open_private_append(home / "daemon.log")
         try:
             # `-P` plus a cwd of AGENTGUARD_HOME: this command is usually typed inside a

@@ -229,7 +229,12 @@ def ensure_daemon(timeout: float | None = None) -> dict | None:
     # second hook waits for the first daemon to publish its handshake, then reuses it
     # instead of launching a competing process that could clobber credentials.
     try:
-        from agentguard.daemon.lifecycle import interprocess_lock, open_private_append, startup_lock_path
+        from agentguard.daemon.lifecycle import (
+            interprocess_lock,
+            open_private_append,
+            rotate_log,
+            startup_lock_path,
+        )
 
         startup_guard = interprocess_lock(startup_lock_path(_home()), timeout=timeout)
     except Exception:  # noqa: BLE001 - shim must remain dependency/failure tolerant
@@ -251,6 +256,8 @@ def ensure_daemon(timeout: float | None = None) -> dict | None:
         log_dir = _home()
         try:
             os.makedirs(log_dir, exist_ok=True)
+            # Bounded across restarts; the daemon also rotates it while it runs (R17).
+            rotate_log(os.path.join(log_dir, "daemon.log"))
             log_file = open_private_append(os.path.join(log_dir, "daemon.log"))
         except OSError:
             log_file = subprocess.DEVNULL

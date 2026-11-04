@@ -28,6 +28,11 @@ except ImportError:  # pragma: no cover - exercised only on POSIX.
 
 DEFAULT_LOCK_TIMEOUT_S = 10.0
 POLL_S = 0.025
+# daemon.log is the daemon's stdout and stderr. It is rotated past this size, both by the
+# process that spawns a daemon and by the daemon itself (`daemon/logs.py`), keeping this
+# many old files: at most about (DAEMON_LOG_BACKUPS + 1) * DAEMON_LOG_MAX_BYTES in all.
+DAEMON_LOG_MAX_BYTES = 4 * 1024 * 1024
+DAEMON_LOG_BACKUPS = 2
 _TRUSTED_SYSTEM_ALIASES = {
     Path("/tmp"): Path("/private/tmp"),
     Path("/var"): Path("/private/var"),
@@ -148,6 +153,35 @@ def open_private_append(path: str | Path) -> BinaryIO:
         with contextlib.suppress(OSError):
             os.close(fd)
         raise
+
+
+def rotate_log(
+    path: str | Path, max_bytes: int | None = None, backups: int | None = None
+) -> bool:
+    """Move an oversized log aside: ``log`` -> ``log.1`` -> ... -> ``log.<backups>``.
+
+    Returns whether it rotated. Only a regular file at least ``max_bytes`` long is moved,
+    and only by ``rename``, which never follows a symlink. The oldest backup is replaced,
+    so the log and its backups together stay below ``(backups + 1) * max_bytes`` plus
+    whatever is written after the last check. Never raises: a log that cannot be rotated
+    is still a log.
+    """
+    limit = DAEMON_LOG_MAX_BYTES if max_bytes is None else max_bytes
+    keep = DAEMON_LOG_BACKUPS if backups is None else max(1, backups)
+    target = Path(path)
+    try:
+        info = os.lstat(target)
+        if not stat.S_ISREG(info.st_mode) or info.st_size < limit:
+            return False
+        _assert_no_symlink_components(target.parent)
+        for index in range(keep - 1, 0, -1):
+            older = target.with_name(f"{target.name}.{index}")
+            if os.path.lexists(older):
+                os.replace(older, target.with_name(f"{target.name}.{index + 1}"))
+        os.replace(target, target.with_name(f"{target.name}.1"))
+        return True
+    except OSError:
+        return False
 
 
 def create_private_marker(path: str | Path, content: str = "") -> bool:

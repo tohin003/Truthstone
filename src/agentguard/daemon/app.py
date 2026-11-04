@@ -37,7 +37,6 @@ from agentguard.core.config import (
     DaemonSettings,
     Settings,
     agentguard_home,
-    configure_logging,
     daemon_config_error,
     daemon_handshake_path,
     ensure_private_dir,
@@ -46,7 +45,7 @@ from agentguard.core.config import (
 )
 from agentguard.core.engine import Guard
 from agentguard.core.metrics import METRICS
-from agentguard.daemon import degraded
+from agentguard.daemon import degraded, logs
 from agentguard.daemon.lifecycle import handshake_lock_path, interprocess_lock
 
 log = logging.getLogger(__name__)
@@ -292,10 +291,10 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
     async def health() -> dict[str, Any]:
         try:
             reasons = degradation(app)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - logged (safely) and reported in the body
             # /health is the liveness probe: it must answer, or a client revives a second
             # daemon. Say that the check itself failed rather than claim all is well.
-            log.exception("agentguard: degradation check failed")
+            log.error("agentguard: degradation check failed\n%s", logs.safe_traceback(exc))
             unknown = "the daemon could not check its own state; see daemon.log"
             reasons = [degraded.Reason("health_check", unknown)]
         return {
@@ -391,8 +390,15 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
                 out = adapter.from_decision(event, decision, adapter.hook_name(payload))
             # An adapter bug must not put a non-object on the wire.
             return JSONResponse(out if isinstance(out, dict) else {}, status_code=200)
-        except Exception:
-            log.exception("agentguard: hook handling failed; returning no-decision")
+        except Exception as exc:  # noqa: BLE001 - fail open: logged (safely), then no decision
+            # The payload is whatever the agent handled, credentials included, and an
+            # exception's text can quote it (pydantic prints `input_value=...`). Log the
+            # type and where it happened, never the values (R17).
+            log.error(
+                "agentguard: hook handling failed on /hook/%s; returning no-decision\n%s",
+                adapter_name,
+                logs.safe_traceback(exc),
+            )
             return JSONResponse({}, status_code=200)
 
     @app.post("/shutdown")
@@ -426,9 +432,10 @@ def run(host: str | None = None, port: int | None = None, log_level: str = "warn
         if problem:
             sys.stderr.write(f"agentguard: {problem}\n")
             raise SystemExit(2)
-    # `log_level` in config.toml governs AgentGuard's own loggers; before any other work,
-    # so the store and the index log at the configured level from the start.
-    configure_logging(settings)
+    # Before any other work, so the store and the index log through it from the start:
+    # one handler for the whole process that never writes a payload value or a secret,
+    # rotates daemon.log, and applies `log_level` from config.toml (R11, R17).
+    logs.install(settings, agentguard_home() / "daemon.log")
     host = host if host is not None else settings.daemon.host
     port = port if port is not None else settings.daemon.port
     try:
@@ -466,7 +473,11 @@ def run(host: str | None = None, port: int | None = None, log_level: str = "warn
     write_handshake(host, port, token)
 
     ensure_private_dir()
-    config = uvicorn.Config(app, host=host, port=port, log_level=log_level, access_log=False)
+    # `log_config=None`: uvicorn's loggers propagate to the root handler `logs.install`
+    # put there, so they are redacted and rotated like everything else.
+    config = uvicorn.Config(
+        app, host=host, port=port, log_level=log_level, access_log=False, log_config=None
+    )
     server = uvicorn.Server(config)
 
     # uvicorn 0.52 does not unwind the stack on SIGTERM, so a `finally` alone never
