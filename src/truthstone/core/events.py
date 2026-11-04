@@ -85,6 +85,11 @@ class AgentEvent(BaseModel):
     # before persistence, but must not become indistinguishable from an event that never
     # carried a task id: the latter may resolve to the session's current task.
     _task_id_rejected: bool = PrivateAttr(default=False)
+    # The edited file as it was when the action was proposed, for checks that run after the
+    # action did (WP9): `evidence.extractors.resolve_edit` prefers it to the disk.
+    _before: str | None = PrivateAttr(default=None)
+    # Judged and recorded by the workspace's worker, not where it was answered (WP9).
+    _decided_later: bool = PrivateAttr(default=False)
 
     @property
     def is_read_only(self) -> bool:

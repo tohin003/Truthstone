@@ -144,38 +144,37 @@ class Workspace:
         # Events answered before their bookkeeping ran (WP9), in arrival order. Handled by
         # this workspace's worker, and by any later event first, always under event_lock:
         # nothing is judged before everything that came before it is recorded.
-        self._deferred: deque[AgentEvent] = deque()
-        self._deferred_process: Callable[[AgentEvent], object] | None = None
+        self._deferred: deque[Callable[[], object]] = deque()
         self._deferred_wakeup = threading.Event()
         self._deferred_worker: threading.Thread | None = None
         self._deferred_start = threading.Lock()
         self._closing = False
 
     def defer(self, event: AgentEvent, process: Callable[[AgentEvent], object]) -> None:
-        """Queue ``event`` for ``process``, on this workspace's worker (started on first use)."""
-        self._deferred.append(event)
+        """Queue ``process(event)`` on this workspace's worker (started on first use)."""
+        self.defer_call(functools.partial(process, event))
+
+    def defer_call(self, job: Callable[[], object]) -> None:
+        """Queue ``job`` on this workspace's worker, after everything queued before it."""
+        self._deferred.append(job)
         if self._deferred_worker is None:
             with self._deferred_start:
                 if self._deferred_worker is None:
-                    self._deferred_process = process
                     worker = threading.Thread(target=self._work, name="truthstone-bookkeeping", daemon=True)
                     worker.start()
                     self._deferred_worker = worker
         self._deferred_wakeup.set()
 
     def drain(self) -> int:
-        """Handle every deferred event, oldest first. Call with ``event_lock`` held."""
+        """Run every deferred job, oldest first. Call with ``event_lock`` held."""
         handled = 0
-        process = self._deferred_process
         while self._deferred:
-            event = self._deferred.popleft()
+            job = self._deferred.popleft()
             handled += 1
-            if process is None:
-                continue
             try:
-                process(event)
+                job()
             except Exception:  # bookkeeping that fails is lost, never a broken host
-                log.exception("truthstone: deferred bookkeeping failed for %s", event.event)
+                log.exception("truthstone: deferred bookkeeping failed")
         return handled
 
     def _work(self) -> None:
@@ -514,6 +513,45 @@ class Guard:
         active = profile.active(self.settings)
         return not active.allow_all and not any(active.allowed.get(kind) for kind in _POST_EVENTS)
 
+    def _defers_advice(self) -> bool:
+        """Whether the pre-tool advice (evidence, scope, patterns, dependencies, secrets,
+        bypasses) runs after the answer (WP9): in a guard that defers, when none of it could
+        speak. Under the minimal profile only the sign-off and the premise hold speak before a
+        tool, and both are decided before the advice."""
+        if not self.defer_bookkeeping:
+            return False
+        return self.settings.observe_only or not profile.active(self.settings).allow_all
+
+    def _advice_deferral(
+        self, event: AgentEvent, ws: Workspace
+    ) -> Callable[[Callable[[], Decision]], None] | None:
+        """The validator's ``defer``: the advice becomes a job on the workspace's worker,
+        which judges and records this event (once, there)."""
+        if not self._defers_advice():
+            return None
+
+        def defer(advise: Callable[[], Decision]) -> None:
+            event._decided_later = True
+            ws.defer_call(functools.partial(self._record_advice, event, ws, advise))
+
+        return defer
+
+    def _record_advice(self, event: AgentEvent, ws: Workspace, advise: Callable[[], Decision]) -> None:
+        with Timer() as t:
+            try:
+                decision = advise()
+            except Exception:
+                log.exception("truthstone: deferred advice failed for %s", event.tool)
+                decision = Decision.allow()
+            decision = self._profiled(event, decision)
+            if self.settings.observe_only:
+                decision = observe.silence(decision)
+            decision.latency_ms = t.elapsed_ms()
+        try:
+            ws.store.record_event_and_decision(event, decision)
+        except Exception:
+            log.exception("truthstone: failed to persist event/decision")
+
     def _decide(self, event: AgentEvent, ws: Workspace, t: Timer | None = None) -> Decision:
         """Judge and record one event. Call with ``ws.event_lock`` held. Never raises."""
         if t is None:  # a deferred event: its own clock
@@ -558,6 +596,8 @@ class Guard:
         # not at all — never an event whose decision was lost — in one commit
         # instead of two or more. The id is set only when it was persisted.
         decision.latency_ms = t.elapsed_ms()
+        if event._decided_later:
+            return decision  # the worker judges the rest of it, and records it once
         try:
             decision.decision_id = ws.store.record_event_and_decision(event, decision) or decision.decision_id
         except Exception:
@@ -807,9 +847,20 @@ class Guard:
             self._record_parse_baseline(event, ws)
         except Exception:  # a missing baseline only means "blame as before"
             log.exception("truthstone: could not record a parse baseline; continuing")
-        held = self._premise_hold(event, ws)
-        if held is not None:
-            return held
+        if self._premise_hold_due(event, ws):
+            # The developer's sign-off, or a guarded rewrite, comes first (A1): the hold waits
+            # for the next edit. Only the Level-0 decision is wanted here; the advice is not.
+            first = validate.validate(
+                event=event,
+                index=ws.index,
+                state=ws.event_task_state(event),
+                ledger=ws.ledger,
+                task_id=event.task_id,
+                defer=lambda advise: None,
+            )
+            if first.action is not DecisionAction.ALLOW:
+                return first
+            return self._premise_hold(event, ws)
         if event.tool in SHELL_TOOLS:
             # The command's window opens: a file it changes changes after this (G5).
             ws.shell.note_start(event.session_id, event.tool_use_id)
@@ -819,7 +870,15 @@ class Guard:
             state=ws.event_task_state(event),
             ledger=ws.ledger,
             task_id=event.task_id,
+            defer=self._advice_deferral(event, ws),
         )
+
+    @staticmethod
+    def _premise_hold_due(event: AgentEvent, ws: Workspace) -> bool:
+        """Whether this is the first edit of a task whose premise note may go unheeded."""
+        if not event.task_id or event.task_id not in ws.premise_holds:
+            return False
+        return event.is_mutating or (event.tool in SHELL_TOOLS and not checks.read_only_bash(event))
 
     @staticmethod
     def _premise_hold(event: AgentEvent, ws: Workspace) -> Decision | None:
@@ -832,13 +891,9 @@ class Guard:
         edit or deletion, or a shell command that is not read-only, counts as an edit; a read
         never does. No note, no hold.
         """
-        task_id = event.task_id
-        if not task_id or task_id not in ws.premise_holds:
+        if not Guard._premise_hold_due(event, ws):
             return None
-        edits = event.is_mutating or (event.tool in SHELL_TOOLS and not checks.read_only_bash(event))
-        if not edits:
-            return None
-        text = ws.premise_holds.pop(task_id)
+        text = ws.premise_holds.pop(str(event.task_id))
         return Decision(
             action=DecisionAction.CHALLENGE,
             level=EscalationLevel.HOST_CHALLENGE,

@@ -303,6 +303,11 @@ def _asserted(sentence: str, offset: int, name: str) -> bool:
     window = _window(before)
     if re.search(r"\b(?:already|existing)\b", window, re.IGNORECASE):
         return True  # "on top of the existing X": nearest word wins
+    if name.startswith("--"):
+        # A flag is the project's only when the request calls it that ("the --dry-run flag")
+        # or says it exists ("already", "existing"); "use --soft" names a tool's own flag.
+        named = _KIND_NOUN.match(after) and re.search(r"\b(?:the|our|its)\s+\S*$", before, re.IGNORECASE)
+        return bool(named) or _EXISTING_BEHAVIOUR.search(sentence) is not None
     # Creation binds tighter than the sentence: a creating word within the four words before.
     if _CREATES.search(window):
         return False

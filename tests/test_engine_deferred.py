@@ -166,3 +166,144 @@ def test_the_daemon_defers(tmp_path):
         assert app.state.guard.defer_bookkeeping is True
     finally:
         app.state.guard.close()
+
+
+# -- the pre-tool advice (evidence, scope, patterns, dependencies) after the answer ---------------
+
+
+def _codex(repo: Path, name: str, **fields) -> dict:
+    return {"session_id": "s", "turn_id": "t", "cwd": str(repo), "hook_event_name": name, **fields}
+
+
+BROKEN = (
+    "from pkg.core import real_helper, imaginary_helper\n\n\ndef test_it():\n    assert real_helper() == 1\n"
+)
+
+
+def _update_core(repo: Path) -> dict:
+    """An edit importing a name ``pkg.core`` does not have: the evidence check's challenge."""
+    command = (
+        "*** Begin Patch\n"
+        f"*** Update File: {repo / 'tests' / 'test_core.py'}\n"
+        "@@\n"
+        "-from pkg.core import real_helper\n"
+        "+from pkg.core import real_helper, imaginary_helper\n"
+        "*** End Patch\n"
+    )
+    return {"command": command}
+
+
+def _pre_tool_rows() -> list[tuple[str, str | None]]:
+    rows = Database.shared().query(
+        "SELECT d.action, d.would_have FROM decisions d JOIN events e ON e.id = d.event_id "
+        "WHERE e.type = 'pre_tool_use' AND e.tool = 'Edit'"
+    )
+    return [(row["action"], row["would_have"] or None) for row in rows]
+
+
+@pytest.mark.parametrize("name, defers", [("minimal", True), ("full", False)])
+def test_the_advice_is_judged_after_the_answer_against_the_file_the_edit_found(tmp_path, name, defers):
+    """Under minimal the evidence challenge cannot speak: the answer comes first, and the
+    worker judges the edit against the snapshot even though the edit has landed by then."""
+    from truthstone.adapters.codex import translate
+
+    repo = _python_repo(tmp_path)
+    guard = Guard(Settings(profile=name), defer_bookkeeping=True)
+    try:
+        ws = guard.workspace(repo)
+        ws.index.ready(timeout=30)
+        translate.dispatch(guard, _codex(repo, "UserPromptSubmit", prompt="real_helper() should return 2."))
+        patch = _update_core(repo)
+        with ws.event_lock:  # the worker cannot run until the tool has changed the file
+            output = translate.dispatch(
+                guard, _codex(repo, "PreToolUse", tool_name="apply_patch", tool_input=patch)
+            )[0]
+            (repo / "tests" / "test_core.py").write_text(BROKEN)
+        if defers:
+            assert output == {}
+        else:
+            assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+        translate.dispatch(
+            guard, _codex(repo, "Stop", stop_hook_active=False, last_assistant_message="Done.")
+        )
+    finally:
+        guard.close()
+    expected = [("allow", "challenge")] if defers else [("challenge", None)]
+    assert _pre_tool_rows() == expected
+
+
+def test_a_sign_off_is_still_decided_before_the_tool(tmp_path):
+    import subprocess
+
+    repo = _python_repo(tmp_path)
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+        "HOME": str(tmp_path),
+    }
+    for argv in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "start"]):
+        subprocess.run(["git", "-C", str(repo), *argv], check=True, env=env, capture_output=True)
+    (repo / "pkg" / "core.py").write_text("def real_helper():\n    return 3\n")  # uncommitted work
+    guard = Guard(Settings(), defer_bookkeeping=True)
+    try:
+        guard.workspace(repo).index.ready(timeout=30)
+        decision = guard.handle(
+            _event(repo, EventType.PRE_TOOL_USE, tool="Bash", arguments={"command": "git reset --hard"})
+        )
+    finally:
+        guard.close()
+    assert decision.action is DecisionAction.REQUEST_REVIEW and decision.signoff_required
+
+
+def test_the_premise_hold_is_still_decided_before_the_tool(tmp_path):
+    from truthstone.adapters.codex import translate
+
+    repo = _python_repo(tmp_path)
+    guard = Guard(Settings(), defer_bookkeeping=True)
+    try:
+        guard.workspace(repo).index.ready(timeout=30)
+        ask = "pkg already prints every call when PKG_TRACE=1 is set, so switch that on."
+        translate.dispatch(guard, _codex(repo, "UserPromptSubmit", prompt=ask))
+        output = translate.dispatch(
+            guard, _codex(repo, "PreToolUse", tool_name="apply_patch", tool_input=_update_core(repo))
+        )[0]
+    finally:
+        guard.close()
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "PKG_TRACE" in output["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_a_sign_off_comes_before_the_premise_hold_which_waits_for_the_next_edit(tmp_path):
+    import subprocess
+
+    from truthstone.adapters.codex import translate
+
+    repo = _python_repo(tmp_path)
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+        "HOME": str(tmp_path),
+    }
+    for argv in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "start"]):
+        subprocess.run(["git", "-C", str(repo), *argv], check=True, env=env, capture_output=True)
+    (repo / "pkg" / "core.py").write_text("def real_helper():\n    return 3\n")  # uncommitted work
+    guard = Guard(Settings(), defer_bookkeeping=True)
+    try:
+        guard.workspace(repo).index.ready(timeout=30)
+        ask = "pkg already prints every call when PKG_TRACE=1 is set, so switch that on."
+        translate.dispatch(guard, _codex(repo, "UserPromptSubmit", prompt=ask))
+        command = {"command": "git reset --hard"}
+        reset = translate.dispatch(guard, _codex(repo, "PreToolUse", tool_name="Bash", tool_input=command))[0]
+        edit = translate.dispatch(
+            guard, _codex(repo, "PreToolUse", tool_name="apply_patch", tool_input=_update_core(repo))
+        )[0]
+    finally:
+        guard.close()
+    assert reset["hookSpecificOutput"]["permissionDecisionReason"].startswith("needs developer sign-off")
+    assert "PKG_TRACE" in edit["hookSpecificOutput"]["permissionDecisionReason"]
