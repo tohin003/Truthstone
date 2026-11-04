@@ -61,7 +61,7 @@ def workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def guard(workspace: Path) -> Iterator[Guard]:
-    g = Guard(Settings())
+    g = Guard(Settings(profile="full"))
     yield g
     g.close()
 

@@ -44,7 +44,7 @@ from truthstone.repo import symbols_ts
 from truthstone.repo.gitinfo import repository_root
 from truthstone.repo.index import IndexDelta, RepoIndex
 from truthstone.validate import checks
-from truthstone.verify import completion_gate, runners, static
+from truthstone.verify import arbiter, completion_gate, runners, static
 
 log = logging.getLogger(__name__)
 
@@ -706,7 +706,11 @@ class Guard:
             return
         if path not in state.file_baselines:
             state.file_baselines[path] = baseline.capture(
-                ws.index.root, path, state.seq, changed_before=path in state.last_change_seq
+                ws.index.root,
+                path,
+                state.seq,
+                changed_before=path in state.last_change_seq,
+                text_budget=baseline.MAX_TASK_TEXT_BYTES - baseline.text_bytes(state),
             )
         if path in state.parse_baseline:
             return
@@ -850,20 +854,24 @@ class Guard:
         drain = ws.shell.pending(state.task_id)
         self._sweep(ws, 0.0 if drain else STOP_SWEEP_INTERVAL)
 
-        verdict = completion_gate.evaluate(
+        # One arbiter decides (v0.2 M1): the gate's evidence, the integrity checks and the
+        # final message's claims, under the settings' profile; at most one challenge.
+        verdict = arbiter.arbitrate(
             state=state,
             index=ws.index,
+            message=event.last_assistant_message,
             stop_hook_active=bool(event.raw.get("stop_hook_active")),
             max_blocks=self.settings.challenge.max_stop_blocks_per_task,
-            message=event.last_assistant_message,
             pending_tasks=event.pending_tasks,
+            profile=getattr(self.settings, "profile", "minimal"),
         )
         if not verdict.should_block:
             # Still carries findings: the gate can pass and have seen something worth
             # counting — untested code, most often (SPEC §3, "write insufficient tests").
-            # When rationing muted a real objection the turn ends unverified, and the
-            # decision says so explicitly, for the developer (G10) — never in observe
-            # mode, where nothing is said at all.
+            # When a real objection was not raised with the agent (rationed, or outside
+            # the profile) the turn ends with that gap, and the decision says so
+            # explicitly, for the developer (G10) — never in observe mode, where nothing
+            # is said at all.
             gave_up = verdict.unresolved if not self.settings.observe_only else ""
             return Decision(
                 action=DecisionAction.ALLOW,
@@ -879,6 +887,7 @@ class Guard:
         # genuinely belong to the handler that causes them.
         if not self.settings.observe_only:
             state.stop_blocks += 1
+            state.raised_categories.update(str(category) for category in verdict.raised)
             METRICS.increment(M_FALSE_COMPLETION_BLOCKED, labels={"result": str(verdict.result)})
         return Decision(
             action=DecisionAction.BLOCK,

@@ -33,7 +33,7 @@ def repo(tmp_path) -> Path:
 
 @pytest.fixture
 def guard(repo):
-    g = Guard(Settings())
+    g = Guard(Settings(profile="full"))
     assert g.workspace(repo).index.ready(timeout=30)
     yield g
     g.close()

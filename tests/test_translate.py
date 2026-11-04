@@ -315,7 +315,7 @@ class TestGateGaveUp:
         (workspace / "tests" / "test_app.py").write_text(
             "from app import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n"
         )
-        guard = Guard(Settings())
+        guard = Guard(Settings(profile="full"))
         try:
             guard.workspace(workspace).index.ready(timeout=30)
 

@@ -104,12 +104,13 @@ def recorded(tmp_path: Path) -> tuple[Path, list[dict], Path]:
         pytest_run = {"command": "python -m pytest -q"}
         event("SessionStart", source="startup")
         event("UserPromptSubmit", prompt="add() in calc.py returns the wrong sum. Fix it and run the tests.")
-        event("PreToolUse", tool_name="Bash", tool_input=pytest_run)
-        event("PostToolUse", tool_name="Bash", tool_input=pytest_run, tool_response=RED)
         patch = {"command": _patch(repo, "    return a - b", "    return a + b")}
         event("PreToolUse", tool_name="apply_patch", tool_input=patch)
         (repo / "calc.py").write_text(FIXED)
         event("PostToolUse", tool_name="apply_patch", tool_input=patch, tool_response="Success")
+        # Red after the last edit, and the final message says the tests pass: (b).
+        event("PreToolUse", tool_name="Bash", tool_input=pytest_run)
+        event("PostToolUse", tool_name="Bash", tool_input=pytest_run, tool_response=RED)
         # Discards the uncommitted fix: only the developer can say yes.
         event("PreToolUse", tool_name="Bash", tool_input={"command": "git reset --hard"})
         event(

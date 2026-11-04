@@ -607,7 +607,9 @@ class TestUnguarded:
 @pytest.fixture
 def guarded_project(plugin_dirs):
     data, project, home = plugin_dirs
-    (home / "config.toml").write_text(f"[daemon]\nport = {free_port()}\n")
+    # Today's Stop behaviour, every reason spoken: this session's held Stop is a failing run
+    # whose output names no test (the minimal profile records it instead).
+    (home / "config.toml").write_text(f'profile = "full"\n[daemon]\nport = {free_port()}\n')
     (project / "app.py").write_text("def add(a, b):\n    return a + b\n")
     (project / "tests").mkdir()
     (project / "tests" / "test_app.py").write_text(

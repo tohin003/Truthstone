@@ -85,7 +85,7 @@ def index(repo) -> RepoIndex:
 def guard_for(repo: Path, observe_only: bool = False):
     from truthstone.core.engine import Guard
 
-    guard = Guard(Settings(observe_only=observe_only))
+    guard = Guard(Settings(observe_only=observe_only, profile="full"))
     guard.workspace(repo).index.ready(timeout=30)
     return guard
 

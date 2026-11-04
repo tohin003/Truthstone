@@ -43,12 +43,18 @@ class TaskState:
     # disagreement between Truthstone and the agent cannot become a loop (SPEC §19).
     stop_blocks: int = 0
     scope_challenged: bool = False
+    # The completion arbiter's categories already raised with the agent in this task
+    # (``ReasonCategory`` values): each reason is challenged at most once (v0.2 M1).
+    raised_categories: set[str] = field(default_factory=set)
 
     # Verification is a timeline (G2a). Every change and every test run takes the next
     # number, so the gate can ask what a run actually saw: the latest run decides, and a
     # change made after the latest pass leaves that pass stale.
     seq: int = 0
     last_change_seq: dict[str, int] = field(default_factory=dict)
+    # The position of the task's first change: a test that was already failing before it
+    # is not the task's doing (v0.2 M1, "baseline red"). 0 until the first change.
+    first_change_seq: int = 0
     # The tests that covered a file when it was deleted (G5). The index forgets a deleted
     # file, and with it which tests reached it; without this snapshot deleting covered
     # code looked like a change nothing tests.
@@ -73,6 +79,7 @@ class TaskState:
         self.touched_files.add(path)
         self.deleted_files.discard(path)  # written again after a deletion
         self.last_change_seq[path] = self.next_seq()
+        self.first_change_seq = self.first_change_seq or self.seq
 
     def delete(self, path: str, covering: set[str] | None = None) -> None:
         """Record a deletion: a change to ``path`` that leaves nothing on disk.
@@ -84,6 +91,7 @@ class TaskState:
         self.deleted_files.add(path)
         self.created_files.discard(path)
         self.last_change_seq[path] = self.next_seq()
+        self.first_change_seq = self.first_change_seq or self.seq
         if covering:
             self.deleted_coverage.setdefault(path, set()).update(covering)
 

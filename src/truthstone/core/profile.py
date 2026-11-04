@@ -78,6 +78,12 @@ SUBJECT_KINDS: dict[str, str] = {
     "unread-config": Kind.UNREAD_CONFIG,
     # opt-in
     "planning-note": PLANNING_NOTE,
+    # The completion arbiter's primary findings carry their ReasonCategory value (V1).
+    "spec_erosion": Kind.SPEC_INTEGRITY,
+    "test_weakening": Kind.TEST_INTEGRITY,
+    "test_fitting": Kind.TEST_SPECIFIC_CODE,
+    "failing_tests": Kind.FAILING_TESTS,
+    "unread_config": Kind.UNREAD_CONFIG,
 }
 
 # Severities at which a finding is what a decision speaks about (below: observations).

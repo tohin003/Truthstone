@@ -113,7 +113,7 @@ def test_the_live_codex_stop_message_is_an_honest_hand_back(tmp_path):
     because..." A disclosure, so an unverified edit is not held."""
     repo = tmp_path / "pyrepo"
     shutil.copytree(FIXTURES / "pyrepo", repo)
-    guard = Guard(Settings())
+    guard = Guard(Settings(profile="full"))
     try:
         guard.workspace(repo).index.ready(timeout=30)
         base = {"session_id": "sess-codex", "cwd": str(repo), "turn_id": "t1"}

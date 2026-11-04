@@ -18,7 +18,7 @@ import secrets
 import stat
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 
@@ -355,6 +355,11 @@ _RETIRED_KEYS = {
 
 class Settings(BaseModel):
     enabled: bool = True
+    # Who may speak at Stop (v0.2). "minimal", the product default: only a weakened
+    # yardstick, undisclosed failing tests that exercise the change, and configuration
+    # nothing reads (`ReasonCategory`, `MINIMAL_STOP_CATEGORIES`). "full": every reason,
+    # including stale, narrower or missing test runs. Whatever does not speak is recorded.
+    profile: Literal["minimal", "full"] = "minimal"
     # Phase 7's census switch. Every engine still runs and every finding is still
     # recorded; the agent hears none of it (see `core/observe.py`). Off by default —
     # while it is on, Truthstone provides no protection at all.

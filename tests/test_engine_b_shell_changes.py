@@ -78,7 +78,7 @@ class Agent:
 
 @pytest.fixture
 def guard(repo):
-    g = Guard(Settings())
+    g = Guard(Settings(profile="full"))
     assert g.workspace(repo).index.ready(timeout=30)
     yield g
     g.close()
@@ -149,7 +149,7 @@ def test_ignored_and_build_outputs_are_not_changes(guard, repo):
     ):
         subprocess.run(argv, cwd=repo, env=env, check=True, capture_output=True, timeout=60)
     guard.close()
-    guard = Guard(Settings())
+    guard = Guard(Settings(profile="full"))
     assert guard.workspace(repo).index.ready(timeout=30)
     try:
         agent = Agent(guard, repo)

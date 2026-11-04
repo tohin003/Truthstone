@@ -102,6 +102,41 @@ class GateResult(StrEnum):
     HUMAN_REVIEW_REQUIRED = "human_review_required"
 
 
+class ReasonCategory(StrEnum):
+    """Why the completion arbiter would hold a "done" (v0.2, ``verify/arbiter.py``).
+
+    Every Stop-time reason belongs to exactly one category, and a category speaks at most
+    once per task. The minimal-intervention profile (``settings.profile = "minimal"``, the
+    product default) lets only the categories in ``MINIMAL_STOP_CATEGORIES`` reach the
+    agent; the others are recorded and reported to the developer, never to the agent.
+    The letters are the profile's own: (a) a weakened yardstick, (b) failing tests left
+    undisclosed, (e) configuration nothing reads.
+    """
+
+    # (a) the yardstick was changed to make "done" true
+    SPEC_EROSION = "spec_erosion"  # a documented normative rule removed or qualified
+    TEST_WEAKENING = "test_weakening"  # existing tests weakened, deleted or skipped
+    TEST_FITTING = "test_fitting"  # production code hard-codes test-only expectations
+    # (b) relevant tests failing after the last edit, with no disclosure
+    FAILING_TESTS = "failing_tests"
+    # (e) the change only adds configuration nothing reads, and the claim is behavioural
+    UNREAD_CONFIG = "unread_config"
+    # Outside the minimal profile: recorded, and spoken only under profile "full".
+    UNVERIFIED = "unverified"  # stale, narrower or off-target run; no run; run in flight
+    UNPARSABLE = "unparsable"  # a changed file no longer parses (may be a version mismatch)
+
+
+MINIMAL_STOP_CATEGORIES: frozenset[ReasonCategory] = frozenset(
+    {
+        ReasonCategory.SPEC_EROSION,
+        ReasonCategory.TEST_WEAKENING,
+        ReasonCategory.TEST_FITTING,
+        ReasonCategory.FAILING_TESTS,
+        ReasonCategory.UNREAD_CONFIG,
+    }
+)
+
+
 class EscalationLevel(IntEnum):
     """Reasoning escalation ladder (SPEC §7).
 

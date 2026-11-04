@@ -178,7 +178,7 @@ def _edit_app(root: Path) -> dict:
 
 class TestThroughTheClaudeAdapter:
     def test_the_live_failure_blocks_a_claimed_pass_and_cites_the_command(self, app):
-        guard = Guard(Settings())
+        guard = Guard(Settings(profile="full"))
         try:
             guard.workspace(app).index.ready(timeout=30)
             _claude(guard, _load("hook_payloads", "UserPromptSubmit"), app)
@@ -196,7 +196,7 @@ class TestThroughTheClaudeAdapter:
         """Text alone would say "could not tell"; the exit status says failed."""
         failure = {**_load("hook_payloads", "PostToolUseFailure"), "error": "Exit code 1\n" + PYTEST_QQ_FAIL}
         failure["tool_input"] = {"command": "pytest -qq tests/test_app.py"}
-        guard = Guard(Settings())
+        guard = Guard(Settings(profile="full"))
         try:
             ws = guard.workspace(app)
             ws.index.ready(timeout=30)
@@ -212,7 +212,7 @@ class TestThroughTheClaudeAdapter:
 
     def test_a_powershell_failure_is_read_like_a_bash_one(self, app):
         failure = {**_load("hook_payloads", "PostToolUseFailure"), "tool_name": "PowerShell"}
-        guard = Guard(Settings())
+        guard = Guard(Settings(profile="full"))
         try:
             ws = guard.workspace(app)
             ws.index.ready(timeout=30)
@@ -229,7 +229,7 @@ class TestThroughTheClaudeAdapter:
             "error": "Exit code 130\n..\n!!! KeyboardInterrupt !!!",
             "is_interrupt": True,
         }
-        guard = Guard(Settings())
+        guard = Guard(Settings(profile="full"))
         try:
             ws = guard.workspace(app)
             ws.index.ready(timeout=30)
@@ -246,7 +246,7 @@ class TestThroughTheCodexAdapter:
     def test_a_failing_run_is_read_from_its_text(self, app):
         """Codex sends no exit status for Bash, so the output text decides."""
         base = {"session_id": "sess-codex", "cwd": str(app), "turn_id": "t1"}
-        guard = Guard(Settings())
+        guard = Guard(Settings(profile="full"))
         try:
             ws = guard.workspace(app)
             ws.index.ready(timeout=30)

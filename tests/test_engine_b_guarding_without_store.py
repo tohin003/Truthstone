@@ -61,7 +61,7 @@ class Session:
 
 
 def test_challenge_raised_once_with_writes_disabled(repo, monkeypatch):
-    guard = Guard(Settings())
+    guard = Guard(Settings(profile="full"))
     try:
         ws = guard.workspace(repo)
         assert ws.index.ready(timeout=30)
@@ -85,7 +85,7 @@ def test_guards_with_corrupted_database(isolated_home, repo):
     path.write_bytes(b"this is not a sqlite database" * 200)
     os.chmod(path, 0o600)
 
-    guard = Guard(Settings())
+    guard = Guard(Settings(profile="full"))
     try:
         ws = guard.workspace(repo)
         assert ws.store.degraded_reason
