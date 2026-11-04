@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 
 from agentguard import complexity, intent, planning, validate
 from agentguard.challenge.ledger import ChallengeLedger
-from agentguard.core import observe
+from agentguard.core import observe, shellchanges
 from agentguard.core.config import Settings
 from agentguard.core.enums import DecisionAction, EscalationLevel, EventType
 from agentguard.core.events import SHELL_TOOLS, AgentEvent
@@ -38,7 +39,8 @@ from agentguard.core.taskstate import TaskState
 from agentguard.intent.models import TaskSpec
 from agentguard.repo import symbols_ts
 from agentguard.repo.gitinfo import repository_root
-from agentguard.repo.index import RepoIndex
+from agentguard.repo.index import IndexDelta, RepoIndex
+from agentguard.validate import checks
 from agentguard.verify import completion_gate, runners, static
 
 log = logging.getLogger(__name__)
@@ -49,6 +51,11 @@ _TOOL_EVENTS = frozenset({EventType.PRE_TOOL_USE, EventType.POST_TOOL_USE, Event
 # How often a session start or a prompt may re-scan the tree for changes made outside
 # the agent (R4). Off the per-tool path; about 100 ms on a large repository.
 BOUNDARY_REFRESH_INTERVAL = 30.0
+# How often a shell command may sweep the tree. A sweep it skips is not lost: the change
+# waits, attributed to the command, for whichever sweep comes next (G5).
+SHELL_SWEEP_INTERVAL = 2.0
+# Stop's sweep, when no shell change is waiting for one.
+STOP_SWEEP_INTERVAL = 5.0
 
 
 def memory_task_id() -> str:
@@ -91,6 +98,9 @@ class Workspace:
         # the rest of the session — "don't run the tests" then "now fix the other one"
         # is one instruction — until a later prompt asks for tests.
         self.session_waivers: set[str] = set()
+        # Shell commands' changes, each holding its place on its task's timeline until a
+        # sweep of the tree attributes them (G5).
+        self.shell = shellchanges.ShellChanges()
 
     def begin_task(self, task_id: str, spec: TaskSpec, session_id: str = "") -> TaskState | None:
         if not task_id:
@@ -143,6 +153,10 @@ class Workspace:
             session_id, "", spec={**spec.model_dump(mode="json"), "implicit": True}, depth="implicit"
         )
         return self.begin_task(task_id or memory_task_id(), spec, session_id)
+
+    def live_task(self, task_id: str) -> TaskState | None:
+        """The in-memory state of ``task_id``, without any ownership check."""
+        return self._tasks.get(task_id)
 
     def _forget_task(self, task_id: str) -> None:
         self._tasks.pop(task_id, None)
@@ -208,6 +222,7 @@ class Workspace:
             self._task_sessions.pop(task_id, None)
         self._session_tasks.pop(session_id, None)
         self.session_waivers.discard(session_id)
+        self.shell.forget_session(session_id)
 
     def carry_waiver(self, session_id: str, spec: TaskSpec) -> None:
         """Apply, record or end the session's test waiver for a new prompt (G6)."""
@@ -405,8 +420,8 @@ class Guard:
         self._refresh_at_boundary(ws)
         return Decision.allow()
 
-    @staticmethod
-    def _refresh_at_boundary(ws: Workspace) -> None:
+    @classmethod
+    def _refresh_at_boundary(cls, ws: Workspace) -> None:
         """Pick up what changed while no agent was working (R4).
 
         A long-lived daemon outlives sessions; between them the developer switches
@@ -415,8 +430,29 @@ class Guard:
         where a fresh daemon challenged the same Write (D6 E4). Rate-limited, and only
         once the index exists: a first build is already current.
         """
-        if ws.index.is_built:
-            ws.index.refresh(min_interval=BOUNDARY_REFRESH_INTERVAL)
+        cls._sweep(ws, BOUNDARY_REFRESH_INTERVAL)
+
+    @staticmethod
+    def _sweep(ws: Workspace, min_interval: float = 0.0) -> IndexDelta:
+        """Re-scan the tree, and give what changed to the shell commands that changed it.
+
+        Every sweep goes through here — after a shell command, at Stop, at session and
+        prompt boundaries — so a change that a rate-limited sweep missed still reaches the
+        task whose command made it, at the place that command took on its timeline,
+        whichever sweep sees it first (G5). With no shell change waiting, a sweep only
+        refreshes the index. Never builds: an unbuilt index has no baseline to compare.
+        """
+        index = ws.index
+        if not index.is_built:
+            return IndexDelta()
+        if min_interval and time.monotonic() - index.last_refresh < min_interval:
+            return IndexDelta()
+        # The coverage a removed file had is only known before the sweep forgets it.
+        snapshot = shellchanges.Snapshot.take(index) if ws.shell.pending() else None
+        delta = index.refresh_delta(min_interval)
+        if snapshot is not None and delta.swept:
+            ws.shell.apply(delta, snapshot, index, ws.live_task)
+        return delta
 
     def _on_user_prompt(self, event: AgentEvent, ws: Workspace) -> Decision:
         """Intent Gateway + Complexity Engine + Planning Governor (SPEC §9, §12, §13).
@@ -468,6 +504,9 @@ class Guard:
         # keeps ordinary exploration free.
         if event.is_read_only:
             return Decision.allow()
+        if event.tool in SHELL_TOOLS:
+            # The command's window opens: a file it changes changes after this (G5).
+            ws.shell.note_start(event.session_id, event.tool_use_id)
 
         try:
             self._record_parse_baseline(event, ws)
@@ -546,11 +585,24 @@ class Guard:
 
         elif event.tool in SHELL_TOOLS:
             command = event.arg("command")
-            if isinstance(command, str):
+            command = command if isinstance(command, str) else ""
+            # What the command changed reaches the task (G5): `sed -i`, a codemod, `rm`,
+            # `git mv` name no file, so the sweep below finds the changes, and each lands
+            # at the place the command holds on the timeline — before its own test run
+            # when that run is its last stage (`sed -i … && pytest`), after it otherwise.
+            # A command that only reads or runs tests (A4) changes nothing of the task's.
+            writes = (
+                state is not None and not event.is_read_only and not checks.read_only_bash(event)
+            )
+            first = writes and shellchanges.changes_precede_run(command)
+            if first:
+                ws.shell.reserve(state, event.tool_use_id)
+            if command:
                 self._record_test_run(event, ws, state, command)
+            if writes and not first:
+                ws.shell.reserve(state, event.tool_use_id)
             # A shell command can touch anything; fall back to a rate-limited sweep.
-            if ws.index.is_built:
-                ws.index.refresh(min_interval=2.0)
+            self._sweep(ws, SHELL_SWEEP_INTERVAL)
 
         return Decision.allow()
 
@@ -605,8 +657,11 @@ class Guard:
         # Pick up anything changed underneath us — a branch switch, a `git clean`, a
         # colleague's rebase. `refresh_path` only covers files the *agent* touched, so
         # without this the gate can cite a test file that no longer exists. Observed in
-        # benchmark run 01, where it recommended a deleted test.
-        ws.index.refresh(min_interval=5.0)
+        # benchmark run 01, where it recommended a deleted test. A shell command whose
+        # sweep was rate-limited is drained first, so its changes are on the task before
+        # the gate judges it (G5).
+        drain = ws.shell.pending(state.task_id)
+        self._sweep(ws, 0.0 if drain else STOP_SWEEP_INTERVAL)
 
         verdict = completion_gate.evaluate(
             state=state,
