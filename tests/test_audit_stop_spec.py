@@ -606,7 +606,6 @@ def test_pressure_needs_a_red_suite_or_a_request_to_make_it_pass(prompt, pressur
 # -- under real test pressure, a rule moved into a new module is still a rule (M5) -------------
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M5 a rule moved into a newly created file is 'removed'")
 def test_rule_moved_into_new_module_under_test_pressure(tmp_path, sessions):
     repo = invoicer(tmp_path, **{"invoicer/totals.py": DISCOUNTS_MODULE_DOC})
     session = sessions(repo)

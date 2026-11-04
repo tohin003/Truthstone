@@ -63,11 +63,15 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
     for path, (old, new) in texts.items():
         if _is_production(path) and (old is None or spec_integrity.code_changed(path, old, new) is not False):
             code_changed = True
-        if old is None:
+        if not (spec_integrity.is_doc_path(path) or spec_integrity.is_docstring_source(path)):
             continue
-        if spec_integrity.is_doc_path(path) or spec_integrity.is_docstring_source(path):
-            before[path] = old
+        if old is None:
+            # Created by the task: nothing in it can erode, but a rule it carries is still a
+            # rule — one moved here from another file is not "removed" (audit of 66e1617, M5).
             after[path] = new
+            continue
+        before[path] = old
+        after[path] = new
     if not code_changed:
         code_changed = any(
             _is_production(path) and state.file_baselines.get(path) is None for path in state.changed_files
