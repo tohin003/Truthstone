@@ -14,7 +14,9 @@ the whole layer off.
 
 from __future__ import annotations
 
+import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from agentguard.core.enums import (
@@ -31,6 +33,8 @@ from agentguard.core.taskstate import DEFAULT_UNRELATED_LIMIT, TaskState
 from agentguard.repo import manifests, scanner
 from agentguard.repo.index import RepoIndex
 from agentguard.validate import shell
+
+log = logging.getLogger(__name__)
 
 # A DIRECT-band task that has rewritten this much of the repository is not the task that
 # was described, whatever the file paths say.
@@ -377,39 +381,108 @@ _SEVERITY_RANK = {
     Severity.CRITICAL: 4,
 }
 
-_DANGEROUS: tuple[tuple[re.Pattern[str], str, str, str], ...] = (
-    (
-        re.compile(r"\brm\s+(-[a-zA-Z]*[rR][a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*[rR])\s+(/|~|\$HOME|/\*)(\s|$)"),
+# R13: every rule is linear in the length of the command. The old forms backtracked
+# quadratically (`git push\b[^\n]*\s-f`, `(curl|wget)\b[^\n|]*\|`, `(mkfs|dd)\s+[^\n]*of=`)
+# or cubically (`git push\b[^\n]*\bmain\b[^\n]*\s-f`): one 900 KB line cost 203 s and
+# wedged the daemon. Now a rule is an anchor — where the command starts, with possessive
+# quantifiers — plus followers searched once from the anchor's end, all within one simple
+# command (`shell.split`), and nothing past `shell.MAX_SCAN` characters is read.
+
+
+@dataclass(frozen=True, slots=True)
+class _Rule:
+    keywords: frozenset[str]  # the words that make the rule worth trying on a piece
+    anchor: re.Pattern[str]
+    description: str
+    severity: str
+    family: str
+    then: tuple[re.Pattern[str], ...] = ()  # must each match after the anchor
+    flags: str = ""  # letters (case-insensitive) the anchor's `flags` group must all contain
+
+
+_FORCE = re.compile(r"\s(?:--force|-f)\b(?![-\w])")
+_RULES: tuple[_Rule, ...] = (
+    _Rule(
+        frozenset({"rm"}),
+        re.compile(r"\brm\s++(?P<flags>-[a-zA-Z]++)\s++(?:/\*|/|~|\$HOME)(?=\s|$)"),
         "recursive delete of a root or home path",
         "critical",
         "delete",
+        flags="rf",
     ),
-    (
-        re.compile(r"\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*f?\s+\"?\$\{?\w+\}?\"?(/|\s|$)"),
+    _Rule(
+        frozenset({"rm"}),
+        re.compile(r"\brm\s++(?P<flags>-[a-zA-Z]++)\s++\"?\$\{?(?P<var>\w++)\}?\"?(?=/|\s|$)"),
         VARIABLE_DELETE,
         "high",
         "delete",
+        flags="r",
     ),
-    (re.compile(r"\bgit\s+push\b[^\n]*\s(--force|-f)\b(?![-\w])"), "force push", "high", "push"),
-    (re.compile(r"\bgit\s+reset\s+--hard\b"), "hard reset discards uncommitted work", "high", "reset"),
-    (re.compile(r"\bgit\s+clean\s+-[a-zA-Z]*f"), "git clean removes untracked files", "high", "clean"),
-    (re.compile(r"\bDROP\s+(TABLE|DATABASE|SCHEMA)\b", re.IGNORECASE), "destructive SQL", "critical", "sql"),
-    (re.compile(r"\bTRUNCATE\s+TABLE\b", re.IGNORECASE), "destructive SQL", "high", "sql"),
-    (
-        re.compile(r"\b(curl|wget)\b[^\n|]*\|\s*(sudo\s+)?(ba)?sh\b"),
-        "piping a download straight into a shell",
-        "high",
-        "download",
-    ),
-    (re.compile(r"\bchmod\s+-R\s+777\b"), "world-writable permissions applied recursively", "high", "chmod"),
-    (re.compile(r"\b(mkfs|dd)\s+[^\n]*of=/dev/"), "writing directly to a block device", "critical", "device"),
-    (
-        re.compile(r"\bgit\s+push\b[^\n]*\bmain\b[^\n]*\s(--force|-f)\b"),
+    _Rule(frozenset({"git"}), re.compile(r"\bgit\s++push\b"), "force push", "high", "push", (_FORCE,)),
+    _Rule(
+        frozenset({"git"}),
+        re.compile(r"\bgit\s++push\b"),
         "force push to main",
         "critical",
         "push",
+        (_FORCE, re.compile(r"\bmain\b")),
+    ),
+    _Rule(
+        frozenset({"git"}),
+        re.compile(r"\bgit\s++reset\s++--hard\b"),
+        "hard reset discards uncommitted work",
+        "high",
+        "reset",
+    ),
+    _Rule(
+        frozenset({"git"}),
+        re.compile(r"\bgit\s++clean\s++(?P<flags>-[a-zA-Z]++)"),
+        "git clean removes untracked files",
+        "high",
+        "clean",
+        flags="f",
+    ),
+    _Rule(
+        frozenset({"drop"}),
+        re.compile(r"\bDROP\s++(?:TABLE|DATABASE|SCHEMA)\b", re.IGNORECASE),
+        "destructive SQL",
+        "critical",
+        "sql",
+    ),
+    _Rule(
+        frozenset({"truncate"}),
+        re.compile(r"\bTRUNCATE\s++TABLE\b", re.IGNORECASE),
+        "destructive SQL",
+        "high",
+        "sql",
+    ),
+    _Rule(
+        frozenset({"chmod"}),
+        re.compile(r"\bchmod\s++-R\s++777\b"),
+        "world-writable permissions applied recursively",
+        "high",
+        "chmod",
+    ),
+    _Rule(
+        frozenset({"mkfs", "dd"}),
+        re.compile(r"\b(?:mkfs|dd)\s"),
+        "writing directly to a block device",
+        "critical",
+        "device",
+        (re.compile(r"of=/dev/"),),
     ),
 )
+_KEYWORD = re.compile(r"\b(?:rm|git|drop|truncate|curl|wget|chmod|mkfs|dd)\b", re.IGNORECASE)
+# Download-and-execute spans a pipe, so it is judged across adjacent pieces: a download in
+# the piece whose output is piped straight into a shell.
+_DOWNLOAD = re.compile(r"\b(?:curl|wget)\b")
+_SHELL_HEAD = re.compile(r"(?:sudo\s++)?(?:ba)?sh\b")
+_DOWNLOAD_EXEC = "piping a download straight into a shell"
+_GUARD = re.compile(r"\[\s*+-[nz]\s++\"?\$\{?(\w++)\}?\"?\s*+\]")
+# A command longer than `shell.MAX_SCAN` is checked in its first MAX_SCAN characters and
+# its last `_TAIL` — where a long heredoc's trailing `&& git push --force` would be.
+_TAIL = 4096
+_NESTED_BODIES = 3
 
 
 def is_variable_delete(finding: Finding) -> bool:
@@ -417,20 +490,60 @@ def is_variable_delete(finding: Finding) -> bool:
     return finding.category is ChallengeCategory.RISK and finding.summary.endswith(VARIABLE_DELETE)
 
 
-def _is_guarded(command: str, match: re.Match[str]) -> bool:
-    """Whether a variable-expansion delete has already been made safe.
+def _guarded_names(command: str) -> set[str]:
+    """Variables the command tests for emptiness: `[ -n "$OUT" ] && rm -rf "$OUT"`.
 
-    `[ -n "$OUT" ] && rm -rf "$OUT"` is the recommended form: it refuses to run rather
-    than expanding to `/`. Flagging it would be a false positive on correct code, and
-    would also stop MODIFY from ever being able to fix the unguarded version.
+    That is the recommended form: it refuses to run rather than expanding to `/`.
+    Flagging it would be a false positive on correct code, and would also stop MODIFY
+    from ever being able to fix the unguarded version. Found in one pass, so judging many
+    deletes costs no more than judging one.
     """
-    variables = re.findall(r"\$\{?(\w+)\}?", match.group(0))
-    if not variables:
-        return False
-    return all(
-        re.search(rf"\[\s*-[nz]\s+\"?\$\{{?{re.escape(name)}\}}?\"?\s*\]", command)
-        for name in variables
-    )
+    return {match.group(1) for match in _GUARD.finditer(command)}
+
+
+def _segments(command: str) -> tuple[list[tuple[str, str]], bool]:
+    """(piece text, text of the piece it pipes into or "") for every simple command,
+    here-document bodies included, and whether the command was too long to read whole.
+
+    Bodies are still read as commands here, as they always were; deciding which bodies
+    are only data needs the parser, not the splitter.
+    """
+    out: list[tuple[str, str]] = []
+    first = shell.split(command)
+    pending = [(first, 0)]
+    while pending:
+        line, depth = pending.pop()
+        pieces = line.pieces
+        for at, piece in enumerate(pieces):
+            nxt = pieces[at + 1].text if piece.piped and at + 1 < len(pieces) else ""
+            out.append((piece.text, nxt))
+        if depth < _NESTED_BODIES:
+            pending.extend((shell.split(doc.body), depth + 1) for doc in line.heredocs if doc.body.strip())
+    if first.truncated:
+        tail = shell.split(command[-_TAIL:])
+        out.extend(
+            (piece.text, tail.pieces[at + 1].text if piece.piped and at + 1 < len(tail.pieces) else "")
+            for at, piece in enumerate(tail.pieces)
+        )
+    return out, first.truncated
+
+
+def _match(rule: _Rule, text: str, guarded: set[str]) -> str | None:
+    """The text that triggered `rule` in one simple command, or None."""
+    for match in rule.anchor.finditer(text):
+        if rule.flags:
+            flags = match.group("flags").lower()
+            if not all(letter in flags for letter in rule.flags):
+                continue
+        if "var" in rule.anchor.groupindex and match.group("var") in guarded:
+            continue  # this one is guarded; a later, unguarded one may not be
+        if all(follower.search(text, match.end()) for follower in rule.then):
+            return match.group(0)
+        if rule.then:
+            # The followers were searched to the end of the command from the first
+            # anchor; a later anchor cannot find more. Stop: this keeps it linear.
+            return None
+    return None
 
 
 def risky_command(event: AgentEvent) -> list[Finding]:
@@ -446,19 +559,43 @@ def risky_command(event: AgentEvent) -> list[Finding]:
     if not isinstance(command, str) or not command.strip():
         return []
 
+    segments, truncated = _segments(command)
+    if truncated:
+        log.warning(
+            "agentguard: a %d-character command was checked in its first %d and last %d characters",
+            len(command),
+            shell.MAX_SCAN,
+            _TAIL,
+        )
+    guarded = _guarded_names(command[: shell.MAX_SCAN] + command[-_TAIL:] if truncated else command)
+
     # One finding per family: the most severe rule that matched. Rules are tried in order,
     # so on a tie the earlier (more specific) description wins.
     chosen: dict[str, tuple[str, str, Severity]] = {}
-    for pattern, description, severity, family in _DANGEROUS:
-        grade = Severity(severity)
+
+    def offer(family: str, matched: str, description: str, grade: Severity) -> None:
         held = chosen.get(family)
-        if held is not None and _SEVERITY_RANK[held[2]] >= _SEVERITY_RANK[grade]:
+        if held is None or _SEVERITY_RANK[grade] > _SEVERITY_RANK[held[2]]:
+            chosen[family] = (matched, description, grade)
+
+    for text, piped_into in segments:
+        words = {word.lower() for word in _KEYWORD.findall(text)}
+        if not words:
             continue
-        for match in pattern.finditer(command):
-            if "$" in match.group(0) and _is_guarded(command, match):
-                continue  # this one is guarded; a later, unguarded one may not be
-            chosen[family] = (match.group(0), description, grade)
-            break
+        for rule in _RULES:
+            if not rule.keywords & words:
+                continue
+            grade = Severity(rule.severity)
+            held = chosen.get(rule.family)
+            if held is not None and _SEVERITY_RANK[held[2]] >= _SEVERITY_RANK[grade]:
+                continue
+            matched = _match(rule, text, guarded)
+            if matched is not None:
+                offer(rule.family, matched, rule.description, grade)
+        if piped_into and words & {"curl", "wget"} and _SHELL_HEAD.match(piped_into):
+            download = _DOWNLOAD.search(text)
+            if download:
+                offer("download", f"{download.group(0)} … | {piped_into[:20]}", _DOWNLOAD_EXEC, Severity.HIGH)
 
     ordered = sorted(chosen.values(), key=lambda item: -_SEVERITY_RANK[item[2]])
     return [
