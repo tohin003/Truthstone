@@ -1,6 +1,6 @@
 ---
 name: truthstone
-description: "Resolve Truthstone (previously named AgentGuard) challenges. Use when a tool call was blocked by a PreToolUse hook mentioning Truthstone, when Truthstone kept the turn open (completion gate), or when the user asks whether Truthstone is guarding this repository or what it has caught."
+description: "Explains Truthstone hook messages (a blocked tool call or a held finish) and whether Truthstone is active."
 ---
 
 # Truthstone

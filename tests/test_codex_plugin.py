@@ -177,7 +177,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:eae7b0c655ec2893849f7498a2a7aafd9600366ae3d6ca1e9f7e71816f78de20"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:88b7c8fed33a006d708393b1b4e662e1e758a5334e56843f2ef98304e54a4771"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
