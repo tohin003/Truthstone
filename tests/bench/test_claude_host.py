@@ -147,7 +147,7 @@ def test_read_claude_stream_counts_requests_tools_tests_and_interventions(tmp_pa
     assert (t.model, t.cli_version, t.approval_policy) == ("claude-opus-5-5", "2.1.318", "bypassPermissions")
     assert t.model_requests == 2
     assert t.usage == {
-        "input_tokens": 10,
+        "input_tokens": 2110,  # all input: 10 uncached + 2000 cache reads + 100 writes
         "cached_input_tokens": 2000,
         "cache_write_input_tokens": 100,
         "output_tokens": 140,
@@ -445,3 +445,16 @@ def test_claude_cells_get_claude_md_with_the_shared_protocol(tmp_path):
     made = suite.materialize(task, tmp_path / "w", tmp_path / "p", python=PYTHON, instructions="CLAUDE.md")
     assert (made.repo / "CLAUDE.md").read_text() == (suite.protocol_root() / "AGENTS.md").read_text()
     assert not (made.repo / "AGENTS.md").exists()
+
+
+def test_the_arm_database_name_is_the_one_the_product_uses_inside_an_explicit_home(tmp_path, monkeypatch):
+    # Regression: computed from database_path() in the harness process, the name followed
+    # the user's own (former-name) home and every arm's evidence came back empty.
+    from truthstone import names
+    from truthstone.bench.codex import naming
+    from truthstone.core import config
+
+    monkeypatch.setenv(naming.ENV_HOME, str(tmp_path))
+    for former in names.FORMER:
+        monkeypatch.delenv(f"{former[2]}_HOME", raising=False)
+    assert config.database_path() == tmp_path / naming.DB_FILENAME

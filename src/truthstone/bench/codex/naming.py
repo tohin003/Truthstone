@@ -23,7 +23,10 @@ ENV_OBSERVE = _core_config.ENV_OBSERVE  # not used by the harness: see guards.py
 
 # The product's on-disk layout inside its home.
 CONFIG_FILENAME = "config.toml"
-DB_FILENAME = _core_config.database_path().name  # "truthstone.db"
+# The database inside an arm's home, spelled as core.config.database_path() spells it. Never
+# call database_path() here: in the harness process (no product home set) it resolves the
+# user's own home, and after the rename it falls back to the former name's database.
+DB_FILENAME = f"{PRODUCT}.db"
 
 # The Codex plugin, as the plugin builder lays it out in the repository.
 PLUGIN_NAME = PRODUCT

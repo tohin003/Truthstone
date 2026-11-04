@@ -429,7 +429,12 @@ def read_claude_stream(path: Path, transcript: Transcript | None = None) -> Tran
             if request and request not in seen_requests:
                 seen_requests.add(request)
                 usage = message.get("usage") or {}
-                totals["input_tokens"] = totals.get("input_tokens", 0) + int(usage.get("input_tokens") or 0)
+                # Codex's convention, so one estimator serves both hosts: input_tokens is all
+                # input (uncached + cache reads + cache writes); the parts are broken out.
+                totals["input_tokens"] = totals.get("input_tokens", 0) + sum(
+                    int(usage.get(k) or 0)
+                    for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+                )
                 totals["cached_input_tokens"] = totals.get("cached_input_tokens", 0) + int(
                     usage.get("cache_read_input_tokens") or 0
                 )

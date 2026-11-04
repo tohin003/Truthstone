@@ -411,7 +411,12 @@ def _host_label(a: dict[str, Any]) -> str:
 
 def _budget(cells: list[dict]) -> dict[str, Any]:
     credits = [c.get("credits_est") for c in cells if isinstance(c.get("credits_est"), (int, float))]
-    tokens = [sum((c.get("usage") or {}).values()) for c in cells if c.get("usage")]
+    # input_tokens already includes cached input (both hosts), and output includes reasoning
+    tokens = [
+        (c.get("usage") or {}).get("input_tokens", 0) + (c.get("usage") or {}).get("output_tokens", 0)
+        for c in cells
+        if c.get("usage")
+    ]
     output = [(c.get("usage") or {}).get("output_tokens", 0) for c in cells if c.get("usage")]
     first = next((c.get("limits_before") for c in cells if c.get("limits_before")), None)
     last = next((c.get("limits_after") for c in reversed(cells) if c.get("limits_after")), None)
