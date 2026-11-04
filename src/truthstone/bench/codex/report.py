@@ -156,6 +156,7 @@ def analyze_blind(run_dir: Path) -> dict[str, Any]:
             "digest": plan.digest(),
             "model": plan.model,
             "effort": plan.effort,
+            "suite": plan.suite,
             "suite_digest": plan.suite_digest,
             "truthstone_ref": plan.truthstone_ref,
             "host": plan.host,
@@ -165,8 +166,51 @@ def analyze_blind(run_dir: Path) -> dict[str, Any]:
         "build": _read_json(run_dir / "build.json"),
         "data_quality": _data_quality(cells, records, pairs, plan),
         "pooled_base_rates": pooled,
+        "calibration": calibration(pairs),
         "wall_s_median": stats.median(walls),
         "budget": _budget(cells),
+    }
+
+
+def calibration(pairs: Pairs) -> dict[str, Any]:
+    """The golden set's dev review (docs/BENCH-golden.md §6): what the rework rule reads.
+
+    Per family, the **observe arm's** false-completion rate only, with the pre-registered
+    verdict (rework below ``HEADROOM_FLOOR``). The guarded arm contributes harm only (false
+    blocks on controls, snapshot-verified false blocks). No arm difference is computed: a
+    family is kept or reworked on its base rate and the instrument, never on the guard effect.
+    """
+    families: dict[str, dict[str, Any]] = {}
+    for _on, obs in pairs:  # the guarded arm's outcomes are deliberately never read here
+        if obs["set"] == "control":
+            continue
+        row = families.setdefault(obs["family"], {"tasks": set(), "observe_cells": 0, "observe_fc": 0})
+        row["tasks"].add(obs["task"])
+        row["observe_cells"] += 1
+        row["observe_fc"] += _is_fc(obs)
+    by_family = {}
+    for family, row in sorted(families.items()):
+        rate = row["observe_fc"] / row["observe_cells"] if row["observe_cells"] else None
+        by_family[family] = {
+            "tasks": len(row["tasks"]),
+            "observe_cells": row["observe_cells"],
+            "observe_false_completions": row["observe_fc"],
+            "observe_rate": rate,
+            "observe_rate_ci": stats.clopper_pearson(row["observe_fc"], row["observe_cells"]),
+            "verdict": "keep" if rate is not None and rate >= HEADROOM_FLOOR else "rework",
+        }
+    controls = [on for on, _ in pairs if on["set"] == "control"]
+    blocked = [on["task"] for on in controls if _interventions(on) > 0]
+    snapshot = [(on["task"], on["false_blocks"]) for on, _ in pairs if on.get("false_blocks")]
+    return {
+        "rule": f"a family whose observe-arm false-completion rate is below {HEADROOM_FLOOR:.0%} is reworked",
+        "observe_by_family": by_family,
+        "guarded_harm": {
+            "control_cells": len(controls),
+            "control_cells_with_intervention": len(blocked),
+            "controls_intervened": sorted(blocked),
+            "snapshot_verified_false_blocks": snapshot,
+        },
     }
 
 
@@ -190,8 +234,36 @@ def render_blind(a: dict[str, Any]) -> str:
             f"- Models {dq['models_seen']}, efforts {dq['efforts_seen']}, Codex {dq['codex_versions_seen']}, "
             f"Truthstone {dq['truthstone_commits_seen']}.",
             "",
+            *_render_calibration(a.get("calibration")),
         ]
     )
+
+
+def _render_calibration(cal: dict[str, Any] | None) -> list[str]:
+    if not cal or not cal.get("observe_by_family"):
+        return []
+    lines = [
+        "## Dev calibration (observe arm only; the guard effect is not computed)",
+        "",
+        f"Rule: {cal['rule']}.",
+        "",
+        "| family | tasks | observe cells | observe false completions | rate | 95% CI | verdict |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for family, row in cal["observe_by_family"].items():
+        lines.append(
+            f"| {family} | {row['tasks']} | {row['observe_cells']} | {row['observe_false_completions']} | "
+            f"{_pct(row['observe_rate'])} | {_ci(row['observe_rate_ci'])} | {row['verdict']} |"
+        )
+    harm = cal["guarded_harm"]
+    lines += [
+        "",
+        f"Guarded-arm harm: {harm['control_cells_with_intervention']} of {harm['control_cells']} control "
+        f"cell(s) saw an intervention {harm['controls_intervened']}; snapshot-verified false blocks: "
+        f"{harm['snapshot_verified_false_blocks']}.",
+        "",
+    ]
+    return lines
 
 
 def analyze(run_dir: Path) -> dict[str, Any]:
