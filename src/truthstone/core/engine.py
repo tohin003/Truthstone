@@ -130,6 +130,8 @@ class Workspace:
         # Names a session's prompts asserted that the repository does not have, each
         # noted once (M8).
         self.premises_noted: dict[str, set[str]] = {}
+        # Task id -> the deny its first file edit gets after a premise note (T4), once.
+        self.premise_holds: dict[str, str] = {}
         # Shell commands' changes, each holding its place on its task's timeline until a
         # sweep of the tree attributes them (G5).
         self.shell = shellchanges.ShellChanges()
@@ -312,6 +314,7 @@ class Workspace:
         for task_id in self._session_task_ids.pop(session_id, []):
             self._tasks.pop(task_id, None)
             self._task_sessions.pop(task_id, None)
+            self.premise_holds.pop(task_id, None)
         self._session_tasks.pop(session_id, None)
         self.session_waivers.discard(session_id)
         self.premises_noted.pop(session_id, None)
@@ -645,6 +648,8 @@ class Guard:
                 noted.update(a.name for a in found.missing)
                 notes.append(found.note)
                 findings.append(finding)
+                if event.task_id:
+                    ws.premise_holds[event.task_id] = found.hold
         if profile.active(self.settings).allows(EventType.USER_PROMPT, profile.PLANNING_NOTE):
             budget = planning.render(spec, index)
             if budget:
@@ -721,20 +726,49 @@ class Guard:
         # keeps ordinary exploration free.
         if event.is_read_only:
             return Decision.allow()
-        if event.tool in SHELL_TOOLS:
-            # The command's window opens: a file it changes changes after this (G5).
-            ws.shell.note_start(event.session_id, event.tool_use_id)
-
         try:
+            # First, even for an edit about to be held: the file as the task found it is
+            # what the Stop-time checks compare against (unread configuration needs it).
             self._record_parse_baseline(event, ws)
         except Exception:  # a missing baseline only means "blame as before"
             log.exception("truthstone: could not record a parse baseline; continuing")
+        held = self._premise_hold(event, ws)
+        if held is not None:
+            return held
+        if event.tool in SHELL_TOOLS:
+            # The command's window opens: a file it changes changes after this (G5).
+            ws.shell.note_start(event.session_id, event.tool_use_id)
         return validate.validate(
             event=event,
             index=ws.index,
             state=ws.event_task_state(event),
             ledger=ws.ledger,
             task_id=event.task_id,
+        )
+
+    @staticmethod
+    def _premise_hold(event: AgentEvent, ws: Workspace) -> Decision | None:
+        """The task's first file edit after a premise note, held once (T4, M8).
+
+        The note goes out with the prompt, and a careful agent can read it and still edit
+        first: the user then hears about the missing behaviour only after something was built
+        on it, if at all. So the first edit of a task that got a note is denied once, with
+        the note's facts and the honest next step; the re-issued edit proceeds. A file tool's
+        edit or deletion, or a shell command that is not read-only, counts as an edit; a read
+        never does. No note, no hold.
+        """
+        task_id = event.task_id
+        if not task_id or task_id not in ws.premise_holds:
+            return None
+        edits = event.is_mutating or (event.tool in SHELL_TOOLS and not checks.read_only_bash(event))
+        if not edits:
+            return None
+        text = ws.premise_holds.pop(task_id)
+        return Decision(
+            action=DecisionAction.CHALLENGE,
+            level=EscalationLevel.HOST_CHALLENGE,
+            reason=text,
+            findings=[premise.hold_finding(text)],
         )
 
     @staticmethod
