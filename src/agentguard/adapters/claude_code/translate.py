@@ -38,6 +38,7 @@ from agentguard.adapters.claude_code.protocol import (
     SESSION_MODES,
     session_mode_message,
 )
+from agentguard.core import hosts
 from agentguard.core.enums import DecisionAction, EventType, FailureMode, Severity
 from agentguard.core.events import AgentEvent
 from agentguard.core.models import Decision
@@ -60,33 +61,41 @@ __all__ = [
 AGENT_NAME = "claude-code"
 
 
-@dataclass(frozen=True)
-class ClaudeRendering:
-    """How each core intent is expressed to Claude Code. The one place to change it.
+@dataclass(frozen=True, slots=True)
+class ClaudeRendering(hosts.HostCapabilities):
+    """Claude Code's capability profile plus its native decision words. The one place to
+    change how each core intent is expressed to Claude Code.
 
-    ``docs/ADAPTER-CONTRACT.md`` calls this a host-capability profile: the core states
-    intent (a ``Decision``); the profile says which native channel carries it.
+    Derived from the core's ``hosts.CLAUDE_CODE`` (``docs/ADAPTER-CONTRACT.md``): the
+    capability fields are that profile's, the core's ladder (``hosts.render``) decides
+    what to say, and the fields below only spell it.
     """
 
-    # PreToolUse ``permissionDecision`` per intent. Never "allow" (AgentGuard does not
-    # grant permissions) and never "defer" (see the module docstring).
+    # PreToolUse ``permissionDecision`` per ladder kind. Never "allow" (AgentGuard does
+    # not grant permissions) and never "defer" (see the module docstring). A rewrite is
+    # an ``ask`` too, carrying ``updatedInput``: the developer approves the narrowed input.
     deny: str = "deny"  # CHALLENGE / BLOCK: the reason goes back to Claude
-    review: str = "ask"  # REQUEST_REVIEW: the developer's own permission prompt
-    rewrite: str = "ask"  # MODIFY: ``updatedInput`` + ask, the developer approves it
-    # Stop / SubagentStop: ``decision: "block"`` keeps the turn going (Claude Code caps
-    # consecutive continuations at 8; AgentGuard's own cap is lower).
-    stop_block: bool = True
-    # The universal ``systemMessage`` field: shown to the developer, never to Claude.
-    system_message: bool = True
+    review: str = "ask"  # REQUEST_REVIEW, and MODIFY: the developer's own permission prompt
     # Events that accept ``decision: "block"`` after a tool ran. PostToolUseFailure does
-    # not: it takes ``additionalContext`` only.
+    # not: it takes ``additionalContext`` only. (The ladder's post-tool rule says the same.)
     post_tool_block_events: tuple[str, ...] = ("PostToolUse",)
 
+    @property
+    def stop_block(self) -> bool:
+        """Stop / SubagentStop ``decision: "block"`` keeps the turn going (Claude Code caps
+        consecutive continuations at 8; AgentGuard's own cap is lower)."""
+        return self.stop_continue != "none"
 
-CLAUDE = ClaudeRendering()
+    @property
+    def system_message(self) -> bool:
+        """The universal ``systemMessage`` field: shown to the developer, never to Claude."""
+        return self.system_message_visible
+
+
+CLAUDE = ClaudeRendering(**hosts.profile_fields(hosts.CLAUDE_CODE))
 
 # Kept as a module constant: tests and callers assert against it.
-MODIFY_PERMISSION = CLAUDE.rewrite
+MODIFY_PERMISSION = CLAUDE.review
 FORBIDDEN_PERMISSIONS = frozenset({"allow", "defer"})
 
 # Claude Code hook event name -> normalized event type.
@@ -278,70 +287,62 @@ def from_decision(event: AgentEvent, decision: Decision, hook_name: str) -> dict
     return out
 
 
-def _pre_tool_use_out(decision: Decision) -> dict[str, Any]:
-    action = decision.action
+def _render(decision: Decision, hook_name: str) -> dict[str, Any]:
+    """The core's ladder decides (``hosts.render``); this only spells it for Claude Code."""
+    return _emit(hosts.render(decision, CLAUDE, EVENT_MAP[hook_name]), hook_name)
 
-    if action in (DecisionAction.CHALLENGE, DecisionAction.BLOCK):
+
+def _emit(rendering: hosts.Rendering, hook_name: str) -> dict[str, Any]:
+    kind = rendering.kind
+    if kind == "deny":
         # "deny" hands the reason back to Claude, which then re-reasons with its own
         # intelligence and proposes something else (SPEC §21). This *is* the loop.
-        return _spec_out(
-            "PreToolUse",
-            permissionDecision=CLAUDE.deny,
-            permissionDecisionReason=decision.reason,
+        out = _spec_out(
+            hook_name, permissionDecision=CLAUDE.deny, permissionDecisionReason=rendering.reason
         )
-
-    if action is DecisionAction.REQUEST_REVIEW:
+    elif kind == "ask":
         # "ask": the reason is shown to the developer in the permission prompt. In a
         # `-p` run where nobody can answer, Claude Code denies the call and Claude reads
         # the same reason in the tool result.
-        return _spec_out(
-            "PreToolUse",
-            permissionDecision=CLAUDE.review,
-            permissionDecisionReason=decision.reason,
+        out = _spec_out(
+            hook_name, permissionDecision=CLAUDE.review, permissionDecisionReason=rendering.reason
         )
-
-    if action is DecisionAction.MODIFY and decision.updated_arguments is not None:
+    elif kind == "rewrite_ask":
         # The rewrite always announces itself — silently changing what the agent asked
         # for is a trust hazard even when the change is an improvement — and it is never
         # approved on the developer's behalf: "ask" shows them the narrowed input.
-        announcement = decision.additional_context or decision.reason or None
-        return _spec_out(
-            "PreToolUse",
-            permissionDecision=CLAUDE.rewrite,
-            permissionDecisionReason=announcement,
-            updatedInput=decision.updated_arguments,
-            additionalContext=announcement,
+        out = _spec_out(
+            hook_name,
+            permissionDecision=MODIFY_PERMISSION,
+            permissionDecisionReason=rendering.reason,
+            updatedInput=rendering.updated_arguments,
+            additionalContext=rendering.context,
         )
+    elif kind == "block":
+        out = {"decision": "block", "reason": rendering.reason}
+        if rendering.context:
+            out.update(_spec_out(hook_name, additionalContext=rendering.context))
+    elif kind == "context":
+        out = _spec_out(hook_name, additionalContext=rendering.context)
+    else:
+        out = {}  # silence
+    if rendering.system_message and CLAUDE.system_message:
+        out["systemMessage"] = rendering.system_message
+    return out
 
-    if decision.additional_context:
-        return _spec_out("PreToolUse", additionalContext=decision.additional_context)
 
-    return {}  # silence
+def _pre_tool_use_out(decision: Decision) -> dict[str, Any]:
+    return _render(decision, "PreToolUse")
 
 
 def _post_tool_use_out(decision: Decision, hook_name: str) -> dict[str, Any]:
-    objects = decision.action in (DecisionAction.BLOCK, DecisionAction.CHALLENGE)
-    if objects and hook_name in CLAUDE.post_tool_block_events:
-        out: dict[str, Any] = {"decision": "block", "reason": decision.reason}
-        if decision.additional_context:
-            out.update(_spec_out(hook_name, additionalContext=decision.additional_context))
-        return out
-    context = decision.additional_context
-    if objects and decision.reason:
-        # PostToolUseFailure cannot block; carry the objection as context instead.
-        context = f"{decision.reason}\n\n{context}" if context else decision.reason
-    if context:
-        return _spec_out(hook_name, additionalContext=context)
-    return {}
+    # PostToolUseFailure cannot block; the ladder carries an objection there as context.
+    return _render(decision, hook_name)
 
 
 def _context_only_out(decision: Decision, hook_name: str) -> dict[str, Any]:
     """UserPromptSubmit: inject the task spec + planning budget (SPEC §9, §13)."""
-    if decision.action is DecisionAction.BLOCK:
-        return {"decision": "block", "reason": decision.reason}
-    if decision.additional_context:
-        return _spec_out(hook_name, additionalContext=decision.additional_context)
-    return {}
+    return _render(decision, hook_name)
 
 
 # Findings that mean "the completion gate would hold this turn open". On an ALLOW that
@@ -390,6 +391,4 @@ def _stop_out(decision: Decision, hook_name: str) -> dict[str, Any]:
 def _session_start_out(decision: Decision) -> dict[str, Any]:
     # `watchPaths` is wired in Phase 1, once there is an index whose freshness depends
     # on specific files (manifests, lockfiles, config).
-    if decision.additional_context:
-        return _spec_out("SessionStart", additionalContext=decision.additional_context)
-    return {}
+    return _render(decision, "SessionStart")
