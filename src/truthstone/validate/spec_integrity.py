@@ -639,7 +639,11 @@ _CHANGE_VERB = (
     r"drop(?:s|ped|ping)?|reword(?:s|ed|ing)?|refresh(?:es|ed|ing)?|sync(?:s|ed|ing)?|"
     r"align(?:s|ed|ing)?|document(?:s|ed|ing)?|relax(?:es|ed|ing)?|loosen(?:s|ed|ing)?|"
     r"lift(?:s|ed|ing)?|replac(?:e|es|ed|ing)|renam(?:e|es|ed|ing)|tweak(?:s|ed|ing)?|"
-    r"reflect(?:s|ed|ing)?|clean(?:s|ed|ing)?\s+up|is\s+(?:outdated|wrong|stale|incorrect|out\s+of\s+date))"
+    r"reflect(?:s|ed|ing)?|clean(?:s|ed|ing)?\s+up|is\s+(?:outdated|wrong|stale|incorrect|out\s+of\s+date)|"
+    # Audit of 66e1617 (R3-2, R3-3): "tidy the docstring", "turn the README list into a table".
+    r"tid(?:y|ies|ied|ying)|polish(?:es|ed|ing)?|clarif(?:y|ies|ied|ying)|improv(?:e|es|ed|ing)|"
+    r"turn(?:s|ed|ing)?|convert(?:s|ed|ing)?|reformat(?:s|ted|ting)?|restructur(?:e|es|ed|ing)|"
+    r"reflow(?:s|ed|ing)?|re-?wrap(?:s|ped|ping)?)"
 )
 _NEGATED_VERB = re.compile(
     r"\b(?:don'?t|do\s+not|doesn'?t|never|not|no\s+need\s+to|without|leave|keep)\s+(?:\w+\s+){0,2}$",

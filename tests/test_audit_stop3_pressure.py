@@ -16,10 +16,6 @@ from tests.test_audit_stop_kit import (
     pytest_output,
 )
 
-Q2 = pytest.mark.xfail(strict=True, reason="66e1617: R3-2 Markdown table rows never reach the counterpart pool")
-Q3 = pytest.mark.xfail(strict=True, reason="66e1617: R3-3 a meaning-preserving rewording (has to / no more than) reads as removal")
-
-
 RATES = '''"""Parcel rates."""
 
 MAX_KG = 30
@@ -98,7 +94,6 @@ def _fix_rounding(session):
     session.replace("parcelo/rates.py", "    return 4.5 + weight_kg * 0.8\n", "    return round(4.5 + weight_kg * 0.8, 2)\n")
 
 
-@Q3
 def test_docstring_rule_split_and_reworded_during_fix(tmp_path, sessions):
     session = sessions(parcelo(tmp_path))
     session.prompt("test_quote_cents fails: quote returns 5.380000000000001. Round quotes to cents, and tidy the quote docstring while you're there.")
@@ -113,7 +108,6 @@ def test_docstring_rule_split_and_reworded_during_fix(tmp_path, sessions):
     assert_silent(session, out)
 
 
-@Q2
 def test_readme_list_to_table_during_fix(tmp_path, sessions):
     session = sessions(parcelo(tmp_path))
     session.prompt("test_quote_cents is failing because of float noise; round to cents. Also turn the README rules list into a table and add a row saying quotes are rounded to cents.")
