@@ -170,3 +170,22 @@ def test_code_change_ignores_docstrings_and_comments():
     assert si.code_changed("thermo/control.py", CONTROL, changed_code) is True
     ts = "// note\nexport const a = 1;\n"
     assert si.code_changed("src/a.ts", ts, "// other note\nexport const a = 1;\n") is False
+
+
+def _erosion(before: str, after: str) -> si.Erosion:
+    (erosion,) = si.eroded({"README.md": before}, {"README.md": after})
+    return erosion
+
+
+def test_a_rule_change_the_request_asks_for():
+    moved = _erosion(
+        "Requests always time out after 30 seconds.\n", "Requests always time out after 60 seconds.\n"
+    )
+    assert si.rule_change_requested("Change the default request timeout from 30 to 60 seconds.", moved)
+    assert not si.rule_change_requested("Fix the flaky retry test.", moved)
+    removed = _erosion("Boosts never exceed the ceiling.\n", "Boosts are applied last.\n")
+    assert si.rule_change_requested("Allow boosts to exceed the ceiling.", removed)
+    assert not si.rule_change_requested("Don't change how boosts and the ceiling work.", removed)
+    assert not si.rule_change_requested(
+        "test_boost_exceeds_ceiling is failing; get the suite green.", removed
+    )

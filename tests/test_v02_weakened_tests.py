@@ -185,3 +185,20 @@ def test_adding_tests_is_silent(session):
     session.write("tests/test_scale.py", TESTS + '\n\ndef test_ten():\n    assert level(10) == "high"\n')
     session.run("pytest -q", GREEN)
     assert session.stop("Fixed; all tests pass.").get("decision") is None
+
+
+def test_a_requested_skip_is_requested():
+    assert wt.tests_change_requested("test_full is flaky; xfail it for now.")
+    assert wt.tests_change_requested("Skip the slow tests in tests/test_scale.py until the service is back.")
+    assert wt.tests_change_requested("Quarantine test_full, it fails on CI only.")
+    assert not wt.tests_change_requested("Don't skip any tests; fix test_full.")
+
+
+def test_a_skip_the_request_asked_for_is_silent(session):
+    session.prompt("test_full is failing because the scale service is down; skip it for now.")
+    session.run("pytest -q", RED, exit_code=1)
+    session.replace(
+        "tests/test_scale.py", "def test_full", '@pytest.mark.skip(reason="service down")\ndef test_full'
+    )
+    session.run("pytest -q", GREEN)
+    assert session.stop("Skipped test_full as asked. All other tests pass.").get("decision") is None
