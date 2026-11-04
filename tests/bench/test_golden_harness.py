@@ -334,7 +334,8 @@ def test_plans_never_allow_file_editing_tools_bare():
 
 def test_study_paths_hide_the_checkout_run_and_work_root_but_reopen_the_interpreter(tmp_path):
     home = tmp_path / "home"
-    (home / ".ssh").mkdir(parents=True)
+    for rel in (".ssh", ".config/git", ".config/gh"):
+        (home / rel).mkdir(parents=True)
     taskenv = tmp_path / "work" / "state" / "taskenv"
     paths = claude_sandbox.SandboxPaths.for_study(
         suite.REPO_ROOT, tmp_path / "run", tmp_path / "work", [taskenv], home=home
@@ -342,6 +343,11 @@ def test_study_paths_hide_the_checkout_run_and_work_root_but_reopen_the_interpre
     assert str(suite.REPO_ROOT.resolve()) in paths.deny_read
     assert str((tmp_path / "work").resolve()) in paths.deny_read
     assert str((home / ".ssh").resolve()) in paths.deny_read
+    # tokens under ~/.config are hidden, but git's own directory stays readable (or git
+    # warns on every command) and so does ~/.config itself
+    assert str((home / ".config" / "gh").resolve()) in paths.deny_read
+    assert str((home / ".config" / "git").resolve()) not in paths.deny_read
+    assert str((home / ".config").resolve()) not in paths.deny_read
     assert paths.allow_read == (str(taskenv.resolve()),)
 
 

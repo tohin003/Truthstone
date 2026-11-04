@@ -53,10 +53,13 @@ PROFILE = "claude-bash-sandbox/v1"
 FILE_EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 # Credentials and the user's other agent homes: never readable from a cell.
 SENSITIVE_HOME_PATHS = (
-    ".ssh", ".aws", ".gnupg", ".docker", ".kube", ".netrc", ".npmrc", ".pypirc", ".config",
+    ".ssh", ".aws", ".gnupg", ".docker", ".kube", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
     ".codex", ".claude", ".claude.json", ".claude-work", ".claude-personal",
     f".{naming.PRODUCT}", ".agentguard", "Library/Keychains",
 )  # fmt: skip
+# ~/.config holds tokens (gh, vendor CLIs), but git reads ~/.config/git on every command and
+# warns on each one when it is unreadable (verified): hide every entry except git's.
+CONFIG_KEEP = frozenset({"git"})
 
 
 # Unset for Bash: they would point an agent at its arm's home and the harness's trace.
@@ -85,6 +88,9 @@ class SandboxPaths:
         home = home or Path.home()
         deny = [repo_root, run_dir, work_root, *_main_checkout(repo_root)]
         deny += [home / rel for rel in SENSITIVE_HOME_PATHS if os.path.lexists(home / rel)]
+        config = home / ".config"
+        if config.is_dir():
+            deny += sorted(p for p in config.iterdir() if p.name not in CONFIG_KEEP)
         return cls(deny_read=_unique(deny), allow_read=_unique(readable))
 
 
