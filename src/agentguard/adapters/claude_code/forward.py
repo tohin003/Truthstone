@@ -91,8 +91,39 @@ def loads(text: str) -> object:
     return value
 
 
+# Former product names, newest first, as (display, slug, upper): the registry in
+# agentguard/names.py, which this file cannot import. scripts/rename_product.py records a
+# rename in both, and tests/test_names.py keeps them equal.
+# rename-tool: keep-begin former-names
+FORMER: tuple[tuple[str, str, str], ...] = ()
+# rename-tool: keep-end
+
+
+def setting(key: str) -> str:
+    """``AGENTGUARD_<key>``, else the same setting under a former name; ``""`` if unset.
+
+    The rule of ``names.env``: the first non-empty value wins, the current name first.
+    """
+    for upper in ("AGENTGUARD", *(former[2] for former in FORMER)):
+        value = os.environ.get(upper + "_" + key)
+        if value:
+            return value
+    return ""
+
+
 def agentguard_home() -> str:
-    return os.path.expanduser(os.environ.get("AGENTGUARD_HOME") or "~/.agentguard")
+    """The rule of ``names.data_dir``: ``$AGENTGUARD_HOME``, else ``~/.agentguard``, unless
+    only a former name's directory exists."""
+    explicit = setting("HOME")
+    if explicit:
+        return os.path.expanduser(explicit)
+    home = os.path.expanduser("~/.agentguard")
+    if not os.path.lexists(home):
+        for former in FORMER:
+            candidate = os.path.expanduser("~/." + former[1])
+            if os.path.lexists(candidate):
+                return candidate
+    return home
 
 
 def read_handshake(home: str) -> dict | None:
@@ -249,7 +280,7 @@ def _timeout(argv: list[str]) -> float:
 def run(argv: list[str], stdin: object, stdout: object) -> int:
     """Forward one hook event. Always returns 0: AgentGuard never blocks by crashing."""
     try:
-        if os.environ.get("AGENTGUARD_DISABLE", "").strip().lower() in _TRUE:
+        if setting("DISABLE").strip().lower() in _TRUE:
             return 0
         if standing_down():
             return 0

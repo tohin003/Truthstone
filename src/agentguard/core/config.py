@@ -18,6 +18,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 
+from agentguard import names
+
+# Read through `names.env`, which also honours these settings under a former product name.
 ENV_DISABLE = "AGENTGUARD_DISABLE"
 ENV_HOME = "AGENTGUARD_HOME"
 ENV_OBSERVE = "AGENTGUARD_OBSERVE"
@@ -69,7 +72,8 @@ def _assert_no_symlink_components(path: Path) -> None:
 
 
 def agentguard_home() -> Path:
-    return Path(os.environ.get(ENV_HOME, Path.home() / ".agentguard")).expanduser()
+    """``$AGENTGUARD_HOME``, else ``~/.agentguard`` (or a former name's; see `names`)."""
+    return Path(names.data_dir())
 
 
 def ensure_private_dir(path: Path | None = None) -> Path:
@@ -146,7 +150,7 @@ def database_path() -> Path:
     one maintenance schedule and one place for cross-session project memory, at the cost
     of requiring project scoping on every query — which `ProjectStore` makes structural.
     """
-    return agentguard_home() / "agentguard.db"
+    return Path(names.migrated(str(agentguard_home() / "agentguard.db")))
 
 
 def project_cache_dir(project_id: str) -> Path:
@@ -159,7 +163,7 @@ def workspace_state_dir(workspace: str | Path) -> Path:
 
 
 def _flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+    return names.env_flag(name)
 
 
 def is_globally_disabled() -> bool:
@@ -270,7 +274,7 @@ class IndexSettings(BaseModel):
             ".git", ".hg", ".svn", "node_modules", ".venv", "venv", "env",
             "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
             "dist", "build", "target", ".next", ".nuxt", "out", "coverage",
-            ".terraform", ".gradle", "vendor", ".idea", ".vscode", ".agentguard",
+            ".terraform", ".gradle", "vendor", ".idea", ".vscode", *names.variants(".agentguard"),
             ".tox", "site-packages", ".eggs", "htmlcov",
         ]
     )
