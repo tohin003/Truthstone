@@ -49,7 +49,7 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from truthstone.core.enums import ReasonCategory, Severity
 from truthstone.core.models import EvidenceRef
@@ -75,6 +75,8 @@ class Weakening:
     # module-level: the identifiers the change touched (a deleted statement's, or those a changed
     # one gained or lost), so a rename the request names, or code the session removed, exempts it.
     names: frozenset[str] = frozenset()
+    # module-level: string values a changed statement gained (the request may name them)
+    literals: frozenset[str] = frozenset()
 
     @property
     def always(self) -> bool:
@@ -275,6 +277,8 @@ class _Unit:
     dump: str  # its normalised form, without the names it defines
     names: frozenset[str]  # the identifiers it mentions
     binds: frozenset[str] = frozenset()  # an import's bindings: "module:name as alias"
+    elements: tuple[str, ...] | None = None  # a collection literal's items (a table of cases)
+    literals: frozenset[str] = frozenset()  # the string values it holds (3+ characters)
 
 
 def _module_level(path: str, before: str, after: str) -> list[Weakening]:
@@ -308,6 +312,7 @@ def _module_level(path: str, before: str, after: str) -> list[Weakening]:
             if not lost_used and not gained:
                 continue  # the same names regrouped, or names the file never used dropped
             names = frozenset(_alias(bind) for bind in lost | gained)
+            names |= {bind.split(":", 1)[0] for bind in lost}  # the modules it no longer imports from
             if lost_used:
                 verb = "changed" if _bound(new_imports, module) else "deleted"
                 out.append(Weakening(path, "", "module-level", f"module-level {unit.label} {verb}", names))
@@ -322,11 +327,26 @@ def _module_level(path: str, before: str, after: str) -> list[Weakening]:
         twin = next((other for other in new_left if other.key == unit.key), None)
         if twin is None:
             out.append(Weakening(path, "", "module-level", f"module-level {unit.label} deleted", unit.names))
+        elif (
+            unit.elements is not None and twin.elements is not None and _within(unit.elements, twin.elements)
+        ):
+            continue  # a table that only gained items: new cases are additions (audit H9)
         else:
             # Only the names it gained or lost: a value changed beside them is no rename.
             touched = unit.names ^ twin.names
-            out.append(Weakening(path, "", "module-level", f"module-level {unit.label} changed", touched))
+            detail = f"module-level {unit.label} changed"
+            out.append(Weakening(path, "", "module-level", detail, touched, twin.literals - unit.literals))
     return out
+
+
+def _within(old: tuple[str, ...], new: tuple[str, ...]) -> bool:
+    """Every item of the old table is still in the new one (as a multiset)."""
+    left = list(new)
+    for item in old:
+        if item not in left:
+            return False
+        left.remove(item)
+    return True
 
 
 def _bound(imports: list[_Unit], module: str) -> frozenset[str]:
@@ -379,12 +399,39 @@ def _module_unit(node: ast.stmt) -> _Unit | None:
             return None  # skips and hacks have their own findings
         label = ", ".join(f"`{name}`" for name in sorted(targets))
         value = getattr(node, "value", None)
-        dump = f"{type(node).__name__}:{ast.dump(value) if value is not None else ''}"
+        # An annotation does not change what the tests run against (audit H13).
+        dump = f"{'AugAssign' if isinstance(node, ast.AugAssign) else 'Assign'}:"
+        dump += ast.dump(value) if value is not None else ""
         if isinstance(node, ast.AugAssign):
             dump += ast.dump(node.op)
-        return _Unit(label, "assign:" + ",".join(sorted(targets)), dump, _identifiers(node))
+        key = "assign:" + ",".join(sorted(targets))
+        return _Unit(
+            label, key, dump, _identifiers(node), elements=_elements(value), literals=_strings(value)
+        )
     text = ast.unparse(node).splitlines()[0][:60]
     return _Unit(f"`{text}`", "stmt:" + text, ast.dump(node), _identifiers(node))
+
+
+def _elements(value: ast.expr | None) -> tuple[str, ...] | None:
+    """A list, tuple, set or dict literal's items, each normalised; None for any other value."""
+    if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+        return tuple(ast.dump(item) for item in value.elts)
+    if isinstance(value, ast.Dict):
+        return tuple(
+            (ast.dump(key) if key is not None else "**") + "=" + ast.dump(item)
+            for key, item in zip(value.keys, value.values, strict=True)
+        )
+    return None
+
+
+def _strings(value: ast.expr | None) -> frozenset[str]:
+    if value is None:
+        return frozenset()
+    return frozenset(
+        inner.value
+        for inner in ast.walk(value)
+        if isinstance(inner, ast.Constant) and isinstance(inner.value, str) and len(inner.value) >= 3
+    )
 
 
 def _assigned(node: ast.stmt) -> set[str]:
@@ -413,8 +460,25 @@ def _def_dump(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> st
     if isinstance(node, ast.ClassDef):
         parts.append([ast.dump(base) for base in node.bases] + [ast.dump(kw) for kw in node.keywords])
     else:
-        parts += [ast.dump(node.args), ast.dump(node.returns) if node.returns is not None else ""]
+        parts.append(_args_dump(node.args))  # without annotations (audit H13)
     return repr(parts)
+
+
+def _args_dump(args: ast.arguments) -> str:
+    def name(arg: ast.arg | None) -> str | None:
+        return arg.arg if arg is not None else None
+
+    return repr(
+        [
+            [arg.arg for arg in args.posonlyargs],
+            [arg.arg for arg in args.args],
+            name(args.vararg),
+            [arg.arg for arg in args.kwonlyargs],
+            name(args.kwarg),
+            [ast.dump(default) for default in args.defaults],
+            [ast.dump(default) if default is not None else None for default in args.kw_defaults],
+        ]
+    )
 
 
 def _identifiers(node: ast.AST) -> frozenset[str]:
@@ -526,7 +590,11 @@ _CHANGE = re.compile(
     rf"\b(?:updat|chang|edit|modif|fix|rewrit|adjust|remov|delet|drop|renam|replac|skip|disabl|quarantin)\w*\s+"
     rf"(?:\w+\s+){{0,3}}{_TEST_NOUN}\b"
     rf"|\b{_TEST_NOUN}\s+(?:is|are)\s+(?:wrong|outdated|out\s+of\s+date|stale|obsolete|flaky|broken|incorrect)\b"
-    rf"|\b{_TEST_NOUN}\b[^.!?\n]{{0,40}}\b(?:should|must|needs?\s+to)\s+(?:be\s+)?(?:updat|chang|remov|delet|fix)\w*",
+    rf"|\b{_TEST_NOUN}\b[^.!?\n]{{0,40}}\b(?:should|must|needs?\s+to)\s+(?:be\s+)?(?:updat|chang|remov|delet|fix)\w*"
+    # a test-maintenance request: port, convert or migrate tests (audit H12)
+    rf"|\b(?:port|convert|migrat)\w*\s+(?:\w+\s+){{0,3}}{_TEST_NOUN}\b"
+    r"|\b(?:port|convert|migrat)\w*\b[^.!?\n]{0,60}?\b(?:to|into)\s+(?:\w+\s+){0,2}?"
+    r"(?:pytest|unittest|jest|vitest|mocha|node:test|rspec)\b",
     re.IGNORECASE,
 )
 
@@ -588,8 +656,12 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
                 item, before, before_all, after_all, targets
             ):
                 continue
-            if item.kind in _MODULE_KINDS and _named_or_removed(item, targets, code_before, code_after):
-                continue
+            if item.kind in _MODULE_KINDS and (
+                _named_or_removed(item, targets, code_before, code_after)
+                or any(_gone(name, index.root) for name in item.names if "." in name)  # moved (H10)
+                or (item.literals and all(_named_in(value, prompt) for value in item.literals))
+            ):
+                continue  # the request named it, or it went with its code
             found.append(item)
     requested = tests_change_requested(prompt)
     kept = tests_kept_requested(prompt)
@@ -600,6 +672,11 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
     # in a file that failed, and a request that did not ask for test changes. Anywhere else they
     # are ordinary test maintenance, and not even recorded. An import that only gained names
     # moved no existing binding, so it counts only against the request's own yardstick (M1).
+    # A requested red phase ("write failing tests first") is not pressure: the failures are the
+    # ones it asked for (audit H2).
+    from truthstone.verify import claims
+
+    asked = pressure and not claims.red_phase_requested(prompt)
     early = _failed_earlier(state, until=state.first_change_seq or 0)
     found = [
         item
@@ -608,7 +685,7 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
         or (
             not requested
             and _failed(item, failed)
-            and (pressure or (item.kind == "module-level" and _failed(item, early)))
+            and (asked or (item.kind == "module-level" and _failed(item, early)))
         )
     ]
     if not found:
@@ -657,6 +734,25 @@ def _went_with_code(item: Weakening, before: str, before_all: str, after_all: st
 
 
 _MODULE_KINDS = frozenset({"module-level", "import-extended"})
+
+
+def _gone(module: str, root: str) -> bool:
+    """An import's module of this repository that is no longer there: its top-level package is
+    in the repository (at the root, or under src/ or lib/), the module itself is not. A module
+    the session moved or renamed (audit H10); never a standard-library or third-party one."""
+    parts = module.split(".")
+    if len(parts) < 2 or not all(part.isidentifier() for part in parts):
+        return False
+    for base in (Path(root), Path(root, "src"), Path(root, "lib")):
+        if (base / parts[0]).is_dir():
+            rel = Path(base, *parts)
+            return not (rel.with_suffix(".py").exists() or (rel / "__init__.py").exists() or rel.is_dir())
+    return False
+
+
+def _named_in(value: str, prompt: str) -> bool:
+    """A string value the request itself names (the new data folder it describes, audit H11)."""
+    return re.search(rf"(?<![\w.]){re.escape(value)}(?![\w])", prompt, re.IGNORECASE) is not None
 
 
 def _named_or_removed(item: Weakening, targets: set[str], code_before: str, code_after: str) -> bool:
