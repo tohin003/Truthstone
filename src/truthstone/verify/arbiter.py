@@ -43,6 +43,7 @@ Never raises; a check that fails is skipped (fail open).
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 from collections.abc import Callable, Iterable
@@ -140,6 +141,9 @@ def category_of(finding: Finding) -> ReasonCategory | None:
 # Integrity checks register here: f(state, index) -> list[Concern]. Each must never raise.
 IntegrityCheck = Callable[[TaskState, RepoIndex], list[Concern]]
 
+# One Stop reads each changed file once, however many checks ask (``changed_texts``).
+_TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("truthstone_stop_texts", default=None)
+
 
 def _integrity_checks() -> list[IntegrityCheck]:
     from truthstone.validate import config_reads, weakened_tests
@@ -177,12 +181,17 @@ def arbitrate(
         if gate_concern is not None:
             concerns.append(gate_concern)
 
-    for check in checks if checks is not None else _integrity_checks():
-        try:
-            found = check(state, index)
-        except Exception:
-            log.exception("truthstone: a completion integrity check failed; skipped")
-            continue
+    token = _TEXTS.set({})
+    try:
+        found_all = []
+        for check in checks if checks is not None else _integrity_checks():
+            try:
+                found_all.append(check(state, index))
+            except Exception:
+                log.exception("truthstone: a completion integrity check failed; skipped")
+    finally:
+        _TEXTS.reset(token)
+    for found in found_all:
         for concern in found:
             if concern.category is ReasonCategory.SPEC_EROSION and concern.can_speak:
                 from truthstone.verify import integrity
@@ -522,7 +531,12 @@ def changed_texts(state: TaskState, index: RepoIndex) -> dict[str, tuple[str | N
     """For every file the task changed whose baseline text is known: (before, after).
     After is None for a file deleted since; files whose text is back to the baseline, or
     unreadable now, are left out. Shared by the integrity checks."""
+    cache = _TEXTS.get()
+    if cache is not None and "texts" in cache:
+        return cache["texts"]
     out: dict[str, tuple[str | None, str | None]] = {}
+    if cache is not None:
+        cache["texts"] = out
     for path in sorted(state.changed_files):
         old = baseline.before_text(state, path)
         exists, new = baseline.current_text(index.root, path)
