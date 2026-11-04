@@ -12,12 +12,12 @@ import json
 import shutil
 from pathlib import Path
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.store import ProjectStore
-from agentguard.verify import runners
 from tests.conftest import user_prompt_submit
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.store import ProjectStore
+from truthstone.verify import runners
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FAIL = (

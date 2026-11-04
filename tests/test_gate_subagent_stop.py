@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.codex import translate as codex
 from tests.test_gate_timeline import Session
+from truthstone.adapters.codex import translate as codex
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

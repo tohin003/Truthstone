@@ -23,10 +23,10 @@ from pathlib import Path
 
 import pytest
 
-from agentguard import evidence
-from agentguard.core.enums import EventType, Verdict
-from agentguard.core.events import AgentEvent
-from agentguard.repo import RepoIndex, symbols_python
+from truthstone import evidence
+from truthstone.core.enums import EventType, Verdict
+from truthstone.core.events import AgentEvent
+from truthstone.repo import RepoIndex, symbols_python
 
 
 def _repo(root: Path, files: dict[str, str]) -> RepoIndex:

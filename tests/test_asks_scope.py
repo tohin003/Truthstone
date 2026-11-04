@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.core.enums import DecisionAction, FailureMode, Severity
-from agentguard.core.enums import EventType as ET
-from agentguard.core.events import AgentEvent
-from agentguard.validate import checks
 from tests.test_asks_support import Session, make_guard, make_repo, permission
+from truthstone.core.enums import DecisionAction, FailureMode, Severity
+from truthstone.core.enums import EventType as ET
+from truthstone.core.events import AgentEvent
+from truthstone.validate import checks
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ class TestScopeIsJudgedOnWritesOnly:
             "cd . && pytest -q 2>&1 | tail -20",
             "npm test",
             "git status && git diff --stat",
-            "AGENTGUARD_X=1 timeout 60 pytest -q",
+            "TRUTHSTONE_X=1 timeout 60 pytest -q",
         ],
     )
     def test_scope_challenge_never_lands_on_a_test_run(self, session, command):

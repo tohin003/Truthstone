@@ -1,7 +1,7 @@
-"""`python -m agentguard.daemon run` honours config.toml the way the CLI does (R11).
+"""`python -m truthstone.daemon run` honours config.toml the way the CLI does (R11).
 
-The shim and `agentguard daemon start` both spawn ``python -m agentguard.daemon run`` with
-no ``--port``. Only `agentguard daemon run` used to refuse an invalid ``[daemon]`` section
+The shim and `truthstone daemon start` both spawn ``python -m truthstone.daemon run`` with
+no ``--port``. Only `truthstone daemon run` used to refuse an invalid ``[daemon]`` section
 and apply ``log_level``; the spawned daemon fell back to 127.0.0.1:8787 — a port the
 installed hooks may not point at — and ignored the configured log level.
 """
@@ -16,14 +16,14 @@ import sys
 import pytest
 import uvicorn
 
-from agentguard.daemon import __main__ as daemon_main
-from agentguard.daemon import app as daemon_app
+from truthstone.daemon import __main__ as daemon_main
+from truthstone.daemon import app as daemon_app
 
 
 @pytest.fixture
 def restore_process_state():
     """`run()` configures process-wide logging and signal handlers; put them back."""
-    loggers = [logging.getLogger(), logging.getLogger("agentguard")]
+    loggers = [logging.getLogger(), logging.getLogger("truthstone")]
     saved = [(lg, lg.level, list(lg.handlers)) for lg in loggers]
     signals = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
     yield
@@ -58,7 +58,7 @@ def test_daemon_run_refuses_invalid_port_config(isolated_home, monkeypatch, caps
             raise AssertionError("the daemon tried to bind despite an invalid [daemon] section")
 
     monkeypatch.setattr(socket, "socket", NoSocket)
-    monkeypatch.setattr(sys, "argv", ["agentguard.daemon", "run"])  # exactly what the shim spawns
+    monkeypatch.setattr(sys, "argv", ["truthstone.daemon", "run"])  # exactly what the shim spawns
     with pytest.raises(SystemExit) as exited:
         daemon_main.main()
 
@@ -90,14 +90,14 @@ def test_an_explicit_port_still_starts(isolated_home, no_server, restore_process
 
 
 def test_daemon_applies_log_level(isolated_home, no_server, restore_process_state):
-    logger = logging.getLogger("agentguard")
+    logger = logging.getLogger("truthstone")
     logger.setLevel(logging.NOTSET)
     _write_config(isolated_home, 'log_level = "debug"\n')
     daemon_app.run(port=0)
     assert logger.level == logging.DEBUG
-    assert logging.getLogger("agentguard.core.store").isEnabledFor(logging.DEBUG)
+    assert logging.getLogger("truthstone.core.store").isEnabledFor(logging.DEBUG)
 
     _write_config(isolated_home, 'log_level = "error"\n')
     daemon_app.run(port=0)
     assert logger.level == logging.ERROR
-    assert not logging.getLogger("agentguard.daemon.app").isEnabledFor(logging.WARNING)
+    assert not logging.getLogger("truthstone.daemon.app").isEnabledFor(logging.WARNING)

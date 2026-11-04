@@ -2,7 +2,7 @@
 
 The core still speaks some of Claude Code's tool, argument and hook-field names
 (``IMPROVEMENTS.md`` §4.4); that is debt with a migration plan (H6). This test stops it
-growing. It parses every module under ``src/agentguard`` except ``adapters/`` and finds
+growing. It parses every module under ``src/truthstone`` except ``adapters/`` and finds
 each **string literal** (docstrings excluded) whose whole value is one of the names below.
 Every occurrence that exists today is recorded in ``ALLOWED``. A new one fails, naming
 the module and the literal; translate it in the adapter instead, or use the core's own
@@ -41,49 +41,49 @@ VOCABULARY = TOOL_NAMES | ARGUMENT_NAMES | HOOK_FIELDS
 # Every occurrence as of e087bf5 plus H4 (which removed the daemon's last one). Other work
 # in flight edits these modules; the lead reconciles this table when it lands.
 ALLOWED: dict[tuple[str, str], int] = {
-    ("agentguard.bench.mutation", "Write"): 1,
-    ("agentguard.bench.mutation", "file_path"): 1,
+    ("truthstone.bench.mutation", "Write"): 1,
+    ("truthstone.bench.mutation", "file_path"): 1,
     # 3 each: workspace rebasing, post-tool touch, and G15's parse baseline at the first
     # PreToolUse. To be centralised behind one accessor with canonical actions (H6).
-    ("agentguard.core.engine", "file_path"): 3,
-    ("agentguard.core.engine", "notebook_path"): 3,
-    ("agentguard.core.engine", "stop_hook_active"): 1,
+    ("truthstone.core.engine", "file_path"): 3,
+    ("truthstone.core.engine", "notebook_path"): 3,
+    ("truthstone.core.engine", "stop_hook_active"): 1,
     # SHELL_TOOLS (G1-core): the one place the core names host shell tools, so the
     # engine no longer does. Goes when canonical actions (H6) replace tool names.
-    ("agentguard.core.events", "Bash"): 1,
-    ("agentguard.core.events", "PowerShell"): 1,
-    ("agentguard.core.events", "Edit"): 1,
-    ("agentguard.core.events", "MultiEdit"): 1,
-    ("agentguard.core.events", "NotebookEdit"): 1,
-    ("agentguard.core.events", "Write"): 1,
-    ("agentguard.evidence.engine", "file_path"): 1,
-    ("agentguard.evidence.engine", "notebook_path"): 1,
-    ("agentguard.evidence.extractors", "Bash"): 1,
-    ("agentguard.evidence.extractors", "Edit"): 1,
-    ("agentguard.evidence.extractors", "MultiEdit"): 1,
-    ("agentguard.evidence.extractors", "NotebookEdit"): 1,
-    ("agentguard.evidence.extractors", "Write"): 1,
-    ("agentguard.evidence.extractors", "file_path"): 1,
-    ("agentguard.evidence.extractors", "new_source"): 1,
-    ("agentguard.evidence.extractors", "new_string"): 2,
-    ("agentguard.evidence.extractors", "notebook_path"): 1,
-    ("agentguard.evidence.extractors", "old_string"): 2,
-    ("agentguard.evidence.extractors", "replace_all"): 2,
+    ("truthstone.core.events", "Bash"): 1,
+    ("truthstone.core.events", "PowerShell"): 1,
+    ("truthstone.core.events", "Edit"): 1,
+    ("truthstone.core.events", "MultiEdit"): 1,
+    ("truthstone.core.events", "NotebookEdit"): 1,
+    ("truthstone.core.events", "Write"): 1,
+    ("truthstone.evidence.engine", "file_path"): 1,
+    ("truthstone.evidence.engine", "notebook_path"): 1,
+    ("truthstone.evidence.extractors", "Bash"): 1,
+    ("truthstone.evidence.extractors", "Edit"): 1,
+    ("truthstone.evidence.extractors", "MultiEdit"): 1,
+    ("truthstone.evidence.extractors", "NotebookEdit"): 1,
+    ("truthstone.evidence.extractors", "Write"): 1,
+    ("truthstone.evidence.extractors", "file_path"): 1,
+    ("truthstone.evidence.extractors", "new_source"): 1,
+    ("truthstone.evidence.extractors", "new_string"): 2,
+    ("truthstone.evidence.extractors", "notebook_path"): 1,
+    ("truthstone.evidence.extractors", "old_string"): 2,
+    ("truthstone.evidence.extractors", "replace_all"): 2,
     # 3: risky_command, A4's read-only-Bash classifier and A8's verification-bypass
     # check. Bash stays the core's shell vocabulary until canonical actions (H6).
-    ("agentguard.validate.checks", "Bash"): 3,
-    ("agentguard.validate.checks", "Edit"): 1,
+    ("truthstone.validate.checks", "Bash"): 3,
+    ("truthstone.validate.checks", "Edit"): 1,
     # A9 self-protection reads the raw target path of a write (it may lie outside the
     # workspace, where the normalised path is empty). Canonical actions (H6) remove it.
-    ("agentguard.validate.checks", "file_path"): 1,
-    ("agentguard.validate.checks", "notebook_path"): 1,
-    ("agentguard.validate.checks", "MultiEdit"): 1,
-    ("agentguard.validate.checks", "Write"): 2,
-    ("agentguard.validate.modify", "Bash"): 1,
+    ("truthstone.validate.checks", "file_path"): 1,
+    ("truthstone.validate.checks", "notebook_path"): 1,
+    ("truthstone.validate.checks", "MultiEdit"): 1,
+    ("truthstone.validate.checks", "Write"): 2,
+    ("truthstone.validate.modify", "Bash"): 1,
     # A10: dependency advice depends on whether the installer was a shell command.
-    ("agentguard.validate.validator", "Bash"): 1,
-    ("agentguard.validate.validator", "file_path"): 1,
-    ("agentguard.validate.validator", "notebook_path"): 1,
+    ("truthstone.validate.validator", "Bash"): 1,
+    ("truthstone.validate.validator", "file_path"): 1,
+    ("truthstone.validate.validator", "notebook_path"): 1,
 }
 
 
@@ -104,7 +104,7 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
 def scan(src: Path = SRC) -> Counter[tuple[str, str]]:
     """``(module, literal) -> count`` for every vocabulary literal outside ``adapters/``."""
     counts: Counter[tuple[str, str]] = Counter()
-    for path in sorted((src / "agentguard").rglob("*.py")):
+    for path in sorted((src / "truthstone").rglob("*.py")):
         rel = path.relative_to(src)
         if rel.parts[1] == "adapters":
             continue
@@ -144,21 +144,21 @@ def test_the_allowlist_only_shrinks():
 
 def test_new_host_neutral_modules_stay_clean():
     found = scan()
-    for module in ("agentguard.core.hosts", "agentguard.daemon.app"):
+    for module in ("truthstone.core.hosts", "truthstone.daemon.app"):
         assert not [key for key in found if key[0] == module], module
 
 
 def test_the_scan_sees_what_it_should_and_skips_docstrings(tmp_path):
     """The lint must not be vacuous, and must not flag prose."""
-    package = tmp_path / "agentguard" / "core"
+    package = tmp_path / "truthstone" / "core"
     package.mkdir(parents=True)
-    (tmp_path / "agentguard" / "adapters").mkdir()
+    (tmp_path / "truthstone" / "adapters").mkdir()
     (package / "probe.py").write_text(
         '"""Mentions "Bash" and file_path in prose."""\n'
         'def f(event):\n'
         '    """And here: Edit."""\n'
         '    return event.tool == "Bash" and event.arguments.get("file_path") and f"Bash {event}"\n'
     )
-    (tmp_path / "agentguard" / "adapters" / "host.py").write_text('TOOL = "Bash"\n')
-    expected = {("agentguard.core.probe", "Bash"): 1, ("agentguard.core.probe", "file_path"): 1}
+    (tmp_path / "truthstone" / "adapters" / "host.py").write_text('TOOL = "Bash"\n')
+    expected = {("truthstone.core.probe", "Bash"): 1, ("truthstone.core.probe", "file_path"): 1}
     assert scan(tmp_path) == Counter(expected)

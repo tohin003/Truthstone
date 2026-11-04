@@ -22,13 +22,13 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from agentguard.adapters import registry
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
-from agentguard.core.events import AgentEvent
-from agentguard.core.models import Decision, Finding
-from agentguard.daemon.app import create_app
+from truthstone.adapters import registry
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
+from truthstone.core.events import AgentEvent
+from truthstone.core.models import Decision, Finding
+from truthstone.daemon.app import create_app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 # Hosts captured before fixtures/hosts/ existed keep their original directories.
@@ -158,7 +158,7 @@ def every_decision() -> list[Decision]:
     return [
         Decision(
             action=action,
-            reason="AgentGuard — evidence check\n\nThe evidence.",
+            reason="Truthstone — evidence check\n\nThe evidence.",
             additional_context="Extra context.",
             updated_arguments={"command": "ls"},
             signoff_required=signoff,

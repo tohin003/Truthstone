@@ -20,11 +20,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.codex import render as codex_render
-from agentguard.core.enums import DecisionAction, EventType, FailureMode, Severity, Verdict
-from agentguard.core.events import AgentEvent
-from agentguard.validate import checks, effects
 from tests.test_asks_support import Session, make_guard, make_repo, permission, reason
+from truthstone.adapters.codex import render as codex_render
+from truthstone.core.enums import DecisionAction, EventType, FailureMode, Severity, Verdict
+from truthstone.core.events import AgentEvent
+from truthstone.validate import checks, effects
 
 HOME = str(Path.home())
 
@@ -277,8 +277,8 @@ class TestWherePathsLand:
     def test_other_outside_writes_are_recorded(self, session):
         session.prompt("Collect the logs.")
         for tool, args in [
-            ("Write", {"file_path": "/tmp/agentguard-test-notes.md", "content": "x\n"}),
-            ("Bash", {"command": "pytest -q > /tmp/agentguard-test-out.txt 2>&1"}),
+            ("Write", {"file_path": "/tmp/truthstone-test-notes.md", "content": "x\n"}),
+            ("Bash", {"command": "pytest -q > /tmp/truthstone-test-out.txt 2>&1"}),
             ("Bash", {"command": "cp report.html ../sibling/report.html"}),
         ]:
             decision = session.pre(tool, **args)

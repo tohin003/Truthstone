@@ -21,13 +21,13 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.config import Settings
-from agentguard.core.enums import DecisionAction, EventType, GateResult, PlanningDepth
-from agentguard.core.events import AgentEvent
-from agentguard.core.taskstate import TaskState
-from agentguard.intent.models import TaskSpec
-from agentguard.repo import RepoIndex
-from agentguard.verify import completion_gate, runners
+from truthstone.core.config import Settings
+from truthstone.core.enums import DecisionAction, EventType, GateResult, PlanningDepth
+from truthstone.core.events import AgentEvent
+from truthstone.core.taskstate import TaskState
+from truthstone.intent.models import TaskSpec
+from truthstone.repo import RepoIndex
+from truthstone.verify import completion_gate, runners
 
 pytestmark = pytest.mark.spec
 
@@ -47,8 +47,8 @@ def index(repo) -> RepoIndex:
 
 
 def spec_for(prompt: str, index: RepoIndex) -> TaskSpec:
-    from agentguard.complexity import assess
-    from agentguard.intent import extract
+    from truthstone.complexity import assess
+    from truthstone.intent import extract
 
     spec = extract(prompt, index)
     spec.complexity = assess(spec, index)
@@ -89,7 +89,7 @@ class TestScopeViolation:
     """
 
     def test_wholesale_drift_is_challenged(self, index):
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         state = state_for(
             "Fix the get_user validation bug.",
@@ -105,7 +105,7 @@ class TestScopeViolation:
 
     def test_ordinary_adjacent_work_is_not_challenged(self, index):
         """The failure mode that matters more: a real fix touches nearby files."""
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         state = state_for(
             "Fix the get_user validation bug.",
@@ -120,7 +120,7 @@ class TestScopeViolation:
 
     def test_related_files_are_reachable_through_the_import_graph(self, index):
         """A file that imports the target is related, even if the prompt never named it."""
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         state = state_for("Fix paginate.", index, touched=["src/shop/api/orders.py"])
         assert checks.scope_creep(state, index) == []
@@ -128,7 +128,7 @@ class TestScopeViolation:
     def test_an_ungrounded_task_never_reports_scope_creep(self, index):
         """Nothing resolved means nothing can be called *unrelated* — an empty expected
         scope must never be read as "nothing is allowed"."""
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         state = state_for("Make everything better.", index, touched=["src/f1.py", "src/f2.py"])
         assert state.spec.expected_scope == []
@@ -136,7 +136,7 @@ class TestScopeViolation:
 
     def test_it_is_raised_once_per_task(self, index):
         """SPEC §17: the agent has heard it and chosen to continue."""
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         state = state_for(
             "Fix the get_user validation bug.",
@@ -151,8 +151,8 @@ class TestScopeViolation:
         """Proportionality catches drift even when nothing grounded, so scope creep
         cannot be measured (SPEC §2) — and is recorded, never raised (IMPROVEMENTS.md A4:
         20 of 69 real 8+-file turns had been rated DIRECT from the prompt)."""
-        from agentguard.core.enums import Severity
-        from agentguard.validate import checks
+        from truthstone.core.enums import Severity
+        from truthstone.validate import checks
 
         state = state_for("Make everything better.", index)
         assert state.spec.expected_scope == [], "this task grounds nowhere"
@@ -167,7 +167,7 @@ class TestScopeViolation:
 
     def test_proportionality_is_recorded_once_at_the_crossing_edit(self, index):
         """With the edit's path, only the edit that adds the ninth source file records it."""
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         state = state_for("Make everything better.", index)
         for i in range(checks.DIRECT_BAND_FILE_LIMIT):
@@ -180,7 +180,7 @@ class TestScopeViolation:
         assert not checks.scope_creep(state, index, "src/later.py")
 
     def test_docs_and_manifests_are_not_proportionality(self, index):
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         state = state_for("Make everything better.", index)
         for i in range(20):
@@ -191,7 +191,7 @@ class TestScopeViolation:
     def test_grounded_drift_reports_scope_rather_than_proportionality(self, index):
         """When the task *did* ground, naming the unrelated files is more useful than
         counting them."""
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         state = state_for("Rename get_user to fetch_user.", index)
         for path in index.files:
@@ -217,7 +217,7 @@ class TestRiskyCommands:
         ],
     )
     def test_dangerous_commands_are_surfaced(self, index, command):
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         event = bash(index, command)
         findings = checks.risky_command(event)
@@ -243,15 +243,15 @@ class TestRiskyCommands:
         ],
     )
     def test_ordinary_commands_are_not(self, index, command):
-        from agentguard.validate import checks
+        from truthstone.validate import checks
 
         assert checks.risky_command(bash(index, command)) == [], f"false positive on {command!r}"
 
     def test_review_is_requested_not_a_block(self, index):
-        """AgentGuard is not the authority on whether a force push is appropriate."""
-        from agentguard.challenge.ledger import ChallengeLedger
-        from agentguard.core.store import ProjectStore
-        from agentguard.validate import validate
+        """Truthstone is not the authority on whether a force push is appropriate."""
+        from truthstone.challenge.ledger import ChallengeLedger
+        from truthstone.core.store import ProjectStore
+        from truthstone.validate import validate
 
         ledger = ChallengeLedger(ProjectStore.for_workspace(index.root))
         event = bash(index, "git push --force origin main")
@@ -322,7 +322,7 @@ class TestFalseCompletion:
 
 
 class TestTheGateIsQuiet:
-    """SPEC §39. Every case here must pass silently, or AgentGuard becomes unusable."""
+    """SPEC §39. Every case here must pass silently, or Truthstone becomes unusable."""
 
     def test_a_turn_that_changed_nothing(self, index):
         assert completion_gate.evaluate(state_for("What does paginate do?", index), index).result is (
@@ -465,7 +465,7 @@ class TestOutputParsing:
 
 class TestThroughTheGuard:
     def make_guard(self, repo: Path):
-        from agentguard.core.engine import Guard
+        from truthstone.core.engine import Guard
 
         guard = Guard(Settings())
         ws = guard.workspace(repo)

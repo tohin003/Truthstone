@@ -17,11 +17,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core import shellchanges
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core import shellchanges
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PAGINATION = "src/shop/utils/pagination.py"

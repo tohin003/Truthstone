@@ -22,8 +22,8 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from agentguard.daemon import lifecycle, logs
 from tests.conftest import REPO_ROOT, free_port
+from truthstone.daemon import lifecycle, logs
 
 FAKE_KEY = "sk-live-FAKE0123456789abcdefFAKE"
 # No label, no known prefix: no pattern can recognise it, so only never logging payload
@@ -50,10 +50,10 @@ def _spawn_logged_daemon(home: Path, port: int) -> tuple[subprocess.Popen, Path]
     """Like the shim: stdout and stderr appended to <home>/daemon.log."""
     log_path = home / "daemon.log"
     log_file = lifecycle.open_private_append(log_path)
-    env = dict(os.environ, AGENTGUARD_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
+    env = dict(os.environ, TRUTHSTONE_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "agentguard.daemon", "run", "--port", str(port)],
+            [sys.executable, "-m", "truthstone.daemon", "run", "--port", str(port)],
             env=env,
             stdout=log_file,
             stderr=log_file,
@@ -164,7 +164,7 @@ def test_any_record_formatted_by_the_daemon_is_safe():
         exc_info = sys.exc_info()
 
     def record(msg, args=(), exc_info=None, level=logging.WARNING):
-        return logging.LogRecord("agentguard.x", level, __file__, 1, msg, args, exc_info)
+        return logging.LogRecord("truthstone.x", level, __file__, 1, msg, args, exc_info)
 
     records = [
         record("handler failed", exc_info=exc_info, level=logging.ERROR),
@@ -184,7 +184,7 @@ def test_a_cached_unsafe_traceback_is_not_reused():
     try:
         raise _validation_error([FAKE_PASSWORD])
     except Exception:  # noqa: BLE001
-        record = logging.LogRecord("agentguard", logging.ERROR, __file__, 1, "boom", (), sys.exc_info())
+        record = logging.LogRecord("truthstone", logging.ERROR, __file__, 1, "boom", (), sys.exc_info())
     logging.Formatter().format(record)
     assert FAKE_PASSWORD in (record.exc_text or "")
     assert FAKE_PASSWORD not in logs.SafeFormatter().format(record)
@@ -222,7 +222,7 @@ def test_the_daemon_rotates_its_own_log_while_it_runs(tmp_path):
     raw = lifecycle.open_private_append(path)
     stream = open(raw.fileno(), "w", buffering=1, encoding="utf-8", closefd=False)  # noqa: SIM115
     handler = logs.DaemonLogHandler(path, stream=stream, fd=raw.fileno(), also=(), max_bytes=400, backups=1)
-    logger = logging.getLogger("agentguard.test.rotation")
+    logger = logging.getLogger("truthstone.test.rotation")
     logger.propagate = False
     logger.addHandler(handler)
     try:
@@ -250,14 +250,14 @@ def test_a_handler_whose_stderr_is_not_the_log_never_rotates(tmp_path):
         handler = logs.DaemonLogHandler(path, stream=sink, fd=other.fileno(), also=(), max_bytes=10)
         other.write(b"z" * 100)
         other.flush()
-        handler.emit(logging.LogRecord("agentguard", logging.WARNING, __file__, 1, "hello", (), None))
+        handler.emit(logging.LogRecord("truthstone", logging.WARNING, __file__, 1, "hello", (), None))
     assert path.read_text() == "y" * 1000 and not (tmp_path / "daemon.log.1").exists()
     assert not handler.rotates
 
 
 def test_starting_a_daemon_rotates_an_oversized_log(isolated_home, monkeypatch):
     """The spawners bound it across restarts (the shim here; `daemon start` shares the helper)."""
-    from agentguard.adapters.claude_code import shim
+    from truthstone.adapters.claude_code import shim
 
     monkeypatch.setattr(lifecycle, "DAEMON_LOG_MAX_BYTES", 1_000)
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT / "src"))  # the daemon runs this checkout

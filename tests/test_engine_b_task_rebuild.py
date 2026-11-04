@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core import engine, rehydrate
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction
-from agentguard.core.store import ProjectStore
-from agentguard.daemon import degraded
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core import engine, rehydrate
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction
+from truthstone.core.store import ProjectStore
+from truthstone.daemon import degraded
 
 FIXTURES = Path(__file__).parent / "fixtures"
 USERS = "src/shop/api/users.py"

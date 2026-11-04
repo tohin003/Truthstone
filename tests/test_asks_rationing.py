@@ -5,7 +5,7 @@ with no task, by deduplicating on the matched substring (a second, different `gi
 --hard` was silent), and by the advisory budget (after six challenges `rm -rf /` passed).
 On Codex, whose sign-off is a deny, a plain re-run of a refused command then went through.
 
-AgentGuard cannot see whether the developer approved or refused, so it asks every time —
+Truthstone cannot see whether the developer approved or refused, so it asks every time —
 and an ask never spends the budget that agent-facing challenges share.
 """
 
@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.adapters.codex import render as codex_render
-from agentguard.challenge.ledger import ChallengeLedger
-from agentguard.core.config import ChallengeSettings
-from agentguard.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
-from agentguard.core.models import Finding
-from agentguard.core.store import ProjectStore
 from tests.test_asks_support import HALLUCINATION, Session, make_guard, make_repo, permission, reason
+from truthstone.adapters.codex import render as codex_render
+from truthstone.challenge.ledger import ChallengeLedger
+from truthstone.core.config import ChallengeSettings
+from truthstone.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
+from truthstone.core.models import Finding
+from truthstone.core.store import ProjectStore
 
 
 @pytest.fixture

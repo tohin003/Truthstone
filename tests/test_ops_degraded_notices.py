@@ -17,9 +17,9 @@ import time
 
 import pytest
 
-from agentguard.adapters.codex import hook
 from tests import codex_schema
 from tests.test_doctor import doctor_env, run_doctor  # noqa: F401 - fixture
+from truthstone.adapters.codex import hook
 
 HANDSHAKE = {"host": "127.0.0.1", "port": 9, "token": "t", "pid": 4242}
 AUTH = (
@@ -91,7 +91,7 @@ def test_codex_hook_prints_degraded_reasons_once(daemon_says, monkeypatch, capsy
         {"code": "index", "message": "the index for /repo is unavailable: too large"},
     )
     _, out = _run(monkeypatch, capsys, "UserPromptSubmit")
-    assert out["systemMessage"] == "AgentGuard: the index for /repo is unavailable: too large"
+    assert out["systemMessage"] == "Truthstone: the index for /repo is unavailable: too large"
     assert codex_schema.validate(out, "user-prompt-submit.command.output") == []
 
     # Another session hears everything once.
@@ -126,13 +126,13 @@ def test_notices_survive_a_failed_post(daemon_says, monkeypatch, capsys):
 
     monkeypatch.setattr(hook, "post", broken)
     code, out = _run(monkeypatch, capsys, "SessionStart")
-    assert code == 0 and out == {"systemMessage": f"AgentGuard: {STORE}"}
+    assert code == 0 and out == {"systemMessage": f"Truthstone: {STORE}"}
 
 
 def test_doctor_lists_degraded_reasons(doctor_env, monkeypatch):  # noqa: F811 - fixture
-    import agentguard.adapters.codex.hook as codex_hook
-    import agentguard.daemon.app as daemon_app
-    from agentguard.core.config import Settings
+    import truthstone.adapters.codex.hook as codex_hook
+    import truthstone.daemon.app as daemon_app
+    from truthstone.core.config import Settings
 
     home, _, _ = doctor_env
     settings = Settings.load()

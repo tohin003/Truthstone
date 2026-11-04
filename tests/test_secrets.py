@@ -18,9 +18,9 @@ import time
 
 import pytest
 
-from agentguard.core.enums import DecisionAction, FailureMode, Severity
-from agentguard.validate import secrets
 from tests.test_asks_support import Session, make_guard, make_repo, permission, reason
+from truthstone.core.enums import DecisionAction, FailureMode, Severity
+from truthstone.validate import secrets
 
 ALNUM = string.ascii_letters + string.digits
 
@@ -193,7 +193,7 @@ def test_unknown_ignore_status_fails_open_with_a_warning(tmp_path, caplog):
     try:
         session = Session(guard, workspace)
         session.prompt("Wire the client.")
-        with caplog.at_level(logging.WARNING, logger="agentguard.validate.secrets"):
+        with caplog.at_level(logging.WARNING, logger="truthstone.validate.secrets"):
             decision = session.pre("Write", file_path="src/keys.py", content=f"K = '{KEYS['aws']}'\n")
         assert not secret_findings(decision)
         assert any("not raised" in record.getMessage() for record in caplog.records)

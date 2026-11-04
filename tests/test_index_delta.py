@@ -1,6 +1,6 @@
 """`RepoIndex.refresh_delta`: which paths a sweep saw change (G5 support).
 
-Edit/Write tell AgentGuard which file they touched. Bash does not: `sed -i`, a codemod,
+Edit/Write tell Truthstone which file they touched. Bash does not: `sed -i`, a codemod,
 `rm` or `git mv` change files that only a sweep of the tree can see. `refresh()` always
 computed those path sets but returned only counts; `refresh_delta()` returns the sets so
 the Completion Gate can count Bash-made changes, deletions included.
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.repo import IndexDelta, RepoIndex
+from truthstone.repo import IndexDelta, RepoIndex
 
 
 @pytest.fixture

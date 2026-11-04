@@ -9,13 +9,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from agentguard.adapters import registry
-from agentguard.core import hosts
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import EventType
-from agentguard.core.events import AgentEvent
-from agentguard.daemon.app import create_app
+from truthstone.adapters import registry
+from truthstone.core import hosts
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import EventType
+from truthstone.core.events import AgentEvent
+from truthstone.daemon.app import create_app
 
 TOKEN = "registry-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -112,8 +112,8 @@ def test_a_name_is_registered_once_unless_replaced():
 
 
 def test_an_adapter_that_cannot_load_is_absent_and_says_why(caplog):
-    registry.register("test-host", "agentguard.adapters.no_such_host")
-    with caplog.at_level(logging.ERROR, logger="agentguard.adapters.registry"):
+    registry.register("test-host", "truthstone.adapters.no_such_host")
+    with caplog.at_level(logging.ERROR, logger="truthstone.adapters.registry"):
         assert registry.get("test-host") is None
         assert registry.get("test-host") is None
     assert len([r for r in caplog.records if "test-host" in r.getMessage()]) == 1, "logged once"
@@ -151,7 +151,7 @@ def test_the_daemon_prefers_handle_payload(client, workspace):
 
 
 def test_a_broken_or_misbehaving_adapter_fails_open(client, workspace):
-    registry.register("test-host", "agentguard.adapters.no_such_host")
+    registry.register("test-host", "truthstone.adapters.no_such_host")
     assert "test-host" not in client.get("/health").json()["adapters"]
     response = ping(client, workspace)
     assert (response.status_code, response.json()) == (200, {})

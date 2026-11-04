@@ -3,8 +3,8 @@
 Before: one invalid value anywhere (`max_per_task = -1`) discarded the whole file, so a
 configured `port = 9999` silently became 8787 while the installed hooks still pointed at
 9999; typo keys were ignored without a word; `latency.*` and `log_level` did nothing;
-`AGENTGUARD_HOME=""` put the token in the project directory and chmod-ed it 0700; and a
-symlinked home ancestor (Fedora Silverblue's /home -> var/home) made AgentGuard refuse
+`TRUTHSTONE_HOME=""` put the token in the project directory and chmod-ed it 0700; and a
+symlinked home ancestor (Fedora Silverblue's /home -> var/home) made Truthstone refuse
 to run.
 """
 
@@ -18,18 +18,18 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agentguard.cli.main import app
-from agentguard.core.config import (
+from truthstone.cli.main import app
+from truthstone.core.config import (
     Settings,
-    agentguard_home,
     configure_logging,
     daemon_config_error,
     describe_unknown_key,
     ensure_private_dir,
     get_or_create_token,
+    truthstone_home,
 )
-from agentguard.core.store import Database
-from agentguard.daemon import private_paths
+from truthstone.core.store import Database
+from truthstone.daemon import private_paths
 
 
 def _write_config(home: Path, text: str) -> None:
@@ -136,7 +136,7 @@ class TestInvalidDaemonEndpoint:
 
 class TestHome:
     def test_empty_home_env_is_unset(self, tmp_path, monkeypatch):
-        from agentguard.adapters.claude_code import shim
+        from truthstone.adapters.claude_code import shim
 
         fake_home = tmp_path / "user"
         fake_home.mkdir()
@@ -144,13 +144,13 @@ class TestHome:
         project.mkdir(mode=0o755)
         os.chmod(project, 0o755)
         monkeypatch.setenv("HOME", str(fake_home))
-        monkeypatch.setenv("AGENTGUARD_HOME", "")
+        monkeypatch.setenv("TRUTHSTONE_HOME", "")
         monkeypatch.chdir(project)
 
-        assert agentguard_home() == fake_home / ".agentguard"
-        assert str(agentguard_home()) == shim._home(), "the config and the shim must agree"
+        assert truthstone_home() == fake_home / ".truthstone"
+        assert str(truthstone_home()) == shim._home(), "the config and the shim must agree"
         get_or_create_token()
-        assert (fake_home / ".agentguard" / "token").is_file()
+        assert (fake_home / ".truthstone" / "token").is_file()
         assert list(project.iterdir()) == [], "no credentials in the project directory"
         assert stat.S_IMODE(project.stat().st_mode) == 0o755, "and its mode left alone"
 
@@ -159,19 +159,19 @@ class TestHome:
         (real / "alice").mkdir(parents=True)
         link = tmp_path / "home"
         link.symlink_to(real, target_is_directory=True)  # /home -> var/home, on Silverblue
-        configured = link / "alice" / ".agentguard"
-        monkeypatch.setenv("AGENTGUARD_HOME", str(configured))
+        configured = link / "alice" / ".truthstone"
+        monkeypatch.setenv("TRUTHSTONE_HOME", str(configured))
         Database.reset_shared()
 
-        home = agentguard_home()
-        assert home == real.resolve() / "alice" / ".agentguard", "resolved once, at the boundary"
+        home = truthstone_home()
+        assert home == real.resolve() / "alice" / ".truthstone", "resolved once, at the boundary"
         assert ensure_private_dir() == home
         _write_config(home, "[daemon]\nport = 9999\n")
         assert Settings.load().daemon.port == 9999
         token = get_or_create_token()
         assert (home / "token").read_text() == token
         assert not Database.shared().degraded_reason
-        assert (configured / "agentguard.db").exists(), "same files, whichever spelling"
+        assert (configured / "truthstone.db").exists(), "same files, whichever spelling"
 
     def test_a_link_another_user_could_swap_is_still_refused(self, tmp_path, monkeypatch):
         shared = tmp_path / "shared"
@@ -180,11 +180,11 @@ class TestHome:
         target = tmp_path / "target"
         target.mkdir()
         (shared / "link").symlink_to(target, target_is_directory=True)
-        monkeypatch.setenv("AGENTGUARD_HOME", str(shared / "link" / "agentguard"))
+        monkeypatch.setenv("TRUTHSTONE_HOME", str(shared / "link" / "truthstone"))
 
         with pytest.raises(RuntimeError, match="symlinked"):
             ensure_private_dir()
-        assert not (target / "agentguard").exists()
+        assert not (target / "truthstone").exists()
 
     def test_root_owned_system_links_are_accepted_for_any_private_path(self, tmp_path, monkeypatch):
         """Silverblue's /home -> var/home is root's; installing into ~/.claude must work."""
@@ -208,13 +208,13 @@ class TestLogLevel:
         assert "log_level" in settings.config_warnings[0]
 
     def test_log_level_is_applied(self, isolated_home):
-        logger = logging.getLogger("agentguard")
+        logger = logging.getLogger("truthstone")
         previous_level, previous_handlers = logger.level, list(logger.handlers)
         try:
             _write_config(isolated_home, 'log_level = "debug"\n')
             configure_logging(Settings.load())
             assert logger.level == logging.DEBUG
-            assert logging.getLogger("agentguard.core.store").isEnabledFor(logging.DEBUG)
+            assert logging.getLogger("truthstone.core.store").isEnabledFor(logging.DEBUG)
         finally:
             logger.setLevel(previous_level)
             logger.handlers[:] = previous_handlers

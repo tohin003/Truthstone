@@ -1,14 +1,14 @@
 [project]
-name = "agentguard"
+name = "truthstone"
 version = "0.1.0.dev0"
 description = "Host-powered reliability and reasoning control layer for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
-authors = [{ name = "AgentGuard" }]
+authors = [{ name = "Truthstone" }]
 keywords = ["ai", "agents", "reliability", "guardrails", "claude-code", "hallucination"]
 
-# NOTE (SPEC §6, §46.1): AgentGuard must never own an LLM. No provider SDK
+# NOTE (SPEC §6, §46.1): Truthstone must never own an LLM. No provider SDK
 # (anthropic, openai, google-generativeai, litellm, langchain, ...) may ever appear
 # in these dependencies. Enforced by tests/spec/test_s06_no_llm.py.
 dependencies = [
@@ -27,12 +27,12 @@ treesitter = [
 ]
 
 [project.scripts]
-agentguard = "agentguard.cli.main:app"
+truthstone = "truthstone.cli.main:app"
 # Stdlib-only fallback shim (command-hook transport). Kept dependency-free on purpose.
-agentguard-hook = "agentguard.adapters.claude_code.shim:main"
+truthstone-hook = "truthstone.adapters.claude_code.shim:main"
 # Codex command-hook forwarder (Codex has no http hooks). Stdlib-only, like the shim: it
 # runs on every Codex tool call. The Codex plugin's launcher looks for this name.
-agentguard-codex-hook = "agentguard.adapters.codex.hook:main"
+truthstone-codex-hook = "truthstone.adapters.codex.hook:main"
 
 [dependency-groups]
 dev = [
@@ -48,7 +48,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agentguard"]
+packages = ["src/truthstone"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -72,11 +72,11 @@ target-version = "py312"
 extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
-# BLE (blind-except) is enabled deliberately. AgentGuard's fail-open guarantee means it
+# BLE (blind-except) is enabled deliberately. Truthstone's fail-open guarantee means it
 # has a number of intentional catch-alls; enabling the rule forces each one to carry an
 # explicit `# noqa: BLE001` explaining itself, and flags any accidental new one.
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "BLE"]
 ignore = ["B008"]  # typer uses function calls in argument defaults
 
 [tool.coverage.run]
-source = ["src/agentguard"]
+source = ["src/truthstone"]

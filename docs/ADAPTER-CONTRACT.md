@@ -1,6 +1,6 @@
 # The adapter contract
 
-An adapter connects one host (Claude Code, Codex, …) to the AgentGuard core. It does two
+An adapter connects one host (Claude Code, Codex, …) to the Truthstone core. It does two
 things and makes no policy decision of its own:
 
 1. **inbound:** translate the host's hook payload into the core's `AgentEvent`;
@@ -79,7 +79,7 @@ This is the core's side of the contract (implemented in the core, not in adapter
 
 ## (b) Host capabilities and the rendering ladder
 
-`agentguard.core.hosts` holds one frozen `HostCapabilities` profile per host, verified
+`truthstone.core.hosts` holds one frozen `HostCapabilities` profile per host, verified
 against that host, and one pure function, `render(decision, caps, phase) -> Rendering`,
 which picks the strongest form of a decision that the host can actually carry in that
 phase. Adapters spell the result; they never choose.
@@ -130,7 +130,7 @@ adapter renders with `hosts.CODEX` (`render.CODEX_0_166` is the same object).
 `render` returns a `Rendering`: `kind` (one of `silent`, `deny`, `ask`, `context`,
 `block`, `rewrite_ask`), `reason`, `updated_arguments`, `context`, `system_message` and
 `expects_continuation`. A `deny`, `ask`, `block` or `rewrite_ask` always has a non-empty
-reason ("AgentGuard objected to this action." when the decision had none).
+reason ("Truthstone objected to this action." when the decision had none).
 
 | Decision | Before a tool | After a tool | After a failed tool | Prompt | Session start | Stop, subagent stop | Session end |
 |---|---|---|---|---|---|---|---|
@@ -150,21 +150,21 @@ the decision's `additional_context`; "context: reason" means the decision's reas
    the continuation arrives as a prompt that belongs to the current task. Where the host
    cannot continue at all, the developer is told the turn ended unverified.
 3. With `Decision.signoff_code` (A1b): "needs developer sign-off: ask the user whether to
-   go ahead. To allow it once, they reply \`approve K7M2QX\` or run \`agentguard approve
+   go ahead. To allow it once, they reply \`approve K7M2QX\` or run \`truthstone approve
    K7M2QX\` in this project; then re-run it unchanged within 15 minutes. Any run after
    that is held again." Without a code nothing could grant it, so no re-run is promised:
-   "needs developer sign-off: ask the user to carry this out themselves. AgentGuard could
+   "needs developer sign-off: ask the user to carry this out themselves. Truthstone could
    not issue a sign-off code for it, so a re-run will be held again." Both start with
    `hosts.SIGNOFF_PREFIX`.
 
 The developer-facing `system_message` appears only where `system_message_visible`: on a
-sign-off deny ("AgentGuard is holding this for your sign-off: …", followed by the code's
+sign-off deny ("Truthstone is holding this for your sign-off: …", followed by the code's
 two ways to allow it once when there is a code), and at Stop for an unverified finish
-("AgentGuard: this turn ended unverified — …").
+("Truthstone: this turn ended unverified — …").
 
 **Developer sign-off (A1b).** A sign-off decision carries a code bound to the session and
 the exact action. The developer grants it once: a prompt in the same session whose first
-non-empty line is `approve <code>`, or `agentguard approve <code>`. The next attempt at
+non-empty line is `approve <code>`, or `truthstone approve <code>`. The next attempt at
 exactly that action within `SIGNOFF_TTL_S` (15 minutes) is then an ALLOW whose reason
 records the grant; the attempt after it asks again. No usable store means no code and no
 grant: the action stays held. An adapter needs to do two things: deliver the host's prompt
@@ -209,7 +209,7 @@ the core declares them. The core reads each one only if it is present.
 
 ### The protocol
 
-`agentguard.core.hosts.Adapter` (a `typing.Protocol`) is what the daemon needs from a
+`truthstone.core.hosts.Adapter` (a `typing.Protocol`) is what the daemon needs from a
 host adapter:
 
 | Member | Contract |
@@ -226,11 +226,11 @@ not put the hook's name in `hook_event_name`.
 
 ### The registry
 
-`agentguard.adapters.registry` maps route names to adapters:
+`truthstone.adapters.registry` maps route names to adapters:
 
 - **Built-in hosts** are listed by dotted module path (`claude-code` →
-  `agentguard.adapters.claude_code.translate`, `codex` →
-  `agentguard.adapters.codex.translate`) and imported on first use.
+  `truthstone.adapters.claude_code.translate`, `codex` →
+  `truthstone.adapters.codex.translate`) and imported on first use.
 - **Any other host registers explicitly:** `registry.register("cursor",
   "my_pkg.cursor.translate")` (imported lazily) or `registry.register(name, module)`.
   Names are lowercase route segments; registering a taken name needs `replace=True`.

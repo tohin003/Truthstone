@@ -16,15 +16,15 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.census import collect, render
-from agentguard.census import report as census_report
-from agentguard.census.taxonomy import ALL_MODES, TAXONOMY
-from agentguard.core import hosts as core_hosts
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import EventType, FailureMode
-from agentguard.core.events import AgentEvent
-from agentguard.core.store import ProjectStore
+from truthstone.census import collect, render
+from truthstone.census import report as census_report
+from truthstone.census.taxonomy import ALL_MODES, TAXONOMY
+from truthstone.core import hosts as core_hosts
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import EventType, FailureMode
+from truthstone.core.events import AgentEvent
+from truthstone.core.store import ProjectStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
 HALLUCINATING_FILE = textwrap.dedent(
@@ -64,7 +64,7 @@ def _hallucinating_write(guard: Guard, repo: Path, agent: str, session: str) -> 
 
 
 def _record(repo: Path, claude: bool, cursor: bool) -> None:
-    """Claude Code: the full lifecycle. "cursor": a host AgentGuard has no profile for,
+    """Claude Code: the full lifecycle. "cursor": a host Truthstone has no profile for,
     sending tool events only — no prompt, no stop."""
     guard = Guard(Settings(observe_only=True))
     guard.workspace(repo).index.ready(timeout=30)

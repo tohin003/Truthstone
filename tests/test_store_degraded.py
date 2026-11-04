@@ -1,8 +1,8 @@
 """The store never raises at construction (R1): a broken database degrades, loudly.
 
-Reproduced before the change (x_corrupt.py): a corrupted ``agentguard.db`` made
+Reproduced before the change (x_corrupt.py): a corrupted ``truthstone.db`` made
 `Database.shared()` raise, so `Workspace.__init__` raised, so no workspace existed at all —
-AgentGuard was fully inert, and `doctor` crashed. Persistence is never supposed to be a
+Truthstone was fully inert, and `doctor` crashed. Persistence is never supposed to be a
 dependency of guarding.
 """
 
@@ -18,22 +18,22 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import agentguard.core.store as store_module
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.cli.main import app
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction
-from agentguard.core.models import Decision
-from agentguard.core.store import Database, ProjectStore
+import truthstone.core.store as store_module
 from tests.conftest import pre_tool_use
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.cli.main import app
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction
+from truthstone.core.models import Decision
+from truthstone.core.store import Database, ProjectStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GARBAGE = b"this is not a sqlite database" * 200
 
 
 def _corrupt(home: Path) -> Path:
-    path = home / "agentguard.db"
+    path = home / "truthstone.db"
     path.write_bytes(GARBAGE)
     os.chmod(path, 0o600)
     return path
@@ -123,7 +123,7 @@ def test_guarding_survives_a_corrupted_database(isolated_home, tmp_path):
 
 @pytest.mark.parametrize("cause", ["corrupted", "directory", "symlink"])
 def test_degraded_store_reports_reason(isolated_home, workspace, tmp_path, caplog, cause):
-    path = isolated_home / "agentguard.db"
+    path = isolated_home / "truthstone.db"
     if cause == "corrupted":
         _corrupt(isolated_home)
         expected = ("corrupted", "mv ")
@@ -136,7 +136,7 @@ def test_degraded_store_reports_reason(isolated_home, workspace, tmp_path, caplo
         path.symlink_to(target)
         expected = ("symlink",)
 
-    caplog.set_level(logging.WARNING, logger="agentguard.core.store")
+    caplog.set_level(logging.WARNING, logger="truthstone.core.store")
     store = ProjectStore.for_workspace(workspace)
     for _ in range(3):  # more handles, more failed writes: still one report
         ProjectStore.for_workspace(workspace).create_task("s1", "prompt")
@@ -175,7 +175,7 @@ def test_reopen_is_rate_limited(isolated_home, workspace):
 def test_corruption_found_at_runtime_degrades_the_store(workspace, caplog):
     store = ProjectStore.for_workspace(workspace)
     assert not store.degraded_reason
-    caplog.set_level(logging.WARNING, logger="agentguard.core.store")
+    caplog.set_level(logging.WARNING, logger="truthstone.core.store")
 
     store.db._after_error("record_event", sqlite3.DatabaseError("database disk image is malformed"))
 
@@ -190,7 +190,7 @@ def test_unusable_home_yields_degraded_store(workspace, monkeypatch):
 
     monkeypatch.setattr(store_module, "database_path", no_home)
     store = ProjectStore.for_workspace(workspace)
-    assert "no usable AgentGuard home" in store.degraded_reason
+    assert "no usable Truthstone home" in store.degraded_reason
     assert store.db.reopen() is False
     assert store.current_task_id("s1") is None
 
@@ -208,12 +208,12 @@ def test_project_identity_failure_falls_back_to_the_path(workspace, monkeypatch)
 
 
 def test_cli_reports_degraded_storage(isolated_home, tmp_path, monkeypatch):
-    from agentguard.adapters.codex import status
+    from truthstone.adapters.codex import status
 
     monkeypatch.setattr(status, "codex_version", lambda executable=None: None)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-config"))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
-    monkeypatch.delenv("AGENTGUARD_PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("TRUTHSTONE_PLUGIN_DATA", raising=False)
     (tmp_path / "project").mkdir()
     monkeypatch.chdir(tmp_path / "project")
     _corrupt(isolated_home)

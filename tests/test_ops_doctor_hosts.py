@@ -1,7 +1,7 @@
 """`doctor` is honest across hosts (H8).
 
 Cursor and GitHub Copilot CLI read `.claude/settings*.json`. Their command hooks may run
-AgentGuard's shim while its HTTP tool hooks are never called, so the integration reads as
+Truthstone's shim while its HTTP tool hooks are never called, so the integration reads as
 "installed" and guards nothing. Not verified live either way, so `doctor` says so as a
 warning — never as a problem.
 """

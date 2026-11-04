@@ -10,7 +10,7 @@ uninstall.
 
 The asymmetry is deliberate throughout. A missed hallucination costs one bad edit that
 the tests would probably catch anyway. A false challenge costs the agent's trust in the
-whole layer — and SPEC §39 is explicit that AgentGuard must be invisible until it isn't.
+whole layer — and SPEC §39 is explicit that Truthstone must be invisible until it isn't.
 """
 
 from __future__ import annotations
@@ -22,10 +22,10 @@ from pathlib import Path
 
 import pytest
 
-from agentguard import challenge, evidence
-from agentguard.core.enums import EventType, Severity, Verdict
-from agentguard.core.events import AgentEvent
-from agentguard.repo import RepoIndex
+from truthstone import challenge, evidence
+from truthstone.core.enums import EventType, Severity, Verdict
+from truthstone.core.events import AgentEvent
+from truthstone.repo import RepoIndex
 
 pytestmark = pytest.mark.spec
 
@@ -140,7 +140,7 @@ class TestTheSpecExample:
             assert member in message
 
     def test_the_challenge_leaves_the_door_open(self, index):
-        """SPEC §17: AgentGuard must not simply tell the host it is wrong."""
+        """SPEC §17: Truthstone must not simply tell the host it is wrong."""
         findings = evidence.check(
             write_event(
                 index,
@@ -433,7 +433,7 @@ class TestNoFalseChallenges:
 
     def test_pre_existing_problems_are_not_blamed_on_this_edit(self, index, repo):
         """The file already calls a method that does not exist. The agent edits an
-        unrelated line. AgentGuard must say nothing — being blamed for someone else's
+        unrelated line. Truthstone must say nothing — being blamed for someone else's
         code is the fastest way to become noise."""
         target = repo / "src" / "shop" / "api" / "legacy.py"
         target.write_text(
@@ -617,19 +617,19 @@ class TestHallucinationsAreCaught:
 
 
 class TestChallengeRationing:
-    """SPEC §17: AgentGuard must not become a system that constantly says "You're wrong"."""
+    """SPEC §17: Truthstone must not become a system that constantly says "You're wrong"."""
 
     @pytest.fixture
     def ledger(self, tmp_path):
-        from agentguard.challenge.ledger import ChallengeLedger
-        from agentguard.core.config import ChallengeSettings
-        from agentguard.core.store import ProjectStore
+        from truthstone.challenge.ledger import ChallengeLedger
+        from truthstone.core.config import ChallengeSettings
+        from truthstone.core.store import ProjectStore
 
         return ChallengeLedger(ProjectStore.for_workspace(tmp_path), ChallengeSettings())
 
     def make_findings(self, n: int, severity: Severity = Severity.HIGH):
-        from agentguard.core.enums import ChallengeCategory, FailureMode
-        from agentguard.core.models import Finding
+        from truthstone.core.enums import ChallengeCategory, FailureMode
+        from truthstone.core.models import Finding
 
         return [
             Finding(
@@ -696,7 +696,7 @@ class TestFalsePositiveRateOnRealCode:
     """SPEC §39 — the property that decides whether anyone keeps this installed.
 
     The hand-written corpus above tests the cases I thought of. This one tests the cases
-    I did not: it replays **AgentGuard's own source** through the engine as if the agent
+    I did not: it replays **Truthstone's own source** through the engine as if the agent
     were creating each file from scratch, so every claim in real, working, committed code
     is checked. Any challenge-level finding is by definition a false positive.
 
@@ -711,7 +711,7 @@ class TestFalsePositiveRateOnRealCode:
         return RepoIndex(Path(__file__).resolve().parents[2]).build()
 
     def test_no_challenge_level_false_positives(self, own_source_index):
-        from agentguard.evidence import extractors, resolvers
+        from truthstone.evidence import extractors, resolvers
 
         index = own_source_index
         python_files = [p for p, r in index.files.items() if r.lang == "python"]
@@ -762,7 +762,7 @@ class TestFalsePositiveRateOnRealCode:
         Unwrapping the element type turned every `claims.append(...)` into a confident
         claim about `Claim.append`.
         """
-        from agentguard.evidence import pyanalysis
+        from truthstone.evidence import pyanalysis
 
         facts = pyanalysis.analyze(
             "from shop.repositories.user import UserRepository\n"
@@ -781,8 +781,8 @@ class TestSilentByDefault:
 
     def test_a_hundred_ordinary_operations_produce_no_challenge(self, index, repo):
         """Ordinary work — reads, greps, correct edits, test runs — must be invisible."""
-        from agentguard.core.config import Settings
-        from agentguard.core.engine import Guard
+        from truthstone.core.config import Settings
+        from truthstone.core.engine import Guard
 
         guard = Guard(Settings())
         workspace = guard.workspace(repo)
@@ -861,4 +861,4 @@ class TestChallengeRendering:
             ),
             index,
         )
-        assert challenge.render(findings).startswith("AgentGuard")
+        assert challenge.render(findings).startswith("Truthstone")

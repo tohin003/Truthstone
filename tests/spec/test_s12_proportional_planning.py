@@ -1,6 +1,6 @@
 """SPEC §2, §9, §10, §12, §13, §34 — proportional planning.
 
-These are the acceptance tests for the idea that most distinguishes AgentGuard from a
+These are the acceptance tests for the idea that most distinguishes Truthstone from a
 lint rule:
 
     Do not optimize for simplicity. Optimize for the least complex solution that is
@@ -24,11 +24,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.complexity import assess
-from agentguard.core.enums import Domain, PlanningDepth, RiskLevel
-from agentguard.intent import extract
-from agentguard.planning import render
-from agentguard.repo import RepoIndex
+from truthstone.complexity import assess
+from truthstone.core.enums import Domain, PlanningDepth, RiskLevel
+from truthstone.intent import extract
+from truthstone.planning import render
+from truthstone.repo import RepoIndex
 
 pytestmark = pytest.mark.spec
 
@@ -54,7 +54,7 @@ def analyse(prompt: str, index: RepoIndex | None):
 class TestSimpleStaysSimple:
     """SPEC §2:
 
-        AgentGuard should encourage:  Find references -> Rename -> Run tests -> Done
+        Truthstone should encourage:  Find references -> Rename -> Run tests -> Done
         It should NOT encourage:      Architecture analysis -> abstraction redesign ->
                                       service layer -> dependency restructuring
     """
@@ -100,7 +100,7 @@ class TestSimpleStaysSimple:
 class TestComplexIsAllowedToBeComplex:
     """SPEC §2: "Make authentication horizontally scalable across multiple services."
 
-    SPEC §17: AgentGuard "must be capable of saying: The complex approach is justified."
+    SPEC §17: Truthstone "must be capable of saying: The complex approach is justified."
     """
 
     def test_scaling_authentication_is_deep(self, index):
@@ -137,7 +137,7 @@ class TestComplexIsAllowedToBeComplex:
 class TestOpenEndedWork:
     """SPEC §34: "Make our inference service production-ready."
 
-        AgentGuard should NOT immediately say: "Keep it simple."
+        Truthstone should NOT immediately say: "Keep it simple."
     """
 
     def test_production_readiness_is_deep_and_high_risk(self, index):
@@ -247,7 +247,7 @@ class TestDomainAwareness:
 
 
 class TestDepthIsNotTriggeredCarelessly:
-    """The failure mode that would make AgentGuard useless in the other direction.
+    """The failure mode that would make Truthstone useless in the other direction.
 
     Every prompt here is ordinary work. If any of them escalates to deep planning, the
     engine is crying wolf and the developer will uninstall it (SPEC §39).
@@ -283,7 +283,7 @@ class TestDepthIsNotTriggeredCarelessly:
 
 class TestQuestionsAreNotTasks:
     """SPEC §39: injecting a planning budget into a question is exactly the noise
-    AgentGuard must not produce."""
+    Truthstone must not produce."""
 
     @pytest.mark.parametrize(
         "prompt",
@@ -317,7 +317,7 @@ class TestWorksWithoutAnIndex:
         assert spec.complexity.depth is depth
 
     def test_blast_radius_is_zero_not_guessed(self):
-        """Unknown must score zero. Guessing high would make AgentGuard cautious about
+        """Unknown must score zero. Guessing high would make Truthstone cautious about
         everything it does not understand — the over-planning SPEC §2 forbids."""
         spec = analyse("Refactor the payment processor.", None)
         blast = spec.complexity.signal("blast_radius")

@@ -1,7 +1,7 @@
 """A10: reasons the recipient can act on (IMPROVEMENTS.md A10, section 4.5).
 
 * A review request is read by the developer, in their own permission prompt. It carried
-  the agent's header ("AgentGuard — evidence check") and an agent's closing ("Confirm
+  the agent's header ("Truthstone — evidence check") and an agent's closing ("Confirm
   this against the repository") (D2 R5).
 * Challenges asked the agent to "explain" or "say so", but nothing reads the reply. The
   only override that works — re-issuing the same action, which the ledger then allows —
@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.challenge import render
-from agentguard.challenge.renderer import OVERRIDE, REVIEW_HEADER
-from agentguard.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
-from agentguard.core.models import Finding
-from agentguard.validate.validator import AD_HOC_INSTALL
 from tests.test_asks_support import HALLUCINATION, Session, make_guard, make_repo, permission, reason
+from truthstone.challenge import render
+from truthstone.challenge.renderer import OVERRIDE, REVIEW_HEADER
+from truthstone.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
+from truthstone.core.models import Finding
+from truthstone.validate.validator import AD_HOC_INSTALL
 
 AGENT_CLOSING = "Confirm this against the repository"
 
@@ -65,7 +65,7 @@ class TestTheReviewIsForTheDeveloper:
         human = render([risk()], audience="human")
         agent = render([risk()])
         assert human.startswith(REVIEW_HEADER) and AGENT_CLOSING not in human and OVERRIDE not in human
-        assert agent.startswith("AgentGuard — evidence check") and agent.endswith(OVERRIDE)
+        assert agent.startswith("Truthstone — evidence check") and agent.endswith(OVERRIDE)
 
 
 class TestTheAgentIsToldTheRealOverride:

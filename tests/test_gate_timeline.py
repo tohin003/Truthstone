@@ -18,11 +18,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.verify import runners
 from tests.conftest import stop_event, user_prompt_submit
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.verify import runners
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SOURCE = "src/shop/utils/pagination.py"

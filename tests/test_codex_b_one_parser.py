@@ -30,13 +30,13 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.adapters.codex import translate as codex
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction
-from agentguard.validate import checks, shell
 from tests.codex_schema import validate
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.adapters.codex import translate as codex
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction
+from truthstone.validate import checks, shell
 
 TESTS = Path(__file__).parent
 FIXTURES = TESTS / "fixtures"

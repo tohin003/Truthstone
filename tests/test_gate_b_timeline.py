@@ -25,8 +25,8 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.verify import runners
 from tests.test_gate_timeline import PASS, Session, _last_findings
+from truthstone.verify import runners
 
 FIXTURES = Path(__file__).parent / "fixtures"
 COVERED = "src/shop/utils/pagination.py"
@@ -164,7 +164,7 @@ def test_narrowed_run_does_not_verify_unrelated_change(session):
     assert "tests/test_pagination.py" in held["reason"]
     assert "`pytest tests/test_pagination.py`" in held["reason"]
     assert "off-target-verification" in _last_findings(session)
-    # The command AgentGuard suggested is a narrowed run, and it verifies the change.
+    # The command Truthstone suggested is a narrowed run, and it verifies the change.
     session.run("pytest tests/test_pagination.py", "1 passed in 0.01s\n")
     assert session.stop("Done.") == {}
 
@@ -308,7 +308,7 @@ def test_run_reaches(command, covering, reached):
 
 
 def test_failing_tests_are_read_from_pytests_own_lines():
-    from agentguard.verify import parsers
+    from truthstone.verify import parsers
 
     text = (
         "FAILED tests/test_a.py::test_x[1-2] - AssertionError: no\n"

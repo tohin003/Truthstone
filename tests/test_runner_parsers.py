@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.verify import parsers, runners
+from truthstone.verify import parsers, runners
 
 CORPUS_DIR = Path(__file__).parent / "fixtures" / "runner_outputs"
 CORPUS = [

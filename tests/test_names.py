@@ -1,4 +1,4 @@
-"""Installs made under a former product name keep working (`agentguard.names`).
+"""Installs made under a former product name keep working (`truthstone.names`).
 
 A rename (``scripts/rename_product.py``) records the old name in ``names.FORMER``. These
 tests inject a synthetic former name, so they hold before any rename and after every one.
@@ -15,14 +15,14 @@ from pathlib import Path
 
 import pytest
 
-from agentguard import names
-from agentguard.adapters.claude_code import forward, protocol, settings_scan, shim
-from agentguard.adapters.claude_code import install as claude_install
-from agentguard.adapters.codex import hook as codex_hook
-from agentguard.adapters.codex import install as codex_install
-from agentguard.adapters.codex import plugin as codex_plugin
-from agentguard.adapters.codex import status as codex_status
-from agentguard.core import config
+from truthstone import names
+from truthstone.adapters.claude_code import forward, protocol, settings_scan, shim
+from truthstone.adapters.claude_code import install as claude_install
+from truthstone.adapters.codex import hook as codex_hook
+from truthstone.adapters.codex import install as codex_install
+from truthstone.adapters.codex import plugin as codex_plugin
+from truthstone.adapters.codex import status as codex_status
+from truthstone.core import config
 
 PRIOR = ("Priorname", "priorname", "PRIORNAME")
 
@@ -113,25 +113,25 @@ class TestEnvironment:
 class TestDataDirectory:
     def test_fresh_install_uses_the_current_name(self, bare_home):
         expected = bare_home / f".{names.SLUG}"
-        assert config.agentguard_home() == expected
+        assert config.truthstone_home() == expected
         assert shim._home() == codex_hook._home() == str(expected)
 
     def test_an_existing_former_directory_is_used(self, bare_home):
         (bare_home / ".priorname").mkdir()
-        assert config.agentguard_home() == bare_home / ".priorname"
+        assert config.truthstone_home() == bare_home / ".priorname"
         assert shim._home() == codex_hook._home() == str(bare_home / ".priorname")
 
     def test_once_the_current_directory_exists_it_wins(self, bare_home):
         (bare_home / ".priorname").mkdir()
         (bare_home / f".{names.SLUG}").mkdir()
-        assert config.agentguard_home() == bare_home / f".{names.SLUG}"
+        assert config.truthstone_home() == bare_home / f".{names.SLUG}"
 
     def test_explicit_settings_win_over_both(self, bare_home, tmp_path, monkeypatch):
         (bare_home / ".priorname").mkdir()
         monkeypatch.setenv(var("HOME", PRIOR), str(tmp_path / "pebble" / "guard"))
-        assert config.agentguard_home() == tmp_path / "pebble" / "guard"
+        assert config.truthstone_home() == tmp_path / "pebble" / "guard"
         monkeypatch.setenv(var("HOME"), str(tmp_path / "current"))
-        assert config.agentguard_home() == tmp_path / "current"
+        assert config.truthstone_home() == tmp_path / "current"
 
     def test_the_database_keeps_its_former_file_name(self, prior, isolated_home):
         current = isolated_home / f"{names.SLUG}.db"
@@ -218,10 +218,10 @@ class TestCodexHooks:
         assert changed and not path.exists()
 
     def test_doctor_recognises_former_plugin_hooks(self, prior, tmp_path):
-        assert codex_status._is_agentguard({"pluginId": names.as_former(codex_status.plugin_id(), prior)})
+        assert codex_status._is_truthstone({"pluginId": names.as_former(codex_status.plugin_id(), prior)})
         command = f"/usr/bin/python3 -m {names.as_former(codex_install.HOOK_MODULE, prior)} stop"
-        assert codex_status._is_agentguard({"command": command})
-        assert not codex_status._is_agentguard({"command": "echo priorname"})
+        assert codex_status._is_truthstone({"command": command})
+        assert not codex_status._is_truthstone({"command": "echo priorname"})
 
     def test_doctor_finds_the_former_plugin(self, prior, tmp_path):
         assert codex_status.former_plugin_ids(tmp_path) == []
@@ -303,18 +303,18 @@ class TestStandaloneForwarder:
 
     def test_the_same_data_directory_rule(self, bare_home, monkeypatch):
         monkeypatch.setattr(forward, "FORMER", names.FORMER)
-        assert forward.agentguard_home() == names.data_dir() == str(bare_home / f".{names.SLUG}")
+        assert forward.truthstone_home() == names.data_dir() == str(bare_home / f".{names.SLUG}")
         (bare_home / ".priorname").mkdir()
-        assert forward.agentguard_home() == names.data_dir() == str(bare_home / ".priorname")
+        assert forward.truthstone_home() == names.data_dir() == str(bare_home / ".priorname")
         (bare_home / f".{names.SLUG}").mkdir()
-        assert forward.agentguard_home() == names.data_dir() == str(bare_home / f".{names.SLUG}")
+        assert forward.truthstone_home() == names.data_dir() == str(bare_home / f".{names.SLUG}")
 
     def test_former_settings_apply(self, prior, monkeypatch, tmp_path):
         monkeypatch.setattr(forward, "FORMER", names.FORMER)
         for name in names.variants(var("HOME")) + names.variants(var("DISABLE")):
             monkeypatch.delenv(name, raising=False)
         monkeypatch.setenv(var("HOME", prior), str(tmp_path / "old"))
-        assert forward.agentguard_home() == names.data_dir() == str(tmp_path / "old")
+        assert forward.truthstone_home() == names.data_dir() == str(tmp_path / "old")
         monkeypatch.setenv(var("DISABLE", prior), "1")
         stdin = io.StringIO("{}")
         assert forward.run([], stdin, io.StringIO()) == 0
@@ -329,7 +329,7 @@ class TestRealFormerNames:
         for name in names.variants(var("HOME")):
             monkeypatch.delenv(name, raising=False)
         monkeypatch.setenv(var("HOME", spelling), str(tmp_path / "old-home"))
-        assert config.agentguard_home() == tmp_path / "old-home"
+        assert config.truthstone_home() == tmp_path / "old-home"
 
     def test_its_hook_entries_are_still_ours(self, spelling):
         module = codex_install.HOOK_MODULE

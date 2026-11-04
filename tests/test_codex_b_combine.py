@@ -20,11 +20,12 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.codex import render
-from agentguard.adapters.codex import translate as codex
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import (
+from tests.codex_schema import validate
+from truthstone.adapters.codex import render
+from truthstone.adapters.codex import translate as codex
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import (
     ChallengeCategory,
     DecisionAction,
     EventType,
@@ -32,9 +33,8 @@ from agentguard.core.enums import (
     Severity,
     Verdict,
 )
-from agentguard.core.events import AgentEvent
-from agentguard.core.models import Decision, Finding
-from tests.codex_schema import validate
+from truthstone.core.events import AgentEvent
+from truthstone.core.models import Decision, Finding
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -245,7 +245,7 @@ def test_one_files_rewrite_is_never_applied_to_another():
     rewrite = Decision(
         action=DecisionAction.MODIFY,
         reason="narrowed",
-        additional_context="AgentGuard narrowed this command.",
+        additional_context="Truthstone narrowed this command.",
         updated_arguments={"command": '[ -n "$OUT" ] && rm -rf "$OUT"'},
     )
     results = [(bash_event('rm -rf "$OUT"'), rewrite), (file_event("b.py"), Decision())]

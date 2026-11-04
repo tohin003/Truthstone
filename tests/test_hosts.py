@@ -20,13 +20,13 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.adapters.codex import render as codex_render
-from agentguard.adapters.codex import translate as codex
-from agentguard.core import hosts
-from agentguard.core.enums import ChallengeCategory, DecisionAction, EventType, FailureMode, Severity, Verdict
-from agentguard.core.models import Decision, Finding
 from tests.codex_schema import validate
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.adapters.codex import render as codex_render
+from truthstone.adapters.codex import translate as codex
+from truthstone.core import hosts
+from truthstone.core.enums import ChallengeCategory, DecisionAction, EventType, FailureMode, Severity, Verdict
+from truthstone.core.models import Decision, Finding
 
 A = DecisionAction
 E = EventType
@@ -47,7 +47,7 @@ GUARD = Finding(
     failure_mode=FailureMode.NOT_A_FAILURE,
     severity=Severity.MEDIUM,
     subject="modified command",
-    summary="AgentGuard narrowed this command: guarded `OUT`",
+    summary="Truthstone narrowed this command: guarded `OUT`",
     detail="`rm -rf $OUT` deletes `/` if `OUT` is empty. The rewrite refuses to run.",
 )
 GUARDED = '[ -n "$OUT" ] && rm -rf "$OUT"'
@@ -57,7 +57,7 @@ def matrix():
     """Every action, with and without sign-off, reason, context and rewritten arguments."""
     for action in DecisionAction:
         for signoff in (False, True):
-            for reason in ("", "AgentGuard — evidence check\n\nThe evidence."):
+            for reason in ("", "Truthstone — evidence check\n\nThe evidence."):
                 for context in (None, "Extra context."):
                     for arguments in (None, {"command": GUARDED}):
                         yield Decision(
@@ -132,7 +132,7 @@ def test_phases_are_accepted_by_value_and_unknown_ones_are_silent():
 def test_codex_signoff_is_a_deny_that_says_who_must_agree():
     decision = Decision(
         action=A.REQUEST_REVIEW,
-        reason="AgentGuard — evidence check\n\nIrreversible command: force push",
+        reason="Truthstone — evidence check\n\nIrreversible command: force push",
         findings=[RISK],
         signoff_required=True,
     )
@@ -143,7 +143,7 @@ def test_codex_signoff_is_a_deny_that_says_who_must_agree():
     assert "re-run will be held again" in r.reason
     assert r.reason.endswith(decision.reason), "followed by the original reason"
     assert r.system_message == (
-        "AgentGuard is holding this for your sign-off: Irreversible command: force push"
+        "Truthstone is holding this for your sign-off: Irreversible command: force push"
     )
 
     # With a code (A1b) the developer can allow it once, and both are told how.
@@ -151,13 +151,13 @@ def test_codex_signoff_is_a_deny_that_says_who_must_agree():
     assert coded.kind == "deny"
     assert coded.reason.startswith(
         "needs developer sign-off: ask the user whether to go ahead. To allow it once, they reply "
-        "`approve K7M2QX` or run `agentguard approve K7M2QX` in this project; then re-run it "
+        "`approve K7M2QX` or run `truthstone approve K7M2QX` in this project; then re-run it "
         "unchanged within 15 minutes."
     )
     assert coded.reason.endswith(decision.reason)
     assert coded.system_message == (
-        "AgentGuard is holding this for your sign-off: Irreversible command: force push. "
-        "To allow it once, reply `approve K7M2QX` or run `agentguard approve K7M2QX`."
+        "Truthstone is holding this for your sign-off: Irreversible command: force push. "
+        "To allow it once, reply `approve K7M2QX` or run `truthstone approve K7M2QX`."
     )
 
 
@@ -304,12 +304,12 @@ def test_a_host_that_cannot_continue_tells_the_developer_instead():
     stuck = dataclasses.replace(hosts.CLAUDE_CODE, stop_continue="none")
     gate = Decision(
         action=A.BLOCK,
-        reason="AgentGuard — completion gate: incomplete\n\n2 file(s) changed and no tests were run.",
+        reason="Truthstone — completion gate: incomplete\n\n2 file(s) changed and no tests were run.",
         findings=[_gate_finding()],
     )
     r = hosts.render(gate, stuck, E.STOP)
     assert r.kind == "silent"
-    assert r.system_message.startswith("AgentGuard: this turn ended unverified — 2 file(s) changed")
+    assert r.system_message.startswith("Truthstone: this turn ended unverified — 2 file(s) changed")
 
 
 class _FutureDecision(Decision):
@@ -322,7 +322,7 @@ def test_an_unverified_finish_reaches_the_developer_where_it_can():
     decision = _FutureDecision(unverified_finish="2 file(s) changed and no tests were run")
     r = hosts.render(decision, hosts.CODEX, E.STOP)
     assert r.kind == "silent" and r.system_message.startswith(
-        "AgentGuard: this turn ended unverified — 2 file(s) changed and no tests were run."
+        "Truthstone: this turn ended unverified — 2 file(s) changed and no tests were run."
     )
     out = codex.from_decision(_codex_event(), decision, "Stop")
     assert set(out) == {"systemMessage"} and validate(out, "stop.command.output") == []
@@ -387,7 +387,7 @@ CASES = {
         action=A.CHALLENGE, reason="`get_user` does not exist.", additional_context="ctx"
     ),
     "challenge-empty": Decision(action=A.CHALLENGE, reason=""),
-    "block": Decision(action=A.BLOCK, reason="AgentGuard — completion gate: incomplete\n\nRun the tests."),
+    "block": Decision(action=A.BLOCK, reason="Truthstone — completion gate: incomplete\n\nRun the tests."),
     "block+ctx": Decision(action=A.BLOCK, reason="Broke the build.", additional_context="ctx"),
     "review-advisory": Decision(action=A.REQUEST_REVIEW, reason="Worth a second look."),
     "review-advisory+ctx": Decision(
@@ -398,14 +398,14 @@ CASES = {
     ),
     "review-signoff": Decision(
         action=A.REQUEST_REVIEW,
-        reason="AgentGuard — evidence check\n\nIrreversible command: force push",
+        reason="Truthstone — evidence check\n\nIrreversible command: force push",
         findings=[RISK],
         signoff_required=True,
     ),
     # A1b: what the validator now emits — a sign-off with the code that allows it once.
     "review-signoff-code": Decision(
         action=A.REQUEST_REVIEW,
-        reason="AgentGuard — needs your sign-off\n\nIrreversible command: force push",
+        reason="Truthstone — needs your sign-off\n\nIrreversible command: force push",
         findings=[RISK],
         signoff_required=True,
         signoff_code="K7M2QX",

@@ -11,10 +11,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.daemon import app as daemon_app
 from tests.conftest import pre_tool_use
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.daemon import app as daemon_app
 
 TOKEN = "test-token"
 

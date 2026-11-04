@@ -19,23 +19,23 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import shim
-from agentguard.adapters.codex import hook as codex_hook
-from agentguard.core.config import agentguard_home, ensure_private_dir
-from agentguard.daemon import lifecycle, private_paths
 from tests.conftest import REPO_ROOT, free_port
+from truthstone.adapters.claude_code import shim
+from truthstone.adapters.codex import hook as codex_hook
+from truthstone.core.config import ensure_private_dir, truthstone_home
+from truthstone.daemon import lifecycle, private_paths
 
 
 def _symlinked_home(tmp_path: Path, parent_mode: int = 0o755) -> tuple[Path, Path]:
-    """`<tmp>/home -> <tmp>/var-home`, with `alice/.agentguard` below it.
+    """`<tmp>/home -> <tmp>/var-home`, with `alice/.truthstone` below it.
     Returns (the configured home, through the link; its real location)."""
     holder = tmp_path / "layout"
     holder.mkdir()
-    real = holder / "var-home" / "alice" / ".agentguard"
+    real = holder / "var-home" / "alice" / ".truthstone"
     real.mkdir(parents=True, mode=0o700)
     (holder / "home").symlink_to(holder / "var-home", target_is_directory=True)
     os.chmod(holder, parent_mode)
-    return holder / "home" / "alice" / ".agentguard", real
+    return holder / "home" / "alice" / ".truthstone", real
 
 
 def _stop(hs: dict) -> None:
@@ -49,14 +49,14 @@ def _stop(hs: dict) -> None:
 def test_shim_ensure_daemon_works_under_trusted_symlinked_home(tmp_path, monkeypatch):
     configured, real = _symlinked_home(tmp_path)  # the user's own link, in a 0755 directory
     (real / "config.toml").write_text(f"[daemon]\nport = {free_port()}\n", encoding="utf-8")
-    monkeypatch.setenv("AGENTGUARD_HOME", str(configured))
+    monkeypatch.setenv("TRUTHSTONE_HOME", str(configured))
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT / "src"))  # the daemon runs this checkout
 
     hs = shim.ensure_daemon(timeout=20)
     assert hs is not None, "the startup lock was taken and a daemon started"
     try:
         canonical = os.path.realpath(real)
-        assert shim._home() == codex_hook._home() == str(agentguard_home()) == canonical, (
+        assert shim._home() == codex_hook._home() == str(truthstone_home()) == canonical, (
             "every entry point finds the same home"
         )
         assert shim.health_body(hs) is not None
@@ -71,7 +71,7 @@ def test_shim_ensure_daemon_works_under_trusted_symlinked_home(tmp_path, monkeyp
 def test_untrusted_symlink_still_refused(tmp_path, monkeypatch):
     """A link in a directory anyone can write could be swapped to redirect credentials."""
     configured, real = _symlinked_home(tmp_path, parent_mode=0o777)  # world-writable, not sticky
-    monkeypatch.setenv("AGENTGUARD_HOME", str(configured))
+    monkeypatch.setenv("TRUTHSTONE_HOME", str(configured))
 
     assert shim._home() == str(configured), "left as configured, so the checks refuse it"
     assert private_paths.resolve_home(str(configured)) == (str(configured), False)
@@ -112,16 +112,16 @@ def test_every_entry_point_agrees_on_the_home(tmp_path, monkeypatch):
     cases = {
         "trusted link": str(configured),
         "plain": str(real),
-        "relative": "rel/.agentguard",
+        "relative": "rel/.truthstone",
         "trailing slash": f"{configured}/",
     }
     monkeypatch.chdir(tmp_path)
     for label, value in cases.items():
-        monkeypatch.setenv("AGENTGUARD_HOME", value)
-        assert shim._home() == codex_hook._home() == str(agentguard_home()), label
-    monkeypatch.setenv("AGENTGUARD_HOME", "")
+        monkeypatch.setenv("TRUTHSTONE_HOME", value)
+        assert shim._home() == codex_hook._home() == str(truthstone_home()), label
+    monkeypatch.setenv("TRUTHSTONE_HOME", "")
     monkeypatch.setenv("HOME", str(tmp_path))
-    assert shim._home() == str(agentguard_home()) == str(tmp_path / ".agentguard")
+    assert shim._home() == str(truthstone_home()) == str(tmp_path / ".truthstone")
 
 
 def test_resolving_the_home_never_raises(monkeypatch):

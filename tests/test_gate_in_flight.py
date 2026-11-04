@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
 from tests.test_gate_timeline import PASS, Session
+from truthstone.adapters.claude_code import translate as claude
 
 FIXTURES = Path(__file__).parent / "fixtures"
 LIVE_STOP = json.loads((FIXTURES / "hook_payloads" / "Stop.background_tasks.json").read_text())

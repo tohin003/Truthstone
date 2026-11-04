@@ -18,18 +18,18 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
-from agentguard.core.models import Decision, EvidenceRef, Finding
-from agentguard.core.store import (
+from tests.conftest import pre_tool_use
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
+from truthstone.core.models import Decision, EvidenceRef, Finding
+from truthstone.core.store import (
     HOT_BUSY_TIMEOUT_MS,
     MAINTENANCE_BUSY_TIMEOUT_MS,
     Database,
     ProjectStore,
 )
-from tests.conftest import pre_tool_use
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -106,7 +106,7 @@ def test_maintenance_reclaims_every_free_page(workspace):
 
 
 def test_full_vacuum_converts_a_database_created_without_auto_vacuum(isolated_home):
-    path = isolated_home / "agentguard.db"
+    path = isolated_home / "truthstone.db"
     legacy = sqlite3.connect(str(path))
     legacy.execute("PRAGMA journal_mode=WAL")  # the old order: WAL first, auto_vacuum ignored
     legacy.execute("PRAGMA auto_vacuum=INCREMENTAL")
@@ -334,7 +334,7 @@ def test_transaction_interrupts_roll_back_and_propagate(workspace):
 
 def test_session_rekey_migration_is_one_transaction(isolated_home):
     """The primary-key widening still migrates old databases, now atomically."""
-    path = isolated_home / "agentguard.db"
+    path = isolated_home / "truthstone.db"
     legacy = sqlite3.connect(str(path))
     legacy.executescript(
         "CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, agent TEXT NOT NULL, "

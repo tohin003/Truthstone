@@ -1,7 +1,7 @@
 # Host contract fixtures
 
 What a host really sends is evidence; what its documentation says is not. Every adapter in
-`agentguard.adapters.registry` must have payloads captured from the real host, and
+`truthstone.adapters.registry` must have payloads captured from the real host, and
 `tests/test_host_contracts.py` runs each of them through the adapter, a real `Guard` and
 the daemon's `/hook/<name>` route, checking the adapter contract
 (`docs/ADAPTER-CONTRACT.md`, section (d)):
@@ -28,7 +28,7 @@ The first two predate this directory and keep their places; `FIXTURE_DIRS` in
 ## Capturing a new host
 
 1. Install a hook for every event the adapter subscribes to that writes its stdin to a
-   file, in an isolated home for the host and for AgentGuard, and run one small real
+   file, in an isolated home for the host and for Truthstone, and run one small real
    session in a scratch repository.
 2. Scrub the payloads: replace the working directory with `/workspace` (the contract test
    points `/workspace` at a copy of `fixtures/pyrepo`), and any home directory with a

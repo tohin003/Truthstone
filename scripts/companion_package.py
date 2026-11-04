@@ -48,7 +48,7 @@ from urllib.parse import urlsplit
 
 # -- names live here and in the plugin manifest; `rename` rewrites both ------------------
 
-PLUGIN_SLUG = "agentguard-practices"
+PLUGIN_SLUG = "truthstone-practices"
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -238,8 +238,8 @@ CLAIM_WORDS = re.compile(
     re.I,
 )
 
-# The same literals AgentGuard's own risky-command check looks for
-# (src/agentguard/validate/checks.py, _DANGEROUS), plus a few more. Skills describe these
+# The same literals Truthstone's own risky-command check looks for
+# (src/truthstone/validate/checks.py, _DANGEROUS), plus a few more. Skills describe these
 # in prose; a runnable literal in a skill is what skill scanners flag.
 RISKY_LITERALS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\brm\s+-[a-zA-Z]*[rR]"), "recursive rm"),
@@ -1651,7 +1651,7 @@ def selftest(layout: Layout) -> int:
         ("review credentials", "NO-REVIEW-CREDENTIALS", with_manifest(lambda m: _set(m, "extensions/com.openai/review/test_credentials", "x")), None),
         ("ds_store", "NO-OS-JUNK", add("assets/.DS_Store", b"\x00"), None),
         ("placeholder", "NO-PLACEHOLDERS", add("README.md", base_members["README.md"] + b"\nMail {{SUPPORT_EMAIL}}\n"), None),
-        ("name format", "NAME", with_manifest(lambda m: m.__setitem__("name", "AgentGuard_Practices")), None),
+        ("name format", "NAME", with_manifest(lambda m: m.__setitem__("name", "Truthstone_Practices")), None),
         ("version", "VERSION", with_manifest(lambda m: m.__setitem__("version", "1.0")), None),
         ("description length", "DESCRIPTION", with_manifest(lambda m: m.__setitem__("description", "x" * 1025)), None),
         ("author", "AUTHOR", with_manifest(lambda m: m.__setitem__("author", {"name": "x", "url": "http://x.test"})), None),
@@ -1767,7 +1767,7 @@ def selftest(layout: Layout) -> int:
                   and 'PLUGIN_SLUG = "renamed-practices"' in script
                   and not (copy / "plugins" / layout.slug).exists()
                   and "Renamed Practices" in (renamed.plugin_dir / "README.md").read_text(encoding="utf-8")
-                  and "github.com/tohin003/AgentGuard" in renamed.codex_manifest.read_text(encoding="utf-8"))
+                  and "github.com/tohin003/Truthstone" in renamed.codex_manifest.read_text(encoding="utf-8"))
         failures += not passed
         print(f"{'ok  ' if passed else 'FAIL'} {'rename round trip':<24} "
               f"{'names rewritten, URLs kept, checks pass' if passed else 'rename did not round-trip'}")

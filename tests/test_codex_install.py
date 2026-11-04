@@ -1,4 +1,4 @@
-"""`agentguard install codex`: idempotent, additive, exactly reversible — and honest about trust.
+"""`truthstone install codex`: idempotent, additive, exactly reversible — and honest about trust.
 
 Writing into a developer's Codex configuration is the most invasive thing the Codex
 adapter does, so these tests exist to make it boring.
@@ -13,11 +13,11 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agentguard.adapters.codex import install as inst
-from agentguard.cli.main import app
+from truthstone.adapters.codex import install as inst
+from truthstone.cli.main import app
 
 USER_HOOK = {"type": "command", "command": "python3 ~/.codex/hooks/my_policy.py", "timeout": 30}
-LOOKALIKE = {"type": "command", "command": "echo agentguard.adapters.codex.hook is great", "timeout": 5}
+LOOKALIKE = {"type": "command", "command": "echo truthstone.adapters.codex.hook is great", "timeout": 5}
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ class TestHookConfig:
         assert set(config) == {
             "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"
         }
-        assert "PermissionRequest" not in config  # AgentGuard never answers permission prompts
+        assert "PermissionRequest" not in config  # Truthstone never answers permission prompts
         for event in ("PreToolUse", "PostToolUse"):
             assert config[event][0]["matcher"] == "Bash|apply_patch"
         for groups in config.values():
@@ -195,7 +195,7 @@ class TestCli:
 
 class TestDoctor:
     def test_reports_untrusted_codex_hooks_as_a_problem(self, codex_home, monkeypatch):
-        from agentguard.adapters.codex import status
+        from truthstone.adapters.codex import status
 
         inst.install(codex_home / "hooks.json")
         monkeypatch.setattr(status, "codex_version", lambda executable=None: "codex-cli 0.166.0")
@@ -211,7 +211,7 @@ class TestDoctor:
         assert result.exit_code == 1
 
     def test_trusted_codex_hooks_satisfy_doctor_without_claude(self, codex_home, monkeypatch):
-        from agentguard.adapters.codex import status
+        from truthstone.adapters.codex import status
 
         inst.install(codex_home / "hooks.json")
         monkeypatch.setattr(status, "codex_version", lambda executable=None: "codex-cli 0.166.0")
@@ -220,5 +220,5 @@ class TestDoctor:
         )
         monkeypatch.setattr(status, "hook_trust", lambda cwd, timeout=30.0, executable=None: report)
         result = CliRunner().invoke(app, ["doctor"])
-        assert "AgentGuard hooks are trusted" in result.output
+        assert "Truthstone hooks are trusted" in result.output
         assert "no Claude Code or Codex hooks installed" not in result.output

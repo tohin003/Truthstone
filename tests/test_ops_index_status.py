@@ -1,8 +1,8 @@
-"""`agentguard index` and `doctor` say when the index is unavailable (R12).
+"""`truthstone index` and `doctor` say when the index is unavailable (R12).
 
 R12 refuses to index $HOME, `/` and huge non-git trees, and `RepoIndex.status` says so
 ("building" | "ready" | "unavailable: <reason>"). The CLI never showed it:
-`agentguard index ~` printed a column of zeros, which reads as an empty repository.
+`truthstone index ~` printed a column of zeros, which reads as an empty repository.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import agentguard.cli.main as cli
+import truthstone.cli.main as cli
 from tests.test_doctor import doctor_env, run_doctor  # noqa: F401 - fixture
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -59,7 +59,7 @@ def test_doctor_shows_the_workspace_index_status(doctor_env, fake_home, monkeypa
 
 
 def test_doctor_reports_a_slow_build_as_building(doctor_env, tmp_path, monkeypatch):  # noqa: F811
-    from agentguard.repo import index as repo_index
+    from truthstone.repo import index as repo_index
 
     repo = shutil.copytree(FIXTURES / "pyrepo", tmp_path / "slow")
     monkeypatch.chdir(repo)

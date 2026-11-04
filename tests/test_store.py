@@ -8,17 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.enums import (
+from tests.conftest import pre_tool_use
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.enums import (
     ChallengeCategory,
     DecisionAction,
     FailureMode,
     Severity,
     Verdict,
 )
-from agentguard.core.models import Decision, EvidenceRef, Finding
-from agentguard.core.store import ProjectStore as Store
-from tests.conftest import pre_tool_use
+from truthstone.core.models import Decision, EvidenceRef, Finding
+from truthstone.core.store import ProjectStore as Store
 
 
 def make_store(workspace: Path) -> Store:
@@ -150,7 +150,7 @@ class TestVerifications:
 
 
 class TestProjectIsolation:
-    """Memory plan §4: "AgentGuard must never accidentally use Project A's architectural
+    """Memory plan §4: "Truthstone must never accidentally use Project A's architectural
     knowledge while working on Project B."
 
     Since Phase 3.5 all projects share one database, so this is the property that makes
@@ -212,7 +212,7 @@ class TestProjectIsolation:
 
     def test_identity_follows_the_git_remote_not_the_path(self, tmp_path, monkeypatch):
         """A project that is moved or re-cloned keeps its accumulated memory."""
-        import agentguard.core.store as store_module
+        import truthstone.core.store as store_module
 
         monkeypatch.setattr(store_module, "_git_remote", lambda root: "git@github.com:me/repo.git")
         first = store_module.project_identity(tmp_path / "checkout-one")
@@ -228,14 +228,14 @@ class TestProjectIsolation:
         ],
     )
     def test_remote_identity_strips_credentials_and_tracking_data(self, remote, expected):
-        from agentguard.core.store import sanitize_git_remote
+        from truthstone.core.store import sanitize_git_remote
 
         result = sanitize_git_remote(remote)
         assert result == expected
         assert "secret" not in result
 
     def test_project_identity_never_persists_remote_credentials(self, tmp_path, monkeypatch):
-        import agentguard.core.store as store_module
+        import truthstone.core.store as store_module
 
         monkeypatch.setattr(
             store_module,
@@ -247,7 +247,7 @@ class TestProjectIsolation:
         assert "secret" not in identity.git_remote
 
     def test_database_open_redacts_legacy_remote_credentials(self, workspace):
-        from agentguard.core.store import Database
+        from truthstone.core.store import Database
 
         store = make_store(workspace)
         store.db.write(
@@ -278,7 +278,7 @@ class TestBoundedRows:
         assert "500000 chars" in stored, "but its size should still be recorded"
 
     def test_summarisation_keeps_structure(self):
-        from agentguard.core.store import summarize_value
+        from truthstone.core.store import summarize_value
 
         summarised = summarize_value(
             {"file_path": "src/a.py", "content": "y" * 10_000, "items": list(range(100))}
@@ -406,7 +406,7 @@ class TestRetention:
 class TestStorageIsNeverADependency:
     """Memory plan §8, the critical rule:
 
-        "If SQLite fails or disk space becomes unavailable, AgentGuard's core reliability
+        "If SQLite fails or disk space becomes unavailable, Truthstone's core reliability
         functionality must continue working."
 
     This is the Phase 3.5 exit criterion.
@@ -454,8 +454,8 @@ class TestStorageIsNeverADependency:
 
     def test_the_guard_keeps_deciding_with_a_dead_database(self, workspace):
         """The property that actually matters: an agent action still gets a decision."""
-        from agentguard.core.config import Settings
-        from agentguard.core.engine import Guard
+        from truthstone.core.config import Settings
+        from truthstone.core.engine import Guard
 
         guard = Guard(Settings())
         ws = guard.workspace(workspace)

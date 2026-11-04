@@ -14,12 +14,12 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
-from agentguard.core.models import Decision, EvidenceRef, Finding
-from agentguard.core.store import REDACTED, ProjectStore, redact_secrets, summarize_value
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
+from truthstone.core.models import Decision, EvidenceRef, Finding
+from truthstone.core.store import REDACTED, ProjectStore, redact_secrets, summarize_value
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -1,4 +1,4 @@
-"""`agentguard doctor` (R11): never crashes, and checks what actually breaks guarding.
+"""`truthstone doctor` (R11): never crashes, and checks what actually breaks guarding.
 
 Before: a corrupted database crashed it; it said "✓ hooks installed" while those hooks
 carried another home's token (so the daemon rejected every one); it never looked at
@@ -15,9 +15,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import agentguard.cli.main as cli
-from agentguard.adapters.claude_code import install as claude_install
-from agentguard.core.config import Settings
+import truthstone.cli.main as cli
+from truthstone.adapters.claude_code import install as claude_install
+from truthstone.core.config import Settings
 
 SECTIONS = ("environment", "config", "storage", "daemon", "claude code", "codex")
 
@@ -25,13 +25,13 @@ SECTIONS = ("environment", "config", "storage", "daemon", "claude code", "codex"
 @pytest.fixture
 def doctor_env(isolated_home, tmp_path, monkeypatch):
     """Hermetic: no real ~/.claude, ~/.codex or codex binary, and a scratch project."""
-    from agentguard.adapters.codex import status
+    from truthstone.adapters.codex import status
 
     claude_config = tmp_path / "claude-config"
     claude_config.mkdir()
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_config))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
-    monkeypatch.delenv("AGENTGUARD_PLUGIN_DATA", raising=False)
+    monkeypatch.delenv("TRUTHSTONE_PLUGIN_DATA", raising=False)
     monkeypatch.setattr(status, "codex_version", lambda executable=None: None)
     project = tmp_path / "project"
     project.mkdir()
@@ -47,7 +47,7 @@ def run_doctor() -> tuple[int, str]:
 
 def test_doctor_survives_corrupted_db(doctor_env):
     home, _, _ = doctor_env
-    (home / "agentguard.db").write_bytes(b"this is not a sqlite database" * 200)
+    (home / "truthstone.db").write_bytes(b"this is not a sqlite database" * 200)
     code, output = run_doctor()
     assert code == 1
     for section in SECTIONS:
@@ -86,7 +86,7 @@ class TestTreeSitter:
         line = next(ln for ln in output.splitlines() if "tree-sitter extra is not installed" in ln)
         assert line.lstrip().startswith("!"), "a warning, not a failure"
         assert "2 .ts, 1 .js" in line, "node_modules is not counted"
-        assert "agentguard[treesitter]" in line
+        assert "truthstone[treesitter]" in line
 
     def test_no_warning_when_nothing_needs_it(self, doctor_env, monkeypatch):
         _, _, project = doctor_env
@@ -118,14 +118,14 @@ class TestInstalledHooks:
     def test_doctor_detects_token_mismatch(self, doctor_env):
         home, claude_config, _ = doctor_env
         path = self._install(claude_config)
-        (home / "token").write_text("a-token-from-another-agentguard-home", encoding="utf-8")
+        (home / "token").write_text("a-token-from-another-truthstone-home", encoding="utf-8")
 
         code, output = run_doctor()
 
         assert code == 1
         assert f"global hooks installed ({path})" not in output, "no ✓ for hooks the daemon rejects"
         assert "carry a different token than" in output
-        assert "agentguard install claude --global" in output
+        assert "truthstone install claude --global" in output
         assert "a-token-from-another" not in output, "never print a token"
 
     def test_doctor_detects_hook_url_mismatch(self, doctor_env):
@@ -153,8 +153,8 @@ class TestRunningDaemon:
     @pytest.fixture
     def live(self, doctor_env, monkeypatch):
         """A daemon that answers /health with whatever the test sets."""
-        import agentguard.adapters.codex.hook as codex_hook
-        import agentguard.daemon.app as daemon_app
+        import truthstone.adapters.codex.hook as codex_hook
+        import truthstone.daemon.app as daemon_app
 
         home, _, _ = doctor_env
         settings = Settings.load()

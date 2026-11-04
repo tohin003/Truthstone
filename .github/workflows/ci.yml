@@ -5,10 +5,10 @@
 #
 # Informational: Windows. It is not a supported platform this release, so it never blocks a
 # merge (continue-on-error); it runs the same suite, including the fail-open tests, to show
-# whether AgentGuard at least stays out of the way there.
+# whether Truthstone at least stays out of the way there.
 #
-# Every job points AGENTGUARD_HOME at the runner's temp directory: nothing may read or write
-# a real ~/.agentguard (the test suite isolates each test as well).
+# Every job points TRUTHSTONE_HOME at the runner's temp directory: nothing may read or write
+# a real ~/.truthstone (the test suite isolates each test as well).
 
 name: CI
 
@@ -45,11 +45,11 @@ jobs:
           python-version: ${{ matrix.python }}
           enable-cache: true
 
-      - name: Use a temporary AGENTGUARD_HOME
+      - name: Use a temporary TRUTHSTONE_HOME
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/agentguard-home"
-          echo "AGENTGUARD_HOME=$RUNNER_TEMP/agentguard-home" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/truthstone-home"
+          echo "TRUTHSTONE_HOME=$RUNNER_TEMP/truthstone-home" >> "$GITHUB_ENV"
 
       - name: Install (base)
         if: matrix.extras == 'base'
@@ -80,11 +80,11 @@ jobs:
           python-version: "3.13"
           enable-cache: true
 
-      - name: Use a temporary AGENTGUARD_HOME
+      - name: Use a temporary TRUTHSTONE_HOME
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/agentguard-home"
-          echo "AGENTGUARD_HOME=$RUNNER_TEMP/agentguard-home" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/truthstone-home"
+          echo "TRUTHSTONE_HOME=$RUNNER_TEMP/truthstone-home" >> "$GITHUB_ENV"
 
       - name: Install (all extras)
         run: uv sync --all-extras

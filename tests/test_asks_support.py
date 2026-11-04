@@ -16,13 +16,13 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.adapters.codex import translate as codex
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import EventType
-from agentguard.core.events import AgentEvent
-from agentguard.core.models import Decision
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.adapters.codex import translate as codex
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import EventType
+from truthstone.core.events import AgentEvent
+from truthstone.core.models import Decision
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

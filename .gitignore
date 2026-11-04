@@ -10,5 +10,6 @@ dist/
 build/
 *.egg-info/
 
-# AgentGuard runtime state (per-workspace)
+# Truthstone runtime state (per-workspace)
+.truthstone/
 .agentguard/

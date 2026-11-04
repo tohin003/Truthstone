@@ -19,11 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.config import IndexSettings
-from agentguard.repo import RepoIndex, scanner
-from agentguard.repo.index import ParsedFile
-from agentguard.repo.models import FileRecord, ImportRecord
-from agentguard.repo.paths import relative_path
+from truthstone.core.config import IndexSettings
+from truthstone.repo import RepoIndex, scanner
+from truthstone.repo.index import ParsedFile
+from truthstone.repo.models import FileRecord, ImportRecord
+from truthstone.repo.paths import relative_path
 
 # -- reference implementations of the replaced algorithms ---------------------------------
 
@@ -280,7 +280,7 @@ def test_scan_stats_once_and_still_rejects_symlink_escape(tmp_path, monkeypatch,
 
         return wrapper
 
-    # A scoped patch: undoing the whole fixture would also drop the isolated AGENTGUARD_HOME.
+    # A scoped patch: undoing the whole fixture would also drop the isolated TRUTHSTONE_HOME.
     with monkeypatch.context() as patch:
         patch.setattr(os, "lstat", counting(os.lstat))
         patch.setattr(os, "stat", counting(os.stat))

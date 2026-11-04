@@ -73,9 +73,9 @@ def test_every_job_checks_out_installs_lints_and_tests(workflow, name):
 
 
 @pytest.mark.parametrize("name", ["test", "windows"])
-def test_every_job_uses_a_temporary_agentguard_home(workflow, name):
+def test_every_job_uses_a_temporary_truthstone_home(workflow, name):
     job = workflow["jobs"][name]
-    setters = [step for step in job["steps"] if "AGENTGUARD_HOME=" in step.get("run", "")]
+    setters = [step for step in job["steps"] if "TRUTHSTONE_HOME=" in step.get("run", "")]
     assert len(setters) == 1
     step = setters[0]
     assert '$RUNNER_TEMP' in step["run"] and '"$GITHUB_ENV"' in step["run"] and step["shell"] == "bash"

@@ -13,15 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction, EventType, GateResult
-from agentguard.core.events import AgentEvent
-from agentguard.core.taskstate import TaskState
-from agentguard.intent import waiver
-from agentguard.intent.models import TaskSpec
-from agentguard.repo import RepoIndex
-from agentguard.verify import completion_gate
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction, EventType, GateResult
+from truthstone.core.events import AgentEvent
+from truthstone.core.taskstate import TaskState
+from truthstone.intent import waiver
+from truthstone.intent.models import TaskSpec
+from truthstone.repo import RepoIndex
+from truthstone.verify import completion_gate
 
 FIXTURES = Path(__file__).parent / "fixtures"
 COVERED = "src/shop/utils/pagination.py"  # tests/test_pagination.py covers it
@@ -71,8 +71,8 @@ def repo(tmp_path) -> Path:
 
 
 def _gate(prompt: str, index: RepoIndex, touched: str = COVERED):
-    from agentguard.complexity import assess
-    from agentguard.intent import extract
+    from truthstone.complexity import assess
+    from truthstone.intent import extract
 
     spec = extract(prompt, index)
     spec.complexity = assess(spec, index)

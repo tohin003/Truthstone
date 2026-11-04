@@ -13,12 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.census import collect, render
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import EventType
-from agentguard.core.events import AgentEvent
-from agentguard.core.store import ProjectStore
+from truthstone.census import collect, render
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import EventType
+from truthstone.core.events import AgentEvent
+from truthstone.core.store import ProjectStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -29,7 +29,7 @@ def repo(tmp_path) -> Path:
 
 
 def _tool_only_session(repo: Path) -> None:
-    """A host AgentGuard has no profile for, sending tool events only: no prompt."""
+    """A host Truthstone has no profile for, sending tool events only: no prompt."""
     guard = Guard(Settings(observe_only=True))
     guard.workspace(repo).index.ready(timeout=30)
     try:

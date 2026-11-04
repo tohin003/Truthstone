@@ -16,9 +16,9 @@ import random
 
 import pytest
 
-from agentguard.adapters.codex import patch
-from agentguard.adapters.codex import translate as codex
-from agentguard.evidence import extractors
+from truthstone.adapters.codex import patch
+from truthstone.adapters.codex import translate as codex
+from truthstone.evidence import extractors
 
 
 def parse(text: str) -> list[patch.FileOp]:

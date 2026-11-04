@@ -19,11 +19,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction, EventType
-from agentguard.core.events import AgentEvent
-from agentguard.verify import commands, runners
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction, EventType
+from truthstone.core.events import AgentEvent
+from truthstone.verify import commands, runners
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -1,7 +1,7 @@
 """H5 (adapter half): MCP tool calls are classified, and only a known read is read-only.
 
 What the hosts actually send, verified rather than assumed (``adapters/mcp.py`` has the
-sources): no hook payload on either host carries MCP annotations, and AgentGuard has no
+sources): no hook payload on either host carries MCP annotations, and Truthstone has no
 tool-hint configuration. So a server's ``mcp__<server>__<tool>`` is *unknown* on both
 hosts, whatever its name suggests; the only MCP tools known to be read-only are each
 host's own resource readers. Read-only reaches the core through the H5 seam,
@@ -19,15 +19,15 @@ from pathlib import Path
 
 import pytest
 
-from agentguard import evidence
-from agentguard.adapters import mcp
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.adapters.codex import translate as codex
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction
-from agentguard.validate import checks
 from tests.codex_schema import validate
+from truthstone import evidence
+from truthstone.adapters import mcp
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.adapters.codex import translate as codex
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction
+from truthstone.validate import checks
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CLAUDE_READERS = ["ListMcpResourcesTool", "ReadMcpResourceTool"]
@@ -246,6 +246,6 @@ def test_the_core_list_misses_claudes_own_resource_readers():
     """``core/events.py`` READ_ONLY_TOOLS says "ListMcpResources"; Claude Code 2.1.92 calls
     it ``ListMcpResourcesTool`` and also has ``ReadMcpResourceTool``. The adapter's hint
     covers both until the core list is fixed (reported: core/events.py has no owner)."""
-    from agentguard.core.events import READ_ONLY_TOOLS
+    from truthstone.core.events import READ_ONLY_TOOLS
 
     assert not set(CLAUDE_READERS) <= READ_ONLY_TOOLS

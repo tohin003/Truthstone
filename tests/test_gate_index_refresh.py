@@ -14,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core import engine
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction, EventType
-from agentguard.core.events import AgentEvent
+from truthstone.core import engine
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction, EventType
+from truthstone.core.events import AgentEvent
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPOSITORY = "src/shop/repositories/user.py"

@@ -1,7 +1,7 @@
 """A2: tokenise before judging (IMPROVEMENTS.md A2).
 
 Every Bash check was a regex over the raw line, so text that only *mentions* a command was
-judged as one. Of AgentGuard's 221 risky-command hits in 42,426 real commands, 128 were
+judged as one. Of Truthstone's 221 risky-command hits in 42,426 real commands, 128 were
 text inside heredocs or quoted arguments and 93 deleted a variable assigned in the same
 command (D2); `git commit -m "...pip install requests..."` and `grep -rn "npm install
 lodash"` were denied as new dependencies (probes Q1/Q2).
@@ -24,11 +24,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.enums import DecisionAction, EventType
-from agentguard.core.events import AgentEvent
-from agentguard.evidence import extractors
-from agentguard.validate import checks, shell
 from tests.test_asks_support import Session, make_guard, make_repo, permission
+from truthstone.core.enums import DecisionAction, EventType
+from truthstone.core.events import AgentEvent
+from truthstone.evidence import extractors
+from truthstone.validate import checks, shell
 
 ZSH = Path("/bin/zsh")
 
@@ -142,7 +142,7 @@ class TestPebbleParsing:
         ],
     )
     def test_a_body_a_shell_runs_is_still_a_command(self, line):
-        """Pebble's `test_every_refusal_of_a_real_command_is_kept`, for AgentGuard: the
+        """Pebble's `test_every_refusal_of_a_real_command_is_kept`, for Truthstone: the
         `sudo` the shell runs is visible as a command, or the part around it is opaque."""
         parsed = shell.parse(line)
         assert any(

@@ -21,8 +21,8 @@ from typing import ClassVar
 
 import pytest
 
-from agentguard.adapters.claude_code import forward
 from tests.conftest import free_port, pre_tool_use, user_prompt_submit
+from truthstone.adapters.claude_code import forward
 
 FORWARD = Path(forward.__file__)
 
@@ -31,8 +31,8 @@ def run_forward(
     home: Path, payload: dict | bytes, timeout: str = "4", **env_extra
 ) -> subprocess.CompletedProcess:
     """Exactly how the plugin runs it: a file, isolated, no site."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTGUARD_", "CLAUDE_PLUGIN_"))}
-    env.update(AGENTGUARD_HOME=str(home), **env_extra)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("TRUTHSTONE_", "CLAUDE_PLUGIN_"))}
+    env.update(TRUTHSTONE_HOME=str(home), **env_extra)
     body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
     return subprocess.run(
         [sys.executable, "-I", "-S", str(FORWARD), "--timeout", timeout],
@@ -247,7 +247,7 @@ class TestFailOpen:
         assert fake_daemon.seen == []
 
     def test_disabled_session_sends_nothing(self, fake_daemon, isolated_home):
-        result = run_forward(isolated_home, pre_tool_use(), AGENTGUARD_DISABLE="1")
+        result = run_forward(isolated_home, pre_tool_use(), TRUTHSTONE_DISABLE="1")
         assert (result.returncode, result.stdout) == (0, b"")
         assert fake_daemon.seen == []
 
@@ -300,7 +300,7 @@ class TestAgainstARealDaemon:
 
 def test_run_is_total(monkeypatch):
     """`run()` itself never raises, whatever it is handed."""
-    monkeypatch.setenv("AGENTGUARD_HOME", "/nonexistent/agentguard-home")
+    monkeypatch.setenv("TRUTHSTONE_HOME", "/nonexistent/truthstone-home")
     out = io.BytesIO()
     assert forward.run([], io.BytesIO(b'{"hook_event_name": "Stop"}'), out) == 0
     assert forward.run(["--timeout", "x"], io.BytesIO(b"\xff\xfe"), out) == 0

@@ -14,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
 from tests.conftest import stop_event
 from tests.test_gate_timeline import FAIL, Session
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

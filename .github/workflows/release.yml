@@ -36,7 +36,7 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          export AGENTGUARD_HOME="$(mktemp -d)"
+          export TRUTHSTONE_HOME="$(mktemp -d)"
           uv run pytest -o addopts="" -q -p no:warnings
 
   build:

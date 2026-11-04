@@ -4,7 +4,7 @@ Codex re-verifies a plugin's whole directory on every hook run and makes users r
 the hooks after *any* change, so the last two tests here pin the hook declarations and the
 plugin's content fingerprint. They fail on every change to the plugin — on purpose: the
 fix is to update the pinned value, knowing that every user will be asked to review
-AgentGuard's hooks again.
+Truthstone's hooks again.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from pathlib import Path
 
 import pytest
 
-from agentguard import __version__
-from agentguard.adapters.codex import plugin
-from agentguard.adapters.codex.install import HOOK_SPECS
 from tests.codex_trust import declaration_hashes, plugin_content_hash
+from truthstone import __version__
+from truthstone.adapters.codex import plugin
+from truthstone.adapters.codex.install import HOOK_SPECS
 
 REPO = Path(__file__).resolve().parents[1]
 PLUGIN = REPO / plugin.PLUGIN_DIR
@@ -39,7 +39,7 @@ def hooks_file() -> dict:
 class TestGenerated:
     def test_checked_in_files_match_the_generator(self):
         stale = plugin.check(REPO)
-        assert stale == [], f"run: python -m agentguard.adapters.codex.plugin --write  ({stale})"
+        assert stale == [], f"run: python -m truthstone.adapters.codex.plugin --write  ({stale})"
 
     def test_version_follows_the_package(self):
         assert manifest()["version"] == plugin.plugin_version(__version__)
@@ -63,7 +63,7 @@ class TestManifest:
         data = manifest()
         assert data["name"] == plugin.PLUGIN_NAME
         assert data["license"] == "Apache-2.0"
-        assert data["homepage"] == data["repository"] == "https://github.com/tohin003/AgentGuard"
+        assert data["homepage"] == data["repository"] == "https://github.com/tohin003/Truthstone"
         assert data["author"]["name"]
         assert data["skills"] == "./skills/"
         assert data["hooks"] == "./hooks/hooks.json"
@@ -106,9 +106,9 @@ class TestManifest:
         assert box[2] == box[3] >= 48
 
     def test_skill_has_frontmatter(self):
-        text = (PLUGIN / "skills" / "agentguard" / "SKILL.md").read_text()
+        text = (PLUGIN / "skills" / "truthstone" / "SKILL.md").read_text()
         front = text.split("---")[1]
-        assert re.search(r"^name: agentguard$", front, re.MULTILINE)
+        assert re.search(r"^name: truthstone$", front, re.MULTILINE)
         assert re.search(r"^description: ", front, re.MULTILINE)
 
 
@@ -119,12 +119,12 @@ class TestPackage:
         assert files == sorted(
             [
                 ".codex-plugin/plugin.json",
-                "assets/agentguard-icon.svg",
-                "assets/agentguard-logo-dark.svg",
-                "assets/agentguard-logo.svg",
-                "hooks/agentguard-hook.sh",
+                "assets/truthstone-icon.svg",
+                "assets/truthstone-logo-dark.svg",
+                "assets/truthstone-logo.svg",
+                "hooks/truthstone-hook.sh",
                 "hooks/hooks.json",
-                "skills/agentguard/SKILL.md",
+                "skills/truthstone/SKILL.md",
             ]
         )
 
@@ -139,33 +139,34 @@ class TestPackage:
         data = json.loads((REPO / plugin.MARKETPLACE_FILE).read_text())
         assert data["name"] == plugin.MARKETPLACE_NAME
         (entry,) = [p for p in data["plugins"] if p["name"] == plugin.PLUGIN_NAME]
-        assert entry["source"] == {"source": "local", "path": "./plugins/agentguard"}
+        assert entry["source"] == {"source": "local", "path": "./plugins/truthstone"}
         assert entry["policy"] == {"installation": "AVAILABLE", "authentication": "ON_INSTALL"}
         assert entry["category"]
         assert (REPO / entry["source"]["path"]).is_dir()
 
     def test_marketplace_upsert_keeps_other_plugins(self):
-        other = {"name": "agentguard-practices", "source": {"source": "local", "path": "./plugins/x"}}
-        doc = plugin.marketplace_document({"name": "old", "plugins": [other, {"name": "agentguard"}]})
+        other = {"name": "truthstone-practices", "source": {"source": "local", "path": "./plugins/x"}}
+        doc = plugin.marketplace_document({"name": "old", "plugins": [other, {"name": "truthstone"}]})
         assert doc["plugins"] == [plugin.marketplace_entry(), other]
 
 
 # The re-trust tripwire. Updating these values means every user re-reviews the hooks.
 # These are the exact `currentHash` values Codex 0.166.0 reported for this plugin through
 # `hooks/list` (declaration/content), so the reimplementation itself is pinned to Codex.
+# rename-tool: re-pinned for Truthstone by scripts/rename_product.py; confirm via Codex hooks/list.
 EXPECTED_DECLARATIONS = {
-    "session_start:0:0": "sha256:944584375a02acc959d3ca8712b65236537a43ecabaf717e25984a35cd799d89",
-    "user_prompt_submit:0:0": "sha256:0a3709d7930b92f2bd0084bb9475a97a3e3275a77f9320d827d6a8b9fd374bbf",
-    "pre_tool_use:0:0": "sha256:13b0c7f10c367520d549e3d6338cd912844dfa62f5db02f8971de2f52821e769",
-    "post_tool_use:0:0": "sha256:88201b4ece5bb9c52413ce949b3a5622acd2ba163b47ea66225afb08798a802c",
-    "stop:0:0": "sha256:3e4a233aeb0baadc8c81aee9ffecd82ff001d064e1d0720a9916c6f7db23664e",
-    "session_end:0:0": "sha256:98e6477f69413b0fa2dd884ea3be6209e64d50b42369ee411b872d6f5aa8e133",
+    "session_start:0:0": "sha256:16dff026e1a8d1e64802603624e8b79a31721cd548267e454c61785e61eb44f1",
+    "user_prompt_submit:0:0": "sha256:84136a898ae55a7db4af13318f1a7d1cb886b9887902badeb965c2cee8c56aea",
+    "pre_tool_use:0:0": "sha256:8e34a6c4ab1b9a5e5d785285ecc32db85edb80f9f58f2f40e39e36f42d23c759",
+    "post_tool_use:0:0": "sha256:6254bde8d350bdbf215877c616473c8c749e8888467b48186c658331e8c345fb",
+    "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
+    "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:cf2d707aa8f2af193fd672d75f70f7608a0f7e37d6c2af69f9aefb2b9e9b1e70"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:0481d4a52bd4d2d32865cbf9a12a45707d49d14d3cf365570cc112bbbfd73b2b"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
-    "AgentGuard's hooks again in /hooks. If that is intended, update the pinned value."
+    "Truthstone's hooks again in /hooks. If that is intended, update the pinned value."
 )
 
 
@@ -220,7 +221,7 @@ class TestLauncher:
     def test_explicit_override_wins(self, tmp_path):
         write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, 'printf "path"\n')
         override = write_exe(tmp_path / "custom" / "runner", 'printf "override"\n')
-        assert launch("stop", tmp_path, AGENTGUARD_CODEX_HOOK=str(override)).stdout == b"override"
+        assert launch("stop", tmp_path, TRUTHSTONE_CODEX_HOOK=str(override)).stdout == b"override"
 
     def test_private_runtime_in_plugin_data(self, tmp_path):
         write_exe(tmp_path / "data" / "runtime" / "bin" / plugin.RUNTIME_COMMAND, 'printf "private"\n')
@@ -228,7 +229,7 @@ class TestLauncher:
 
     def test_disabled_runs_nothing(self, tmp_path):
         write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, 'printf "ran"\n')
-        result = launch("session-start", tmp_path, AGENTGUARD_DISABLE="1")
+        result = launch("session-start", tmp_path, TRUTHSTONE_DISABLE="1")
         assert (result.returncode, result.stdout) == (0, b"")
 
     def test_no_runtime_warns_once_at_session_start_and_is_silent_otherwise(self, tmp_path):
@@ -263,12 +264,12 @@ class TestLauncher:
         launch("session-start", tmp_path)
         assert len(log.read_text().splitlines()) == 1  # installed once, then reused
 
-        launch("session-start", tmp_path, AGENTGUARD_SOURCE="agentguard==9.9.9")
+        launch("session-start", tmp_path, TRUTHSTONE_SOURCE="truthstone==9.9.9")
         assert len(log.read_text().splitlines()) == 2  # a new source re-installs
 
     def test_bootstrap_can_be_refused(self, tmp_path):
         write_exe(tmp_path / "bin" / "uv", 'echo called > "$HOME/uv-called"\n')
-        result = launch("session-start", tmp_path, AGENTGUARD_NO_BOOTSTRAP="1")
+        result = launch("session-start", tmp_path, TRUTHSTONE_NO_BOOTSTRAP="1")
         assert not (tmp_path / "uv-called").exists()
         assert "UNGUARDED" in json.loads(result.stdout)["systemMessage"]
 

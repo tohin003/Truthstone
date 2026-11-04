@@ -16,14 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import EventType
-from agentguard.core.events import AgentEvent
-from agentguard.core.models import Decision
-from agentguard.core.store import ProjectStore
 from tests.conftest import user_prompt_submit
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import EventType
+from truthstone.core.events import AgentEvent
+from truthstone.core.models import Decision
+from truthstone.core.store import ProjectStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PATH_KEYS = ("file_path", "notebook_path")  # Claude Code's; the caller names them

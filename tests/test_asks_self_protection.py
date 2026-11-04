@@ -1,6 +1,6 @@
 """A9: self-protection (IMPROVEMENTS.md A9).
 
-An agent that can run `agentguard off`, or rewrite `.claude/settings.json`, can switch its
+An agent that can run `truthstone off`, or rewrite `.claude/settings.json`, can switch its
 own guard off. That is the developer's decision, every time: a review request with
 `signoff_required`, counted as VERIFICATION_TAMPERING. Reading any of it is fine. Pebble
 asks the same way for its own data and the agents' settings (`shell_policy.py:47-83`).
@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.adapters.codex import render as codex_render
-from agentguard.core.enums import DecisionAction, FailureMode
-from agentguard.validate import checks
 from tests.test_asks_support import Session, make_guard, make_repo, permission, reason
+from truthstone.adapters.codex import render as codex_render
+from truthstone.core.enums import DecisionAction, FailureMode
+from truthstone.validate import checks
 
 
 @pytest.fixture
@@ -41,20 +41,20 @@ def assert_signoff(session: Session, tool: str, **args) -> None:
 
 
 OFF_SWITCHES = [
-    "agentguard off",
-    "agentguard uninstall",
-    "agentguard uninstall --global",
-    "agentguard observe on",
-    "agentguard daemon stop",
-    "python -m agentguard.cli.main off",
-    "python3 -m agentguard.cli.main daemon stop",
-    "uv run agentguard observe on",
-    "uvx --from agentguard agentguard off",
-    "pkill -f agentguard",
-    "cd /tmp && agentguard off",
-    'bash -c "agentguard daemon stop"',
-    "for i in 1; do agentguard off; done",
-    "agentguard daemon stop && agentguard daemon start",
+    "truthstone off",
+    "truthstone uninstall",
+    "truthstone uninstall --global",
+    "truthstone observe on",
+    "truthstone daemon stop",
+    "python -m truthstone.cli.main off",
+    "python3 -m truthstone.cli.main daemon stop",
+    "uv run truthstone observe on",
+    "uvx --from truthstone truthstone off",
+    "pkill -f truthstone",
+    "cd /tmp && truthstone off",
+    'bash -c "truthstone daemon stop"',
+    "for i in 1; do truthstone off; done",
+    "truthstone daemon stop && truthstone daemon start",
 ]
 
 
@@ -67,7 +67,7 @@ def test_turning_the_guard_off_needs_signoff(session, command):
 def test_the_off_switch_is_asked_every_time(session):
     session.prompt("Speed things up.")
     for _ in range(3):
-        assert_signoff(session, "Bash", command="agentguard off")
+        assert_signoff(session, "Bash", command="truthstone off")
 
 
 class TestWritingTheHooksNeedsSignoff:
@@ -81,11 +81,11 @@ class TestWritingTheHooksNeedsSignoff:
             "~/.claude/settings.json",
         ]:
             assert_signoff(session, "Write", file_path=path, content="{}")
-            assert_signoff(session, "Edit", file_path=path, old_string="agentguard", new_string="")
+            assert_signoff(session, "Edit", file_path=path, old_string="truthstone", new_string="")
 
-    def test_writing_agentguards_home_needs_signoff(self, session, isolated_home):
+    def test_writing_truthstones_home_needs_signoff(self, session, isolated_home):
         session.prompt("Tidy up.")
-        for path in [str(isolated_home / "config.toml"), str(isolated_home / "token"), "~/.agentguard/x"]:
+        for path in [str(isolated_home / "config.toml"), str(isolated_home / "token"), "~/.truthstone/x"]:
             assert_signoff(session, "Write", file_path=path, content="enabled = false\n")
 
     def test_writing_codex_hooks_needs_signoff(self, session):
@@ -100,13 +100,13 @@ class TestWritingTheHooksNeedsSignoff:
             "echo '{}' > .claude/settings.json",
             "echo '{}' >> ~/.claude/settings.local.json",
             "jq 'del(.hooks)' .claude/settings.json | tee .claude/settings.json",
-            "sed -i '' '/agentguard/d' .claude/settings.local.json",
-            "rm ~/.agentguard/token",
-            "rm -rf ~/.agentguard",
+            "sed -i '' '/truthstone/d' .claude/settings.local.json",
+            "rm ~/.truthstone/token",
+            "rm -rf ~/.truthstone",
             "mv .claude/settings.json /tmp/settings.json",
             "cp /tmp/empty.json .claude/settings.local.json",
             "cd .claude && echo '{}' > settings.json",
-            'echo "enabled = false" > "$AGENTGUARD_HOME/config.toml"',
+            'echo "enabled = false" > "$TRUTHSTONE_HOME/config.toml"',
             "printf '[hooks]' > ~/.codex/config.toml",
             "for f in .claude/settings*.json; do sed -i '' '/hook/d' $f; done",
         ],
@@ -122,20 +122,20 @@ class TestReadingIsFine:
         [
             "cat ~/.claude/settings.json",
             "jq . .claude/settings.json",
-            "grep -n agentguard ~/.claude/settings.json",
+            "grep -n truthstone ~/.claude/settings.json",
             "cp .claude/settings.json /tmp/settings.backup.json",
-            "ls -la ~/.agentguard",
-            "cat ~/.agentguard/config.toml",
-            "agentguard status",
-            "agentguard doctor",
-            "agentguard observe status",
-            "agentguard observe off",
-            "agentguard on",
-            "agentguard daemon status",
-            "agentguard log",
-            'echo "run agentguard off to disable it" >> docs/notes.md',
-            'git commit -m "docs: explain agentguard off"',
-            'grep -rn "agentguard off" docs/',
+            "ls -la ~/.truthstone",
+            "cat ~/.truthstone/config.toml",
+            "truthstone status",
+            "truthstone doctor",
+            "truthstone observe status",
+            "truthstone observe off",
+            "truthstone on",
+            "truthstone daemon status",
+            "truthstone log",
+            'echo "run truthstone off to disable it" >> docs/notes.md',
+            'git commit -m "docs: explain truthstone off"',
+            'grep -rn "truthstone off" docs/',
         ],
     )
     def test_reading_settings_is_fine(self, session, command):
@@ -148,7 +148,7 @@ class TestReadingIsFine:
     def test_reading_with_the_tools_is_fine(self, session):
         session.prompt("Check how the hooks are configured.")
         assert session.pre("Read", file_path="~/.claude/settings.json").is_silent
-        assert session.pre("Grep", pattern="agentguard", path="~/.claude").is_silent
+        assert session.pre("Grep", pattern="truthstone", path="~/.claude").is_silent
 
     @pytest.mark.parametrize(
         "path",

@@ -19,13 +19,13 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from agentguard.adapters import registry
-from agentguard.adapters.claude_code import shim
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.daemon import app as daemon_app
-from agentguard.daemon import degraded
 from tests.conftest import REPO_ROOT, pre_tool_use, user_prompt_submit
+from truthstone.adapters import registry
+from truthstone.adapters.claude_code import shim
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.daemon import app as daemon_app
+from truthstone.daemon import degraded
 
 TOKEN = "test-token"
 
@@ -103,7 +103,7 @@ def test_auth_failures_older_than_the_window_are_forgotten(client, workspace):
 
 
 def test_a_stale_token_is_logged_once_per_window_not_per_call(client, workspace, caplog):
-    with caplog.at_level(logging.WARNING, logger="agentguard.daemon.app"):
+    with caplog.at_level(logging.WARNING, logger="truthstone.daemon.app"):
         for _ in range(5):
             stale_hook(client, workspace)
     assert len([r for r in caplog.records if "wrong token" in r.getMessage()]) == 1
@@ -154,7 +154,7 @@ def test_other_modules_can_report_reasons(client):
 
 
 def test_an_adapter_that_cannot_load_is_reported(client, workspace):
-    registry.register("test-host", "agentguard.adapters.no_such_host")
+    registry.register("test-host", "truthstone.adapters.no_such_host")
     client.post("/hook/test-host", json={}, headers={"Authorization": f"Bearer {TOKEN}"})
     message = reasons(client)["adapter-test-host"]["message"]
     assert message.startswith("the test-host adapter could not be loaded")
@@ -216,7 +216,7 @@ class TestShimNotices:
 
     def test_an_older_daemon_sending_only_messages_is_still_heard(self):
         notices = shim.daemon_notices({"degraded": ["the token is stale"]}, "guard")
-        assert [text for _, text in notices] == ["AgentGuard: the token is stale"]
+        assert [text for _, text in notices] == ["Truthstone: the token is stale"]
 
     def test_at_most_five_reasons(self):
         detail = [{"code": f"c{n}", "message": f"reason {n}"} for n in range(8)]
@@ -227,11 +227,11 @@ class TestShimNotices:
 
 
 def run_health(home, session_id: str) -> subprocess.CompletedProcess:
-    env = dict(os.environ, AGENTGUARD_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
-    env.pop("AGENTGUARD_DISABLE", None)
-    env.pop("AGENTGUARD_OBSERVE", None)
+    env = dict(os.environ, TRUTHSTONE_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
+    env.pop("TRUTHSTONE_DISABLE", None)
+    env.pop("TRUTHSTONE_OBSERVE", None)
     return subprocess.run(
-        [sys.executable, "-m", "agentguard.adapters.claude_code.shim", "--health"],
+        [sys.executable, "-m", "truthstone.adapters.claude_code.shim", "--health"],
         input=json.dumps({**user_prompt_submit("hi"), "session_id": session_id}).encode(),
         capture_output=True,
         env=env,
@@ -256,6 +256,6 @@ def test_shim_prints_degraded_reasons_once(daemon, workspace):
 
     assert first.returncode == 0 and first.stderr == b""
     lines = json.loads(first.stdout)["systemMessage"].splitlines()
-    assert lines == [f"AgentGuard: {daemon_app.AUTH_FAILURES_REASON}"], "one line per reason"
+    assert lines == [f"Truthstone: {daemon_app.AUTH_FAILURES_REASON}"], "one line per reason"
     assert again.stdout == b"", "once per session, not on every prompt"
     assert json.loads(other.stdout)["systemMessage"] == "\n".join(lines), "every session hears it once"

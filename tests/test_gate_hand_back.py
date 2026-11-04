@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.codex import translate as codex
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
 from tests.test_gate_timeline import FAIL, SOURCE, Session
+from truthstone.adapters.codex import translate as codex
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PROBE_E = "I could not make test_get_by_id pass\N{HORIZONTAL ELLIPSIS} Should I mock it or leave it?"

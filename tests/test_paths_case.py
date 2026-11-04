@@ -17,12 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import EventType
-from agentguard.core.events import AgentEvent
-from agentguard.repo import RepoIndex
-from agentguard.repo.paths import relative_path
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import EventType
+from truthstone.core.events import AgentEvent
+from truthstone.repo import RepoIndex
+from truthstone.repo.paths import relative_path
 
 
 def _case_insensitive(directory: Path) -> bool:

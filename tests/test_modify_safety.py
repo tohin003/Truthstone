@@ -18,14 +18,14 @@ import subprocess
 
 import pytest
 
-from agentguard.adapters.codex import render as codex_render
-from agentguard.challenge.ledger import ChallengeLedger
-from agentguard.core.enums import DecisionAction, EventType
-from agentguard.core.events import AgentEvent
-from agentguard.core.store import ProjectStore
-from agentguard.repo import RepoIndex
-from agentguard.validate import modify, validate
 from tests.test_asks_support import Session, make_guard, make_repo, permission, reason
+from truthstone.adapters.codex import render as codex_render
+from truthstone.challenge.ledger import ChallengeLedger
+from truthstone.core.enums import DecisionAction, EventType
+from truthstone.core.events import AgentEvent
+from truthstone.core.store import ProjectStore
+from truthstone.repo import RepoIndex
+from truthstone.validate import modify, validate
 
 BASH = shutil.which("bash")
 

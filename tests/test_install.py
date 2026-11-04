@@ -13,7 +13,7 @@ import stat
 
 import pytest
 
-from agentguard.adapters.claude_code import install as inst
+from truthstone.adapters.claude_code import install as inst
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def settings_file(tmp_path):
 
 class TestHookConfig:
     def test_covers_every_subscribed_event(self):
-        from agentguard.adapters.claude_code.translate import SUBSCRIBED_EVENTS
+        from truthstone.adapters.claude_code.translate import SUBSCRIBED_EVENTS
 
         config = inst.build_hook_config()
         # SubagentStop and PostToolUseFailure are handled if they arrive but are not
@@ -45,7 +45,7 @@ class TestHookConfig:
                     assert hook["type"] == "http", f"{event} must not spawn a process"
 
     def test_the_health_check_runs_once_per_prompt(self):
-        """Plan D9: a dead AgentGuard has to be able to say so, and only a process of
+        """Plan D9: a dead Truthstone has to be able to say so, and only a process of
         ours can speak when the daemon is gone."""
         hooks = inst.build_hook_config()["UserPromptSubmit"][0]["hooks"]
         command_hooks = [h for h in hooks if h["type"] == "command"]
@@ -69,7 +69,7 @@ class TestHookConfig:
             "/tmp/python with spaces/bin/python",
             "-P",
             "-m",
-            "agentguard.adapters.claude_code.shim",
+            "truthstone.adapters.claude_code.shim",
             "--ensure-daemon",
         ]
 
@@ -125,7 +125,7 @@ class TestHookConfig:
 
         assert matcher_accepts(inst.MUTATING_MATCHER, tool) is intercepted
 
-    def test_failing_commands_reach_agentguard(self):
+    def test_failing_commands_reach_truthstone(self):
         """G1: a test run that exits non-zero arrives only as PostToolUseFailure."""
         from tests.plugin_harness import matcher_accepts
 
@@ -146,7 +146,7 @@ class TestHookConfig:
     def test_carries_auth_token(self):
         hook = inst.build_hook_config()["PreToolUse"][0]["hooks"][0]
         assert hook["headers"]["Authorization"].startswith("Bearer ")
-        assert hook["headers"]["X-AgentGuard"] == "1"
+        assert hook["headers"]["X-Truthstone"] == "1"
 
     def test_timeouts_are_bounded(self):
         """A wedged daemon must not hold the developer hostage."""
@@ -163,9 +163,9 @@ class TestHookConfig:
         assert inst.settings_path(global_=True).name == "settings.json"
 
     def test_ownership_marker_is_exact(self):
-        human = {"hooks": [{"type": "command", "command": "echo agentguard is useful"}]}
+        human = {"hooks": [{"type": "command", "command": "echo truthstone is useful"}]}
         assert not inst._is_ours(human)
-        ours = {"hooks": [{"type": "http", "headers": {"X-AgentGuard": "1"}}]}
+        ours = {"hooks": [{"type": "http", "headers": {"X-Truthstone": "1"}}]}
         assert inst._is_ours(ours)
 
 
@@ -206,11 +206,11 @@ class TestInstall:
         assert mine in result["hooks"]["PreToolUse"]
         assert len(result["hooks"]["PreToolUse"]) == 2
 
-    def test_uninstall_does_not_remove_user_hook_that_mentions_agentguard(self, settings_file):
+    def test_uninstall_does_not_remove_user_hook_that_mentions_truthstone(self, settings_file):
         settings_file.parent.mkdir(parents=True)
         mine = {
             "matcher": "Bash",
-            "hooks": [{"type": "command", "command": "echo agentguard is useful"}],
+            "hooks": [{"type": "command", "command": "echo truthstone is useful"}],
         }
         settings_file.write_text(json.dumps({"hooks": {"PreToolUse": [mine]}}))
         inst.install(settings_file)
@@ -221,13 +221,13 @@ class TestInstall:
         """Ownership is per hook entry, not the containing Claude hook group."""
         settings_file.parent.mkdir(parents=True)
         user_hook = {"type": "command", "command": "/usr/local/bin/my-linter"}
-        agentguard_hook = {"type": "http", "headers": {"X-AgentGuard": "1"}}
+        truthstone_hook = {"type": "http", "headers": {"X-Truthstone": "1"}}
         settings_file.write_text(
             json.dumps(
                 {
                     "hooks": {
                         "PreToolUse": [
-                            {"matcher": "Bash", "hooks": [agentguard_hook, user_hook]}
+                            {"matcher": "Bash", "hooks": [truthstone_hook, user_hook]}
                         ]
                     }
                 }

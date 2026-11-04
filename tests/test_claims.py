@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.verify import claims
+from truthstone.verify import claims
 
 
 @pytest.mark.parametrize(

@@ -13,10 +13,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from agentguard.census import render_detectors
-from agentguard.census.taxonomy import BY_MODE, GATE_SUBJECTS, TAXONOMY
-from agentguard.core.enums import FailureMode
-from agentguard.verify import completion_gate
+from truthstone.census import render_detectors
+from truthstone.census.taxonomy import BY_MODE, GATE_SUBJECTS, TAXONOMY
+from truthstone.core.enums import FailureMode
+from truthstone.verify import completion_gate
 
 GATE_SOURCE = Path(completion_gate.__file__)
 
@@ -62,7 +62,7 @@ def test_no_entry_describes_a_subject_the_gate_no_longer_records():
 
 
 def test_each_counted_subject_is_named_in_its_modes_detector_text():
-    """So `agentguard census -v` names the observations behind every number."""
+    """So `truthstone census -v` names the observations behind every number."""
     spec_modes = {entry.mode for entry in TAXONOMY}
     for subject, (mode, _) in GATE_SUBJECTS.items():
         if mode in spec_modes:

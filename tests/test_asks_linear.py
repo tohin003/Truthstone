@@ -14,10 +14,10 @@ import time
 
 import pytest
 
-from agentguard.core.enums import DecisionAction, EventType, Severity
-from agentguard.core.events import AgentEvent
-from agentguard.validate import checks, shell
 from tests.test_asks_support import Session, make_guard, make_repo
+from truthstone.core.enums import DecisionAction, EventType, Severity
+from truthstone.core.events import AgentEvent
+from truthstone.validate import checks, shell
 
 # The shapes that were pathological, and a few more that would be for a careless rewrite.
 ADVERSARIAL = {

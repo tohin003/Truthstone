@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLUGIN_ROOT = REPO_ROOT / "plugins" / "agentguard-claude"
+PLUGIN_ROOT = REPO_ROOT / "plugins" / "truthstone-claude"
 HOOKS_FILE = PLUGIN_ROOT / "hooks" / "hooks.json"
 MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
 MARKETPLACE = REPO_ROOT / ".claude-plugin" / "marketplace.json"
@@ -59,13 +59,13 @@ def plugin_env(data: Path, project: Path, home: Path, **extra: str) -> dict[str,
     env = {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith(("AGENTGUARD_", "CLAUDE_PLUGIN_"))
+        if not key.startswith(("TRUTHSTONE_", "CLAUDE_PLUGIN_"))
     }
     env.update(
         CLAUDE_PLUGIN_ROOT=str(PLUGIN_ROOT),
         CLAUDE_PLUGIN_DATA=str(data),
         CLAUDE_PROJECT_DIR=str(project),
-        AGENTGUARD_HOME=str(home),
+        TRUTHSTONE_HOME=str(home),
     )
     env.update(extra)
     return env

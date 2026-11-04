@@ -6,9 +6,9 @@ the re-run was denied again, every time. The instruction was false: a Codex agen
 never run an irreversible command, even after the developer said yes.
 
 Now each held action carries a code bound to the session and the exact action. The
-developer allows it once — a reply whose first line is `approve <CODE>`, or `agentguard
+developer allows it once — a reply whose first line is `approve <CODE>`, or `truthstone
 approve <CODE>` in a terminal — and the next attempt at exactly that action runs; the one
-after is held again. No usable store means no grant: the one place AgentGuard fails closed.
+after is held again. No usable store means no grant: the one place Truthstone fails closed.
 
 Every behaviour is pinned through the real Guard and the real adapters (Codex through
 `handle_payload`, its output checked against Codex's schema), because what reaches the
@@ -25,16 +25,16 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agentguard.adapters.codex import render as codex_render
-from agentguard.cli.main import app
-from agentguard.core import hosts
-from agentguard.core.enums import DecisionAction, EventType, FailureMode
-from agentguard.core.events import AgentEvent
-from agentguard.core.models import SIGNOFF_TTL_S, Decision
-from agentguard.core.store import Database, ProjectStore
-from agentguard.validate import checks, signoff
 from tests.test_asks_support import Session, make_guard, make_repo, permission, reason
 from tests.test_codex_translate import handle, load
+from truthstone.adapters.codex import render as codex_render
+from truthstone.cli.main import app
+from truthstone.core import hosts
+from truthstone.core.enums import DecisionAction, EventType, FailureMode
+from truthstone.core.events import AgentEvent
+from truthstone.core.models import SIGNOFF_TTL_S, Decision
+from truthstone.core.store import Database, ProjectStore
+from truthstone.validate import checks, signoff
 
 FORCE_PUSH = "git push --force origin main"
 RESET = "git reset --hard HEAD~1"
@@ -81,7 +81,7 @@ def test_signoff_reply_allows_exactly_one_rerun(session):
     first = session.codex_bash(FORCE_PUSH)
     assert held(first)
     code = code_in(first)
-    assert "`agentguard approve " + code + "`" in reason(first), "both ways to grant are named"
+    assert "`truthstone approve " + code + "`" in reason(first), "both ways to grant are named"
     # The developer is told directly too, where a system message reaches them.
     assert f"reply `approve {code}`" in first["systemMessage"]
 
@@ -155,11 +155,11 @@ def test_one_reply_can_sign_off_several_codes(session):
 @pytest.mark.parametrize(
     "command",
     [
-        "agentguard approve {code}",
-        "agentguard approve",
-        "python -m agentguard.cli.main approve {code}",
-        "uvx agentguard approve {code}",
-        "cd /tmp && agentguard approve {code} --cwd {repo}",
+        "truthstone approve {code}",
+        "truthstone approve",
+        "python -m truthstone.cli.main approve {code}",
+        "uvx truthstone approve {code}",
+        "cd /tmp && truthstone approve {code} --cwd {repo}",
         'codex exec resume --last "approve {code}"',
         "echo 'approve {code}' | codex exec resume --last -",
         "codex exec resume --last - < /tmp/reply.txt",
@@ -181,11 +181,11 @@ def test_agent_cannot_self_approve(session, command):
 
 
 def test_the_agents_route_needs_its_own_sign_off_which_only_the_developer_gives(session):
-    """`agentguard approve` run by the agent is held under its own code; once the developer
+    """`truthstone approve` run by the agent is held under its own code; once the developer
     approves *that*, it may run — the developer has then signed off twice."""
     reply(session, "Reset the branch.")
     code = code_in(session.codex_bash(RESET))
-    route = f"agentguard approve {code}"
+    route = f"truthstone approve {code}"
     own = code_in(session.codex_bash(route))
     assert own != code
     reply(session, f"approve {own}")
@@ -198,7 +198,7 @@ def test_the_agents_route_needs_its_own_sign_off_which_only_the_developer_gives(
         "git log --grep approve",
         "echo approve change",
         "gh pr review 12 --approve",
-        "agentguard log",
+        "truthstone log",
         'git commit -m "approve the release plan"',
     ],
 )
@@ -302,7 +302,7 @@ def test_claude_native_ask_unchanged(session):
     """On Claude Code the ask is the sign-off: no code is shown, nothing else changes."""
     session.prompt("Publish the branch.")
     decision = session.pre("Bash", command=FORCE_PUSH)
-    assert decision.signoff_code, "recorded, so `agentguard approve` can list it"
+    assert decision.signoff_code, "recorded, so `truthstone approve` can list it"
     out = session.claude("Bash", command=FORCE_PUSH)
     assert permission(out) == "ask"
     assert reason(out) == decision.reason, "the reason is the core's, untouched"
@@ -449,7 +449,7 @@ def test_the_ladder_shows_every_code_a_merged_decision_carries():
     )
     rendering = hosts.render(decision, hosts.CODEX, EventType.PRE_TOOL_USE)
     assert "reply `approve K7M2QX P3N8RT`" in rendering.reason
-    assert "`agentguard approve K7M2QX P3N8RT`" in rendering.system_message
+    assert "`truthstone approve K7M2QX P3N8RT`" in rendering.system_message
 
 
 def test_an_existing_database_gains_the_table(repo, isolated_home):

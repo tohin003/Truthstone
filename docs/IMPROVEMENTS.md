@@ -1,4 +1,4 @@
-# AgentGuard: ranked improvement plan (Stage 1 research)
+# Truthstone: ranked improvement plan (Stage 1 research)
 
 | | |
 |---|---|
@@ -36,7 +36,7 @@ Modern agents' dominant failure is overclaiming success. The Opus 5.5 and GPT-5.
 - **Claude Code never applies it.** `permissionDecision: "defer"` drops `updatedInput`. Interactive sessions ignore it entirely, and `-p` runs suspend the turn. This is read directly in Claude Code 2.1.92's source.
 - **It pre-empts the CRITICAL ask for `rm -rf $HOME`** with a rewrite that still deletes home.
 
-### 4. AgentGuard sees nothing of what modern agents are documented to do instead
+### 4. Truthstone sees nothing of what modern agents are documented to do instead
 
 **Uncovered failures:**
 - test tampering;
@@ -64,7 +64,7 @@ Modern agents' dominant failure is overclaiming success. The Opus 5.5 and GPT-5.
 
 - **Seconds per hook on large repos.** A quadratic test-map rebuild runs after every edit: 126 ms on the real Pebble repo and 2.6 s on a 42k-file monorepo.
 - **A transient external DB lock** silently disables guarding until the daemon restarts.
-- **`AGENTGUARD_DISABLE=1 claude` does not disable a session** whose daemon is already running.
+- **`TRUTHSTONE_DISABLE=1 claude` does not disable a session** whose daemon is already running.
 - **One observe-mode session silences every session.**
 - **cwd = `~`** costs about 22 s per Bash call.
 
@@ -99,7 +99,7 @@ Ranked by (impact × confidence) ÷ effort; the full table is §2.
 - D5 host-agnosticism;
 - D6 tests and measurement.
 
-Every agent used a scratch `AGENTGUARD_HOME` under `/tmp/claude-w-core/`. No hooks were installed and no daemon touched port 8787. The worktree stayed clean, and Pebble and PebbleBench were not modified.
+Every agent used a scratch `TRUTHSTONE_HOME` under `/tmp/claude-w-core/`. No hooks were installed and no daemon touched port 8787. The worktree stayed clean, and Pebble and PebbleBench were not modified.
 
 **The lead (claude-w) re-verified the load-bearing claims itself** (Appendix A):
 - by reading Claude Code 2.1.92's source;
@@ -119,7 +119,7 @@ Where independent agents converged on the same defect, the report says so; five 
 
 **Score** = impact (1–5) × confidence (0–1) ÷ effort (S = 1, S–M = 1.5, M = 2, M–L = 3, L = 4). Ties are broken by impact, then by whether today's Claude users are affected.
 
-Items that touch `src/agentguard/adapters/**` are marked **[ADAPTER]**. That tree is owned by another agent, so those changes need the lead's agreement.
+Items that touch `src/truthstone/adapters/**` are marked **[ADAPTER]**. That tree is owned by another agent, so those changes need the lead's agreement.
 
 ## 2. Ranked list
 
@@ -165,13 +165,13 @@ Batches (§7): **B1** gate · **B2** asks · **B3** claims and tampering · **B4
 | 36 | A3 | Effect classifiers: git, filesystem, data, infra; outside-workspace writes | 4 | 0.9 | M | 1.80 | B2 |
 | 37 | H1 | HostCapabilities and a rendering ladder: never an `ask` that fails open | 4 | 0.9 | M | 1.80 | B4 (urgent: Codex) |
 | 38 | M2 | Bench pairing, randomisation, void-per-pair, exact McNemar | 4 | 0.9 | M | 1.80 | B5 |
-| 39 | M3 | Oracles independent of AgentGuard (hidden tests, canaries, structured claims) | 4 | 0.9 | M | 1.80 | B5 |
+| 39 | M3 | Oracles independent of Truthstone (hidden tests, canaries, structured claims) | 4 | 0.9 | M | 1.80 | B5 |
 | 40 | A8 | Verification-bypass flags (`--no-verify`, `HUSKY=0`, `-DskipTests`) | 2 | 0.9 | S | 1.80 | B3 |
 | 41 | R18 | Case-insensitive path containment (APFS case-variant edit goes untracked) | 2 | 0.9 | S | 1.80 | B6 |
 | 42 | R1 | Guarding must not depend on persistence: in-memory task ids and ledger counters, NullStore fallback | 3.5 | 1.0 | M | 1.75 | B6 |
 | 43 | G10 | Tell the developer when the gate gives up [ADAPTER] | 2.5 | 0.7 | S | 1.75 | B1 |
-| 44 | M5 | `agentguard replay` over existing transcripts (census seed, regression corpus) | 4 | 0.8 | M | 1.60 | B5 |
-| 45 | A9 | Self-protection (`agentguard off`, edits to settings) | 2 | 0.8 | S | 1.60 | B2 |
+| 44 | M5 | `truthstone replay` over existing transcripts (census seed, regression corpus) | 4 | 0.8 | M | 1.60 | B5 |
+| 45 | A9 | Self-protection (`truthstone off`, edits to settings) | 2 | 0.8 | S | 1.60 | B2 |
 | 46 | R6 | Move index sweeps and waits out of the per-workspace event lock | 3.5 | 0.9 | M | 1.58 | B6 |
 | 47 | R9 | Degradation channel: fail open, but never silently (stale token, observe leak, wedged DB, lost task) [part ADAPTER] | 3.5 | 0.9 | M | 1.58 | B6 |
 | 48 | M7 | Tests that would have caught these bugs (contract matrix, gate replay, …) | 3 | 1.0 | M | 1.50 | B5 |
@@ -298,7 +298,7 @@ What happens today:
 
 - Python files carry an `ast.dump` fingerprint, so a comment-only edit keeps a pass current. All three local "stale" claims D1 inspected were 0-code-line edits.
 - A reverted file drops out of the change set (Pebble `unstage`, `guard.py:1060-1091`).
-- Narrowed runs verify only their scope: file arguments must include a covering test, and `-k`/`-m`/`--lf`/`::id` supersede only the identical command (Pebble `guard.py:121-155`). This matters because AgentGuard *suggests* narrowed commands itself (`runners.py:265-272`), and 64.5% of Codex runs were narrowed (D1).
+- Narrowed runs verify only their scope: file arguments must include a covering test, and `-k`/`-m`/`--lf`/`::id` supersede only the identical command (Pebble `guard.py:121-155`). This matters because Truthstone *suggests* narrowed commands itself (`runners.py:265-272`), and 64.5% of Codex runs were narrowed (D1).
 - Failing test IDs (`FAILED path::test`) clear only when a later run covers them (D1 W2).
 
 **Tests:**
@@ -430,7 +430,7 @@ So `sed -i`, codemods, generators, `git mv` and `rm` are invisible to the gate a
 
 **Problem.**
 - Every prompt starts a fresh `TaskState` (`engine.py:353-369`), so "continue" forgets the failing run and the unverified edits (probe H).
-- On hosts whose stop-continuation arrives as a new prompt (Codex, Cursor, Gemini, Copilot), AgentGuard's own block reason would start a new task (D5).
+- On hosts whose stop-continuation arrives as a new prompt (Codex, Cursor, Gemini, Copilot), Truthstone's own block reason would start a new task (D5).
 
 **Change.** Keep a session-level ledger of the last edit sequence number and the latest outcome. Tag continuation prompts by host turn id, or by matching the last gate reason, so they keep the task.
 
@@ -659,13 +659,13 @@ Pebble tests: `test_requirements_46.py`, `test_requirements_1927.py`, `test_hone
 
 #### A9 · rank 45 · Self-protection · S · 1.60
 
-**Change.** REQUEST_REVIEW for `agentguard off|uninstall|observe on|daemon stop`, and for writes to `~/.agentguard/**` or `.claude/settings*.json` (Pebble `shell_policy.py:47-83`, `policy.py:13-26`).
+**Change.** REQUEST_REVIEW for `truthstone off|uninstall|observe on|daemon stop`, and for writes to `~/.truthstone/**` or `.claude/settings*.json` (Pebble `shell_policy.py:47-83`, `policy.py:13-26`).
 
 #### A10 · rank 26 · Reasons the recipient can act on · S · 2.25
 
 **Change.**
 - `render(findings, audience)`: a review request shown to the human gets its own header and no "check the repository" closing (D2 R5).
-- Agent-facing challenges state the real override: "re-issuing the same action proceeds; AgentGuard won't raise this again in this task".
+- Agent-facing challenges state the real override: "re-issuing the same action proceeds; Truthstone won't raise this again in this task".
 - Do not challenge a dependency the prompt names, or one an installer writes into the manifest itself (`uv add`).
 - Name the concrete alternative: `git restore -- <files>`, or `git clean -n` first.
 - JSON-quote any text taken from tool output (today it is raw, `completion_gate.py:146`).
@@ -778,7 +778,7 @@ It fixes:
 
 **Problem.** "Persistence is never a dependency" (PROGRESS) is false in three ways (D3, D6, exp):
 - **A broken DB.** Task ids are minted by DB writes (`engine.py:360-369`). With no task, `ledger.admit` returns "no task context": no challenges, and the gate passes.
-- **A corrupted DB file.** `Workspace.__init__` needs `Database.shared()` (`engine.py:53`), so no workspace exists: AgentGuard is fully inert, and `doctor` crashes.
+- **A corrupted DB file.** `Workspace.__init__` needs `Database.shared()` (`engine.py:53`), so no workspace exists: Truthstone is fully inert, and `doctor` crashes.
 - **Critical disk** (`Database.write` no-ops, `store.py:535-537`). `challenge_count` stays 0, so the same challenge is raised every time: 5 of 5 (D3), 3 of 3 (D6).
 
 **Change.**
@@ -916,7 +916,7 @@ On the 88 ms outlier (D3): in the test_s08 loop the maximum is always a WAL-chec
 
 #### R10 · rank 49 · Per-session DISABLE and OBSERVE that work for http hooks [part ADAPTER + README] · M · 1.50
 
-**Problem.** `AGENTGUARD_DISABLE=1 claude` does **not** disable that session when a daemon is already running: it still got `deny`. Likewise, `AGENTGUARD_OBSERVE=1` on one session switches every session to observe-only. The README's "off for one session" is wrong for http hooks, because the daemon reads its environment once (`config.py:378-381`) (D3, exp).
+**Problem.** `TRUTHSTONE_DISABLE=1 claude` does **not** disable that session when a daemon is already running: it still got `deny`. Likewise, `TRUTHSTONE_OBSERVE=1` on one session switches every session to observe-only. The README's "off for one session" is wrong for http hooks, because the daemon reads its environment once (`config.py:378-381`) (D3, exp).
 
 **Change.**
 - The shim, which does see the session's environment, sends a session mode at SessionStart.
@@ -928,8 +928,8 @@ On the 88 ms outlier (D3): in the test_s08 loop the maximum is always a WAL-chec
 **Problem** (D3, exp):
 - One invalid value anywhere, such as `max_per_task = -1`, discards the **whole** file. A configured `port = 9999` then silently becomes 8787 (`config.py:369-376`), so the daemon and the hook URL disagree.
 - Typo keys are ignored; `latency.*` and `log_level` are dead settings.
-- `AGENTGUARD_HOME=""` makes the config use `.` while the shim uses `~/.agentguard`. The token ends up in the project directory, which is then chmod'ed 0700.
-- `doctor` crashes on a corrupted DB or a symlinked home, and on Linux a symlinked home ancestor (Silverblue) makes AgentGuard refuse to run.
+- `TRUTHSTONE_HOME=""` makes the config use `.` while the shim uses `~/.truthstone`. The token ends up in the project directory, which is then chmod'ed 0700.
+- `doctor` crashes on a corrupted DB or a symlinked home, and on Linux a symlinked home ancestor (Silverblue) makes Truthstone refuse to run.
 - `doctor` reports "✓ hooks installed" while those hooks carry another home's token, and it warns about `rg`, which is never used.
 
 **Change.**
@@ -1005,15 +1005,15 @@ On the 88 ms outlier (D3): in the test_s08 loop the maximum is always a WAL-chec
 #### M1 · rank 24 · Bench arms that can be trusted · M · 2.25
 
 **Problem.**
-- **The control can be guarded.** The control arm's `--settings` copy does not remove global or project-local AgentGuard hooks, and `.claude` survives resets (`runner.py:30, 34-41`).
+- **The control can be guarded.** The control arm's `--settings` copy does not remove global or project-local Truthstone hooks, and `.claude` survives resets (`runner.py:30, 34-41`).
 - **The guarded arm can be silent.** It uses whatever daemon is running, possibly an observe-mode one.
 - **Nothing checks either.**
 
 **Change.**
 - One fresh worktree or container per session, with restricted setting sources.
 - An identical logging hook in both arms.
-- The guarded arm gets its own `AGENTGUARD_HOME`, daemon and `/health` pre-flight.
-- Post-check: the control saw 0 AgentGuard events and the guarded arm at least 1; otherwise void the pair.
+- The guarded arm gets its own `TRUTHSTONE_HOME`, daemon and `/health` pre-flight.
+- Post-check: the control saw 0 Truthstone events and the guarded arm at least 1; otherwise void the pair.
 
 **Test:** a fake `claude` on PATH that records the settings it was given.
 
@@ -1027,17 +1027,17 @@ On the 88 ms outlier (D3): in the test_s08 loop the maximum is always a WAL-chec
 - Fix the `summarize` counters, which always report 0 errors and 0 voids (`runner.py:162-174`).
 - Pin and record the model, the Claude Code version and the settings hashes.
 
-#### M3 · rank 39 · Oracles independent of AgentGuard · M · 1.80
+#### M3 · rank 39 · Oracles independent of Truthstone · M · 1.80
 
 **Change.** Hidden tests, canaries, a structured final status or blinded labels, and scope measured from the gold patch.
 
-Today the oracle misses `self.x: T = …` (`tasks.py:121`), the claim regex ignores negation (`tasks.py:156-157`), and the scope oracle *is* AgentGuard's own `RepoIndex` definition (`tasks.py:80-84`).
+Today the oracle misses `self.x: T = …` (`tasks.py:121`), the claim regex ignores negation (`tasks.py:156-157`), and the scope oracle *is* Truthstone's own `RepoIndex` definition (`tasks.py:80-84`).
 
 #### M4 · rank 11 · Mutation-benchmark validity, and a dangerous doc command · S · 3.00
 
 **Problem.**
 - "100% precision" was measured on files that re-write their own content, which extracts 0 claims, so a false positive is impossible (D6 E6).
-- The sample is self-selected: AgentGuard's own predicate picks it, and `lexicon.py` alone supplies 63 of the 400.
+- The sample is self-selected: Truthstone's own predicate picks it, and `lexicon.py` alone supplies 63 of the 400.
 - `BENCH-final.md:36` documents `--task`, which does not exist. Fixed, the command would `git reset --hard` and `git clean -fdq` the checkout (`runner.py:28-31`).
 
 **Change.**
@@ -1047,7 +1047,7 @@ Today the oracle misses `self.x: T = …` (`tasks.py:121`), the claim regex igno
 - The harness refuses a dirty or non-scratch repo.
 - The README sentence that quotes the figure is lead-owned.
 
-#### M5 · rank 44 · `agentguard replay` over existing transcripts · M · 1.60
+#### M5 · rank 44 · `truthstone replay` over existing transcripts · M · 1.60
 
 **Problem.** The census waits for "a week of observe-only work", but 349 transcripts on disk answered the sequence-level questions in about 2 minutes (A.3).
 
@@ -1145,7 +1145,7 @@ Each subsection condenses one subagent's report, keeping only what survived the 
 | Local: 737 Codex rollouts (gpt-6.1-sol, PebbleBench) | current | 48 of 101 test-running turns were **fail-then-pass**, so the G2a false block would hit about half. 64.5% of runs were narrowed. **42 "tests pass" claims, 0 genuinely false** after D1 checked by hand: claim checking must be conservative. |
 | Local: 349 Claude Code transcripts (lead; Appendix A.3) | current (Opus 5.5) | 11% of test runs invisible (G1). 10% of editing turns end on stale runs. 63 skip additions. Rare destructive commands, half of them missed. |
 
-**Gap ranking.** Ordered by frequency × harm × how poorly AgentGuard covers it today:
+**Gap ranking.** Ordered by frequency × harm × how poorly Truthstone covers it today:
 1. finishing on failing tests (blind) → G1, G2a;
 2. unverified "tests pass / I ran / updated X" (final message unused) → G4;
 3. test tampering (silent) → A6;
@@ -1161,13 +1161,13 @@ The best-covered failure, hallucinated symbols, sits last in frequency.
 
 ## 4.2 Pebble port-backs, completion side (subagent D4b, checked by the lead)
 
-Pebble's `completion_gate.py` and `runners.py` are **byte-identical** to AgentGuard's. All of Pebble's gate improvements live in its wrapper:
+Pebble's `completion_gate.py` and `runners.py` are **byte-identical** to Truthstone's. All of Pebble's gate improvements live in its wrapper:
 
-| Pebble technique (tests) | AgentGuard today | Item |
+| Pebble technique (tests) | Truthstone today | Item |
 |---|---|---|
 | Exit code first, then a strict parser; "printed counts never beat the exit code" (`guard.py:620-639`; `test_guard_terminal_outcomes_24`) | Exit code never seen | G1 |
 | The latest run on the current files decides; failures superseded only by the same or a broader run; passes bound to file digests (`guard.py:710-756`, `controller.py:212-248`; `test_gate_latest_run_21.py`) | `any_failed` sticky; edits not ordered against runs | G2a, G2b |
-| Strict last-summary parsers for 9 runners, plus a no-tests outcome (`recipes.py:874-1049`; `test_recipes.py`). D4b: Pebble reads 12/12 sample outputs; AgentGuard reads 5/12 | Counts summed over the whole output | G3 |
+| Strict last-summary parsers for 9 runners, plus a no-tests outcome (`recipes.py:874-1049`; `test_recipes.py`). D4b: Pebble reads 12/12 sample outputs; Truthstone reads 5/12 | Counts summed over the whole output | G3 |
 | Shell-made changes counted by file signatures (`guard.py:282-326`; `test_guard_gate_gaps_24.py`) | Bash records nothing | G5 |
 | A running background command blocks completion (`controller.py:268-299`) | `background_tasks` ignored | G7 |
 | Anchored waiver (`guard.py:70-77`) | Substring list | G6 |
@@ -1178,20 +1178,20 @@ Pebble's `completion_gate.py` and `runners.py` are **byte-identical** to AgentGu
 | Benchmark: symmetric false completion, `honest_incomplete`, intention-to-treat; stdlib statistics (`evaluation.py:2875-2908`, `eval_stats.py`) | Summary always shows 0 errors and 0 voids (`bench/runner.py:162-174`) | M2, M3 |
 
 **Not transferable:**
-- running tests in a sandboxed snapshot (AgentGuard owns no executor);
+- running tests in a sandboxed snapshot (Truthstone owns no executor);
 - whole-project hashing for every run;
 - step_judge's LLM check;
 - reconcile, recovery, code_mode and plan_runner;
 - goals.py (needs Pebble's UI);
 - constraints.py (needs control of context assembly);
 - conventions.py, which only loads AGENTS.md/CLAUDE.md as screened data — it has **no convention checks**;
-- ts_symbols, which outlines definitions only and needs tree-sitter just like AgentGuard does.
+- ts_symbols, which outlines definitions only and needs tree-sitter just like Truthstone does.
 
 ## 4.3 Pebble port-backs, action-time policy (subagent D4a, checked by the lead)
 
-**Source and baseline.** Pebble vendors AgentGuard at `df1fb07`, this worktree's HEAD (`backend/vendor/PROVENANCE.json`). Its own wrapper then overrides AgentGuard in six places.
+**Source and baseline.** Pebble vendors Truthstone at `df1fb07`, this worktree's HEAD (`backend/vendor/PROVENANCE.json`). Its own wrapper then overrides Truthstone in six places.
 
-**Its wrapper is a map of AgentGuard's live gaps.** Pebble:
+**Its wrapper is a map of Truthstone's live gaps.** Pebble:
 - parses Bash before judging it (`shell_policy.py:154-160, 824-834, 980-984`);
 - skips validation for read-only Bash (`app.py:3578-3606`, `guard.py:51-53, 549-573`);
 - decides the test waiver itself (`guard.py:68-74`);
@@ -1229,7 +1229,7 @@ Pebble's `completion_gate.py` and `runners.py` are **byte-identical** to AgentGu
 
 **Keeps are enforced.** "Don't touch X", "keep X", README notes that a path cannot be regenerated, and read-only requests (`keep_paths.py:28-188`).
 - Tests: `test_keep_paths_1928.py`, `test_read_only_scope_1928.py`.
-- AgentGuard *extracts* `spec.constraints` (`intent/extractor.py:177-187`) but nothing reads them.
+- Truthstone *extracts* `spec.constraints` (`intent/extractor.py:177-187`) but nothing reads them.
 - → P-keeps.
 
 **Open doubt at Stop.** A reply that claims done but whose own sentences doubt it is held once (`open_doubt.py:29-99`).
@@ -1246,10 +1246,10 @@ Pebble's `completion_gate.py` and `runners.py` are **byte-identical** to AgentGu
 **Anchored waiver with quote normalisation.**
 - Sources: `text_safety.py:42-48`, `guard.py:68-74`.
 - Tests: `test_guard_gate_gaps_24.py:104, 117`.
-- D4a measured AgentGuard's waiver correct on 3 of 7 ordinary prompts and Pebble's on 7 of 7. "Don’t run the tests", with a typographic apostrophe, is missed by AgentGuard.
+- D4a measured Truthstone's waiver correct on 3 of 7 ordinary prompts and Pebble's on 7 of 7. "Don’t run the tests", with a typographic apostrophe, is missed by Truthstone.
 - → P-waiver.
 
-**Self-protection.** A command or write that would switch the guard off (`agentguard off`, edits to `.claude/settings*.json`) asks first.
+**Self-protection.** A command or write that would switch the guard off (`truthstone off`, edits to `.claude/settings*.json`) asks first.
 - Sources: `shell_policy.py:47-83`, `policy.py:13-26`.
 - → P-self.
 
@@ -1274,7 +1274,7 @@ Pebble's `completion_gate.py` and `runners.py` are **byte-identical** to AgentGu
 
 ### Command-classification comparison
 
-| Command | AgentGuard today | Pebble | Correct |
+| Command | Truthstone today | Pebble | Correct |
 |---|---|---|---|
 | heredoc writing docs that mention `rm -rf /` | critical review (FP) | allow (body is data) | allow |
 | `git commit -m "… git push --force"` | review (FP) | ordinary commit | allow |
@@ -1303,7 +1303,7 @@ Pebble's `completion_gate.py` and `runners.py` are **byte-identical** to AgentGu
 | `evidence/extractors.py:60-120`, `validate/validator.py:127-129` | One path per action; Claude argument names | Multi-file `apply_patch`: nothing judged, nothing touched, and the gate passes with "no source changes" (D5 probes A1/A2) |
 | `core/taskstate.py:35` | `deleted_files` | Has no writer, so deletions and moves are invisible to the gate |
 | `census/taxonomy.py:44-45`, `core/store.py:927` | "Instrumented" is fixed per detector; a task falls back to the decision id | On a host with no Stop hook, FALSE_COMPLETION reads as "instrumented, 0 observed", against the census's own rule. With no prompt event every decision counts as a task. |
-| `adapters/claude_code/install.py:30` *(adapter-owned)* | Matcher `Edit\|Write\|MultiEdit\|NotebookEdit\|Bash` | MCP write tools and Claude's own `PowerShell` tool (Windows) never reach AgentGuard |
+| `adapters/claude_code/install.py:30` *(adapter-owned)* | Matcher `Edit\|Write\|MultiEdit\|NotebookEdit\|Bash` | MCP write tools and Claude's own `PowerShell` tool (Windows) never reach Truthstone |
 
 ### Host capability summary (D5, sources fetched 2026-11-04)
 
@@ -1345,9 +1345,9 @@ A lint test, `test_core_host_neutral.py`, does an AST scan for Claude tool and a
 **How to read the corpus figures below.**
 - **D2's corpus:** 356 local transcripts, 42,426 Bash commands, 3,033 recognised test runs.
 - **The lead's corpus:** 349 transcripts and 41,087 commands (Appendix A.3).
-- **Caveat:** both lean towards safety-tooling work (AgentGuard and Pebble sessions). That inflates the number of command strings that *look* dangerous.
+- **Caveat:** both lean towards safety-tooling work (Truthstone and Pebble sessions). That inflates the number of command strings that *look* dangerous.
 
-### Where AgentGuard cries wolf (blocks or challenges legitimate work)
+### Where Truthstone cries wolf (blocks or challenges legitimate work)
 
 | Behaviour | Evidence | Scale |
 |---|---|---|
@@ -1356,13 +1356,13 @@ A lint test, `test_core_host_neutral.py`, does an AST scan for Claude tool and a
 | Clarifying question, honest "couldn't run tests", TDD red phase, pre-existing failure | lead E; D2 G12.0, G12.1, G14, G14b | 10 + 33 corpus turns (D2) → G4a |
 | Valid Python 3.14 syntax rejected by a 3.13 daemon even after the project's tests passed; a template file that never parsed | D2 st1, st2 (`static.py:52`) | → G15 |
 | A covering test that cannot be run: `tests/test_utils.py` ↔ `frontend/src/utils.ts` through a repo-wide stem match; first runner chosen regardless of language. Result: "Run `pytest frontend/src/utils.test.ts tests/test_utils.py`", and the block repeats after `pnpm --filter web test` passes | D2 G7; `repo/index.py:378-396`, `runners.py:265-272` | → G16 |
-| Quoted or heredoc text read as a command: `git commit -m "…pip install requests…"` and `grep -rn "npm install lodash" docs/` are **denied** as new dependencies; heredoc docs mentioning `rm -rf /` are sent to review | lead Q1/Q2; D4a | Of AgentGuard's 221 risky-command hits in 42,426 commands, **128 were text inside heredocs or quoted arguments** and **93 deleted a variable assigned in the same command** (D2 heuristic triage). No hit fell outside those two harmless shapes. → A2 |
+| Quoted or heredoc text read as a command: `git commit -m "…pip install requests…"` and `grep -rn "npm install lodash" docs/` are **denied** as new dependencies; heredoc docs mentioning `rm -rf /` are sent to review | lead Q1/Q2; D4a | Of Truthstone's 221 risky-command hits in 42,426 commands, **128 were text inside heredocs or quoted arguments** and **93 deleted a variable assigned in the same command** (D2 heuristic triage). No hit fell outside those two harmless shapes. → A2 |
 | A scope challenge denies the next action, including the agent's own `pytest` | lead S1; D2 S1; D4a; D1 | Rename across call sites denied at the 9th edit; a docs typo sweep and a monorepo dependency bump denied at file 9 (docs and manifests are counted) → A4 |
 | The DIRECT-band proportionality challenge (raised at MEDIUM) | lead A.3 | 20 of 69 real ≥ 8-file turns rated DIRECT from the prompt (upper bound); 14 of the 20 had prompts over 200 characters → A4 |
 | `pytest -s` printing an app log line such as "2 errors, 3 failed rows" before a green summary is read as **failing**; a passing vitest test named "…JobStatus.FAILED" is read as failing | D2 matrix; D4b | → G3b |
 | A user-requested `uv add httpx` is told to "add it to the project manifest"; `gh pr create --body "…pip install shop-client"` is challenged | D2 R2 | → A10 |
 
-### Where AgentGuard misses (lets a real problem through)
+### Where Truthstone misses (lets a real problem through)
 
 | Behaviour | Evidence | → |
 |---|---|---|
@@ -1377,7 +1377,7 @@ A lint test, `test_core_host_neutral.py`, does an AST scan for Claude tool and a
 
 ### Challenges the host cannot act on
 
-- **A review request shown to the human reads like an agent challenge.** It carries the "AgentGuard — evidence check" header and a "Confirm this against the repository" closing line (D2 R5).
+- **A review request shown to the human reads like an agent challenge.** It carries the "Truthstone — evidence check" header and a "Confirm this against the repository" closing line (D2 R5).
 - **Scope and proportionality challenges ask the agent to "explain" or "say so", but nothing reads the reply.** The only working override is to re-issue the same action (`max_per_fingerprint = 1`). No challenge says so (D2 R1).
 - **The gate's reason can be factually wrong.** After a real failing run it says "no tests were run" (lead A-real). → G1, A10
 
@@ -1408,8 +1408,8 @@ A lint test, `test_core_host_neutral.py`, does an AST scan for Claude tool and a
 | Hot-path latency | Every changing Edit/Write rebuilds the test map in O(tests × files), and the scanner makes about 20 syscalls per file, all under the event lock. **Real Pebble repo (1,410 files): 126 ms per edit, 118 ms per sweep. Synthetic 42k-file monorepo: post-Edit p50 2.6 s, post-Bash 3.7 s, Stop 4.0 s.** The prototype fix gives 25 ms / 462 ms with identical outputs. | R5, R6 |
 | The "88 ms outlier" | Two different things. In the test_s08 loop, the maximum is always the WAL-checkpoint commit (20 of 20 runs, 2.5–6 ms on the M2), and GC is ruled out. In a realistic mix, the tail is the post-Bash and Stop sweeps (p50 47–48 ms, max 126 ms, even on a 355-file repo). | R5, R6, R7 |
 | Storage faults | A transient external write lock (more than 3 s, then a commit) wedges the shared connection permanently. With no rollback, no task is created and challenges disappear until restart; the first event takes 6.3 s. A corrupted DB file leaves no workspace at all, and `doctor` crashes. On a critical disk, the same challenge is raised 5 of 5 times. | R7, R1 |
-| Silent non-guarding | A stale token makes every hook return `{}` while `--health` exits 0. An observe-mode daemon started by one session silences all of them. **`AGENTGUARD_DISABLE=1 claude` does not disable the session** when a daemon is running (it still got `deny`). Task state is lost on restart, with 9 concurrent sessions, or when B sends 8 prompts while A's task is still open. | R9, R10, R14 |
-| Config | One invalid value discards the whole file, so a configured port silently becomes 8787. Typo keys are ignored; `latency.*` and `log_level` are dead. `AGENTGUARD_HOME=""` writes the token into the project dir and chmods it 0700. On Linux, a symlinked home ancestor (Silverblue) makes AgentGuard refuse to run. | R11 |
+| Silent non-guarding | A stale token makes every hook return `{}` while `--health` exits 0. An observe-mode daemon started by one session silences all of them. **`TRUTHSTONE_DISABLE=1 claude` does not disable the session** when a daemon is running (it still got `deny`). Task state is lost on restart, with 9 concurrent sessions, or when B sends 8 prompts while A's task is still open. | R9, R10, R14 |
+| Config | One invalid value discards the whole file, so a configured port silently becomes 8787. Typo keys are ignored; `latency.*` and `log_level` are dead. `TRUTHSTONE_HOME=""` writes the token into the project dir and chmods it 0700. On Linux, a symlinked home ancestor (Silverblue) makes Truthstone refuse to run. | R11 |
 | Odd workspaces | cwd = `~` (205k files): SessionStart blocks 5 s, the build takes 24.6 s and 131 MB, and **each post-Bash sweep takes ~22 s**. Non-git, subdirectory and symlinked workspaces work. Nested repos and submodules are invisible, but raise no false challenge. | R12 |
 | Inputs | One 900 KB command line costs **203 s** in three backtracking regexes, wedging the daemon. Body caps and deep JSON are handled; a non-ASCII auth header returns 500 instead of `{}`. | R13, R16 |
 | Concurrency | Four parallel post-Edit calls on the 42k repo give 3 timeouts at 5 s. Another repo's PreToolUse p99 reaches 342 ms during a build (GIL). The startup race yields exactly one daemon, and SessionEnd races cause no errors. | R5, R6, R15 |
@@ -1423,10 +1423,10 @@ A lint test, `test_core_host_neutral.py`, does an AST scan for Claude tool and a
 
 **Mutation benchmark.**
 - **Precision.** The "100% precision" is **vacuous**. The clean check re-writes each file with its own content, so only new claims are checked and none are extracted (0 claims across 38 files). A fresh-file replay of the same files checks **1,520 claims and finds 0 false positives**. That can replace the vacuous figure.
-- **Recall.** The 98% comes from a self-selected sample: AgentGuard's own "knowable type" predicate picks the sites, then the first 400 are taken in index order. `intent/lexicon.py` alone supplies 63 of the 400. None of the 400 is a method call on an inferred instance type, the SPEC §14 case.
+- **Recall.** The 98% comes from a self-selected sample: Truthstone's own "knowable type" predicate picks the sites, then the first 400 are taken in index order. `intent/lexicon.py` alone supplies 63 of the 400. None of the 400 is a method call on an inferred instance type, the SPEC §14 case.
 
 **Live harness (`bench/`, 0% test coverage).**
-- **The control arm can be guarded.** `--settings` overrides keys but does not remove the global or project-local AgentGuard hooks, and `.claude` survives every reset (`runner.py:30`).
+- **The control arm can be guarded.** `--settings` overrides keys but does not remove the global or project-local Truthstone hooks, and `.claude` survives every reset (`runner.py:30`).
 - **The guarded arm can be silent.** It talks to whatever daemon is running, possibly one in observe mode.
 - **Neither is checked.** There is no pre-flight or post-check.
 - **The run-01 fixes are partial**, and none has a regression test:
@@ -1435,9 +1435,9 @@ A lint test, `test_core_host_neutral.py`, does an AST scan for Claude tool and a
   - a seventh quota no-op went uncounted in run 01;
   - the claim regex ignores negation (`tasks.py:156-157`).
 - **Pairing and statistics are invalid.** Arms are blocked rather than interleaved; denominators are unequal after drops; `summarize` always reports 0 errors and 0 voids; `--output-format text` captures no tokens or turns; the model is neither pinned nor recorded; n = 3.
-- **The scope oracle is circular.** It reuses AgentGuard's own `RepoIndex` definition of "related".
+- **The scope oracle is circular.** It reuses Truthstone's own `RepoIndex` definition of "related".
 
-**Documentation hazard.** `docs/BENCH-final.md:36` documents `bench --repo . … --task …`. `--task` does not exist. Once fixed, the command would run live sessions that `git reset --hard` and `git clean -fdq` the AgentGuard checkout (`runner.py:28-31`).
+**Documentation hazard.** `docs/BENCH-final.md:36` documents `bench --repo . … --task …`. `--task` does not exist. Once fixed, the command would run live sessions that `git reset --hard` and `git clean -fdq` the Truthstone checkout (`runner.py:28-31`).
 
 **Latency suite.** Its "mutating" event extracts 0 claims, at 0.26 ms p95. A realistic Write extracts 11 claims and takes 1.46 ms p95. The refresh after Stop and after Bash (about 104 ms on 1,887 files) is never timed.
 
@@ -1465,12 +1465,12 @@ A lint test, `test_core_host_neutral.py`, does an AST scan for Claude tool and a
 
 **Arms.**
 - **A0, control:** a harness logging hook only.
-- **A1:** AgentGuard fully on.
+- **A1:** Truthstone fully on.
 - **A2, pilot only:** observe-only. It should behave like A0, and it doubles as census data.
 
 **Isolation and order.**
 - One fresh container per session.
-- Pinned model, Claude Code version, AgentGuard commit and budgets.
+- Pinned model, Claude Code version, Truthstone commit and budgets.
 - Seeded random order within each pair.
 - Voids are decided per pair, and a voided pair is re-run.
 
@@ -1510,7 +1510,7 @@ These have no measured evidence yet, so none of them is ranked.
 - **Ending on a question as a loophole.** Agents may learn to end with a "?" to get past G4a. Watch for it in the `would_have` log.
 - **Structured completion claims.** Claims returned via `--json-schema` might change agent behaviour. Validate in the M9 pilot.
 - **`--bare` for both bench arms.** Unknown whether `--settings` hooks still load in bare mode.
-- **Double delivery.** If AgentGuard is installed globally *and* passed with `--settings`, hooks may be delivered twice, double-spending the gate budget.
+- **Double delivery.** If Truthstone is installed globally *and* passed with `--settings`, hooks may be delivered twice, double-spending the gate budget.
 - **The "20 control sessions, 0 hallucinations" figure.** It has no committed raw data (`IMPLEMENTATION_PLAN.md:496-503`, D6), so it cannot be re-checked.
 - **Gating via a completion tool.** On hosts that have one (Cline `attempt_completion`, Gemini `complete_task`), deny it as a stand-in for a Stop hook. Aider would instead need a `--test-cmd` wrapper.
 - **Post-only hosts.** Use a git HEAD or cached-parse baseline as "before" for evidence checks.
@@ -1552,10 +1552,10 @@ These have no measured evidence yet, so none of them is ranked.
 5. **`git push --force-with-lease` to the default branch.** Keep it allowed (pinned at `test_s18:213`), or ask?
 6. **Is Windows a supported platform?** R2 is a 4.00 item if it is.
 7. **Benchmark budget.** API billing or subscription quota? Spending cap? Are blinded human raters available, or should a structured-claim oracle be accepted instead?
-8. **`agentguard replay` (M5)** reads `~/.claude*/projects/**/*.jsonl`. Is a local, aggregate-only default acceptable? This session's permission classifier blocked printing transcript excerpts, so precision labelling would need the user's explicit consent.
+8. **`truthstone replay` (M5)** reads `~/.claude*/projects/**/*.jsonl`. Is a local, aggregate-only default acceptable? This session's permission classifier blocked printing transcript excerpts, so precision labelling would need the user's explicit consent.
 9. **Demote the DIRECT-band proportionality challenge** to recorded-only until it is measured (A4)?
 10. **README and PROGRESS (lead-owned).** README says "100% precision"; as measured, that figure is vacuous (M4). PROGRESS's "Known issues" still lists MODIFY/`defer` as unconfirmed; it is now answered in the negative (A.1).
-11. **Porting Pebble code into AgentGuard.** Candidates are the parsers (G3b), the shell parser (A2), the git classifier (A3) and the requirement ledger (A7). Pebble vendors AgentGuard under Apache-2.0; is the reverse port acceptable to the person who owns both?
+11. **Porting Pebble code into Truthstone.** Candidates are the parsers (G3b), the shell parser (A2), the git classifier (A3) and the requirement ledger (A7). Pebble vendors Truthstone under Apache-2.0; is the reverse port acceptable to the person who owns both?
 12. **MODIFY was decided with the user (plan D2).** Retiring the automatic rewrite in favour of a challenge that shows the guarded form (A5's preferred option) changes that decision. Does the user agree?
 13. **Census week.** Hold it until G1 + G2a land (C1)?
 
@@ -1612,7 +1612,7 @@ Work runs in parallel clusters, each in a `/tmp` copy that exports one patch per
 | A2 | Tokenise before judging (`validate/shell.py`) | done | d8185f4 | Parse p50 41 µs / p95 74 µs. |
 | A10 | Reasons the recipient can act on | done | 10366a2 | — |
 | A8 | Verification-bypass flags (`--no-verify`, `HUSKY=0`, `-DskipTests`, …) | done | 148a2f9 | MEDIUM challenge once; VERIFICATION_TAMPERING. |
-| A9 | Self-protection: switching AgentGuard off or editing its hooks needs sign-off | done | 05388c1 | Raw-target helper shared with `outside_write` at integration. |
+| A9 | Self-protection: switching Truthstone off or editing its hooks needs sign-off | done | 05388c1 | Raw-target helper shared with `outside_write` at integration. |
 | A3 | Effect classifiers on parsed argv | done | 7d2eac7 | New families INFO; dotfile writes need sign-off. |
 | A11 | Secrets in newly written content | done | 90cc014 | Strict formats, new lines only, masked; scan 2.4 ms / 131 KiB. Uses `MUTATING_TOOLS` (host-neutral lint). |
 | A6 | Test tampering | in progress (asks-b) | — | — |
@@ -1629,7 +1629,7 @@ Work runs in parallel clusters, each in a `/tmp` copy that exports one patch per
 | G5-support | `RepoIndex.refresh_delta()` | done | 49b59b5 | — |
 | R7 | SQLite hygiene: rollback on error, 100 ms hot busy timeout, `transaction()`, `record_event_and_decision` | done | 56a3a8c | Engine switch to the single-transaction API in engine-b. |
 | R12 | Refuse to index `$HOME`, `/` or huge non-git trees | done | 95886b9 | SessionStart 5,037→32 ms; post-Bash 19.5 s→0.2 ms on a 205k-file home. |
-| R12-cli | `agentguard index` and `doctor` show the index status | done | 0a96512 | Reporting it in `/health` is in engine-b. |
+| R12-cli | `truthstone index` and `doctor` show the index status | done | 0a96512 | Reporting it in `/health` is in engine-b. |
 | R13 | Linear-time risky-command matching | done | 9112659 | 900 KB line: 203 s → 23–48 ms. |
 | R4 | Refresh the index at session and prompt boundaries | done | 3eec5f3 | D6 E4's Write is now challenged (it used to be allowed). |
 | R1-store | Store never raises at construction; degraded store | done | 739c9ac | In-memory ledger counters (R1-engine) in engine-b. |
@@ -1647,7 +1647,7 @@ Work runs in parallel clusters, each in a `/tmp` copy that exports one patch per
 | R15 | Index builds starving hook threads | measured: not needed | — | After R5: p99 6.1–7.0 ms during back-to-back 42k builds; yielding did not help. No change. |
 | R3 | Missing tree-sitter is visible | done | c04792c, 39989ac | Tests skip without the extra; `doctor` checks it. The README install line is the lead's. |
 | C1 | Census beyond §3 (`EXTENDED_TAXONOMY`), risky commands counted, regression rationale corrected | done | 291f9b8 | The SPEC is untouched (user decision flagged). Taxonomy text for the new gate subjects is in gate-b. |
-| E1 | Evidence-engine false positives: star re-exports, unpacked targets | done | ac4926e | Pebble replay 918 → 87 false positives (2 of the 87 are real); recall unchanged at 97.5%. "Zero false challenges" had only held on AgentGuard's own repo. |
+| E1 | Evidence-engine false positives: star re-exports, unpacked targets | done | ac4926e | Pebble replay 918 → 87 false positives (2 of the 87 are real); recall unchanged at 97.5%. "Zero false challenges" had only held on Truthstone's own repo. |
 | E1b, G16 (repo half), G14-support | Remaining Pebble false positives; same-language test map; removed-name importers | in progress (repo-b) | — | — |
 | M6 | GitHub Actions CI: ubuntu+macOS × py3.12/3.13 × base/all-extras; Windows informational | done | e6abf83 | Not run on GitHub yet (no push). |
 | M8 | Latency tests that prove the timed call did the work | done | 5251466, 558e548 | Sweep budget tightened 2,000 → 300 ms from post-R5 measurements (idle p95 41–68 ms). |
@@ -1665,17 +1665,17 @@ Work runs in parallel clusters, each in a `/tmp` copy that exports one patch per
 
 Everything here was re-run or read by claude-w itself, not taken from a subagent. Each probe drives
 **Claude-Code-shaped payloads** through the real adapter (`translate.to_event` → `Guard.handle` →
-`translate.from_decision`) against a copy of `tests/fixtures/pyrepo`, with a throwaway `AGENTGUARD_HOME`.
+`translate.from_decision`) against a copy of `tests/fixtures/pyrepo`, with a throwaway `TRUTHSTONE_HOME`.
 
 ### A.1 Claude Code's own contract, read from its source (v2.1.92, `/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js`)
 
-| Fact | What the source says | Consequence for AgentGuard |
+| Fact | What the source says | Consequence for Truthstone |
 |---|---|---|
 | Failing Bash calls are a different hook event | Default exit-code interpreter: `isError: code !== 0`. Special cases: grep/rg/find/diff/test/`[` treat exit 1 as success. On error the Bash tool throws `ShellError("", <merged output>, code, interrupted)`. | A failing `pytest`, `jest` or `go test` (exit 1) is a **tool error**, not a normal result. |
 | Tool errors go to `PostToolUseFailure`, not `PostToolUse` | Hook input schema is `{hook_event_name:"PostToolUseFailure", tool_name, tool_input, tool_use_id, error: string, is_interrupt?: bool}`. There is **no `tool_response`**. | `translate.to_event` reads only `tool_response`/`tool_output` (`adapters/claude_code/translate.py:84`), so the event has no result. The installer also never subscribes to this event (`install.py:95-137`; verified by calling `build_hook_config()`: installed = SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionEnd). |
 | The error text carries the output | `error` is `"Exit code {code}\n{interrupt note}\n{stderr}\n{stdout}"`. Above 10,000 chars, the first 5,000 and last 5,000 are kept. | The runner's summary line (at the end) survives truncation. The exit code is the first line. |
-| `permissionDecision: "defer"` drops `updatedInput` | In the PreToolUse hook loop: `if (M.permissionBehavior === "defer") { j = hookSource; continue }`. This runs before `updatedInput` and `additionalContexts` are read. | AgentGuard's MODIFY (`defer` + `updatedInput` + `additionalContext`) loses both the rewrite and its announcement. |
-| `defer` is print-mode only | Interactive mode: *"returned permissionDecision=defer in interactive mode; ignoring (defer is print-mode only)"*. Print mode with a single tool call: the call becomes a `hook_deferred_tool` attachment and the turn is suspended with the tool **not run**. | MODIFY is a silent no-op interactively, and **halts `claude -p` / SDK runs**, including `agentguard bench`. |
+| `permissionDecision: "defer"` drops `updatedInput` | In the PreToolUse hook loop: `if (M.permissionBehavior === "defer") { j = hookSource; continue }`. This runs before `updatedInput` and `additionalContexts` are read. | Truthstone's MODIFY (`defer` + `updatedInput` + `additionalContext`) loses both the rewrite and its announcement. |
+| `defer` is print-mode only | Interactive mode: *"returned permissionDecision=defer in interactive mode; ignoring (defer is print-mode only)"*. Print mode with a single tool call: the call becomes a `hook_deferred_tool` attachment and the turn is suspended with the tool **not run**. | MODIFY is a silent no-op interactively, and **halts `claude -p` / SDK runs**, including `truthstone bench`. |
 | `updatedInput` without a decision is honoured | `if (M.updatedInput && M.permissionBehavior === void 0) yield {type:"hookUpdatedInput"}` → the rewritten input is used and the normal permission flow continues. `"ask"` + `updatedInput` is also honoured. | This is exactly the behaviour MODIFY was designed for. |
 | Codex 0.166.0 (local binary strings) | `"PreToolUse hook returned unsupported permissionDecision:ask"`; `"PreToolUse hook returned updatedInput without permissionDecision:allow"`. | Mapping REQUEST_REVIEW to `ask` on Codex does not escalate anything. See §4.4. |
 
@@ -1720,20 +1720,20 @@ Related code facts, verified by reading:
 |---|---|
 | Human prompts · Bash commands · source edits · test-file edits | 1,821 · 41,087 · 5,127 · 2,026 |
 | Test runs (strict command-position parser) | 2,561 |
-| … that errored (`is_error` → `PostToolUseFailure`, invisible to AgentGuard today) | **281 (11.0%)**. Exit codes: 1 → 205; 137 → 4; 2 → 3; 4 → 2; 127 → 1; no prefix → 66 |
-| … of those 281, how many AgentGuard's parser would call "failed" if it could see them | **73**. 203 → "could not tell", 3 → passed. Exit code has to be the primary signal. |
+| … that errored (`is_error` → `PostToolUseFailure`, invisible to Truthstone today) | **281 (11.0%)**. Exit codes: 1 → 205; 137 → 4; 2 → 3; 4 → 2; 127 → 1; no prefix → 66 |
+| … of those 281, how many Truthstone's parser would call "failed" if it could see them | **73**. 203 → "could not tell", 3 → passed. Exit code has to be the primary signal. |
 | … piped (`\|`), so the exit status is the pipe's and the run is visible | 1,751 (68.4%). 421 of these parse as failed: each is a candidate for probe B's false block once followed by a fix. |
-| Commands AgentGuard's `is_test_command` accepts | 3,633, vs 2,561 by the strict parser. At least 93 of the extra are plain `grep/cat/ls/sed/echo/head/tail/printf/find`. |
+| Commands Truthstone's `is_test_command` accepts | 3,633, vs 2,561 by the strict parser. At least 93 of the extra are plain `grep/cat/ls/sed/echo/head/tail/printf/find`. |
 | Editing turns · turns with no test run · turns with only stale runs | 380 · 202 (53%) · **38 (10%)** |
 | Editing turns whose final message claims tests pass | 105. **39 (37%)** had no fresh passing run in that turn: 27 none, 6 stale, 6 last run failed. Caveat: a subagent's runs live in a separate transcript. |
 | Editing turns ending hedged or with a question · of those, right after a failing last run | 149 · 6 (probe-E blocks) |
 | Test-file edits adding skip/xfail/`.only` · removing assertions | 63 (3.1%) · 50 (2.5%) |
 | Non-final turns where a test was weakened after a failing run **and** the turn then claimed a pass | 3 skip additions + 4 assertion removals. Real but rare. |
-| Destructive git/db/infra commands | ≈ 30 in 41,087 Bash commands. AgentGuard regex: `git clean -f` 9/9 and `git reset --hard` 3/3 flagged; `git checkout --`/`restore` 0/4, `git branch -D` 0/4, `--no-verify` 0/5, `find -delete` 1/21 |
-| `rm -rf "$VAR"` asks AgentGuard would raise | 120. **43** set `VAR=$(mktemp …)` in the same command, so they are certain false positives. |
+| Destructive git/db/infra commands | ≈ 30 in 41,087 Bash commands. Truthstone regex: `git clean -f` 9/9 and `git reset --hard` 3/3 flagged; `git checkout --`/`restore` 0/4, `git branch -D` 0/4, `--no-verify` 0/5, `find -delete` 1/21 |
+| `rm -rf "$VAR"` asks Truthstone would raise | 120. **43** set `VAR=$(mktemp …)` in the same command, so they are certain false positives. |
 | Commands MODIFY would rewrite (each a no-op interactively, a suspended turn in `-p`) · "ask" findings | 81 · 98 |
 | Turns editing ≥ 5 / ≥ 8 / ≥ 17 distinct source files | 128 / 69 / 27 (of 415) |
-| ≥ 8-file turns that AgentGuard's prompt-only assessment rates DIRECT (proportionality challenge fires) | 20 of 69. This is an upper bound, since no index was available. 14 of the 20 had prompts over 200 chars, so these are long specs, not "continue". |
+| ≥ 8-file turns that Truthstone's prompt-only assessment rates DIRECT (proportionality challenge fires) | 20 of 69. This is an upper bound, since no index was available. 14 of the 20 had prompts over 200 chars, so these are long specs, not "continue". |
 | Gate outcomes on 374 editing turns: **today** vs **after G1 + G2a + G4a** (`postfix_gate_rate.py`) | **Today:** 81 VERIFICATION_FAILED blocks, **62 of them false** because the latest run was green. **After the fix:** 5 VERIFICATION_FAILED (latest run failed, not disclosed), 6 silent hand-backs, 37 stale-INCOMPLETE (an upper bound with no AST filter; D1 found comment-only edits behind such cases), 127 PASS. 199 turns with no test run would block only where covering tests exist, which is unknown offline. |
 
 ---
@@ -1756,7 +1756,7 @@ Related code facts, verified by reading:
 ```bash
 cd <worktree> && uv sync
 mkdir -p /tmp/ag-home && printf '[daemon]\nport = 18931\n' > /tmp/ag-home/config.toml
-AGENTGUARD_HOME=/tmp/ag-home PYTHONPATH=src .venv/bin/python /tmp/claude-w-core/lead/gate_scen_AE.py
+TRUTHSTONE_HOME=/tmp/ag-home PYTHONPATH=src .venv/bin/python /tmp/claude-w-core/lead/gate_scen_AE.py
 ```
 
 **Claude source checks** (no network):

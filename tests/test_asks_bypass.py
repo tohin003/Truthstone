@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.census.taxonomy import BY_MODE, NOT_INSTRUMENTED_BECAUSE
-from agentguard.challenge.renderer import OVERRIDE
-from agentguard.core.enums import DecisionAction, EventType, FailureMode, Severity
-from agentguard.core.events import AgentEvent
-from agentguard.validate import checks
 from tests.test_asks_support import Session, make_guard, make_repo, permission, reason
+from truthstone.census.taxonomy import BY_MODE, NOT_INSTRUMENTED_BECAUSE
+from truthstone.challenge.renderer import OVERRIDE
+from truthstone.core.enums import DecisionAction, EventType, FailureMode, Severity
+from truthstone.core.events import AgentEvent
+from truthstone.validate import checks
 
 
 def bash(command: str) -> AgentEvent:

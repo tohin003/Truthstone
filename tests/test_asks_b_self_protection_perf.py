@@ -1,6 +1,6 @@
-"""A9-perf: self-protection works out AgentGuard's own paths once per validation.
+"""A9-perf: self-protection works out Truthstone's own paths once per validation.
 
-`protected_path` recomputed AgentGuard's home (a walk of every ancestor resolving trusted
+`protected_path` recomputed Truthstone's home (a walk of every ancestor resolving trusted
 symlinks), the Codex home and the user's home for every write target. The 900 KB
 "writes" line of `test_asks_linear.py` names `~/.zshrc` 3,449 times: 3,449 root
 computations, 10,347 home walks and 82,793 `lstat`s in one PreToolUse, which flaked its
@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import pytest
 
-from agentguard.core.enums import DecisionAction
-from agentguard.validate import checks
 from tests.test_asks_linear import THROUGH_THE_GUARD
 from tests.test_asks_support import Session, make_guard, make_repo
+from truthstone.core.enums import DecisionAction
+from truthstone.validate import checks
 
 
 @pytest.fixture
@@ -81,8 +81,8 @@ def test_the_same_target_under_another_directory_is_judged_again(session):
 
 def test_protected_path_keeps_its_signature(tmp_path, isolated_home):
     roots = checks.ProtectedRoots.now()
-    for raw in ("~/.agentguard/token", "$AGENTGUARD_HOME/config.toml", str(isolated_home / "token")):
+    for raw in ("~/.truthstone/token", "$TRUTHSTONE_HOME/config.toml", str(isolated_home / "token")):
         alone = checks.protected_path(raw, str(tmp_path))
         assert alone == checks.protected_path(raw, str(tmp_path), roots=roots)
-        assert alone == "AgentGuard's own configuration and state", raw
+        assert alone == "Truthstone's own configuration and state", raw
     assert checks.protected_path("notes.md", str(tmp_path), roots=roots) == ""

@@ -16,11 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import DecisionAction
-from agentguard.core.store import Database
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import DecisionAction
+from truthstone.core.store import Database
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPORT = textwrap.dedent(
@@ -81,7 +81,7 @@ def test_challenge_raised_once_with_writes_disabled(repo, monkeypatch):
 
 
 def test_guards_with_corrupted_database(isolated_home, repo):
-    path = isolated_home / "agentguard.db"
+    path = isolated_home / "truthstone.db"
     path.write_bytes(b"this is not a sqlite database" * 200)
     os.chmod(path, 0o600)
 
