@@ -110,6 +110,21 @@ def test_the_registered_extended_screen_runs_the_skill_free_observe_arm_on_today
     assert plan.truthstone_ref == pilot.truthstone_ref and plan.seed == pilot.seed
 
 
+def test_the_registered_candidate_screen_runs_its_8_tasks_on_the_dedicated_account_first():
+    plan = Plan.load(suite.BENCH_ROOT / "plans" / "golden-cand-sol-screen1.json")
+    assert plan.suite == "golden-candidates" and plan.arms == ["observe"] and plan.skill_free_observe
+    assert plan.accounts == ["p", "main"] and plan.account_policy().preference == ("p", "main")
+    assert len(plan.tasks) == 8 and len(plan.pairs()) == 48
+    tasks = suite.load_suite(suite="golden-candidates", only=plan.tasks)
+    assert plan.suite_digest == suite.suite_digest(tasks)  # later candidates never touch it
+    screen = Plan.load(suite.BENCH_ROOT / "plans" / "golden-dev-sol-screen2.json")
+    assert (plan.model, plan.effort, plan.truthstone_ref) == (
+        screen.model,
+        screen.effort,
+        screen.truthstone_ref,
+    )
+
+
 def test_a_plan_pins_its_suite_and_node_in_the_digest():
     base = dict(name="x", stage="pilot", seed=1, tasks=["t"], phrasings=["canonical"], replicates=[0])
     plain = Plan(**base)

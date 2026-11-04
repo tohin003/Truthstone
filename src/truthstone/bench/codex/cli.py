@@ -888,9 +888,15 @@ def read_allowance(codex_bin: str, account: str | None = None) -> dict | None:
             "USER": os.environ.get("USER", "dev"),
             "LANG": "en_US.UTF-8",
         }
-        with appserver.AppServer(codex_bin, env) as server:
-            return appserver.plan_type_and_windows(server.rate_limits())
-    except (appserver.AppServerError, homes.IsolationError) as exc:
+        for attempt in range(3):  # a slow app-server answer is not a missing account
+            try:
+                with appserver.AppServer(codex_bin, env) as server:
+                    return appserver.plan_type_and_windows(server.rate_limits())
+            except appserver.AppServerError as exc:
+                print(f"could not read usage windows{f' of {account}' if account else ''}: {exc}")
+                time.sleep(2 * (attempt + 1))
+        return None
+    except homes.IsolationError as exc:
         print(f"could not read usage windows: {exc}")
         return None
     finally:

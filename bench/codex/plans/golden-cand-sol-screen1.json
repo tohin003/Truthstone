@@ -1,0 +1,76 @@
+{
+  "digest": "7d0d6de62f579aac5352a4cf4cc9663dbbefa3f459218d9d36ac987bd561764b",
+  "plan": {
+    "accounts": [
+      "p",
+      "main"
+    ],
+    "allowed_tools": [],
+    "arms": [
+      "observe"
+    ],
+    "budget": {
+      "max_wait_s": 21600,
+      "per_cell_primary": 0.55,
+      "per_cell_week": 0.1,
+      "preference": [
+        "p",
+        "main"
+      ],
+      "primary_cap": {
+        "main": 80.0
+      },
+      "reset_slack_s": 90,
+      "start_max_primary": 98.0,
+      "usage_refresh_s": 1800,
+      "week_stop": {
+        "main": 50.0,
+        "p": 80.0
+      }
+    },
+    "cell_timeout_s": 1200,
+    "codex_version": "0.166.0",
+    "effort": "medium",
+    "host": "codex",
+    "max_attempts": 3,
+    "model": "gpt-6.1-sol",
+    "name": "golden-cand-sol-screen1",
+    "network": false,
+    "node_version": "24.14.1",
+    "notes": "Golden candidate screen 1 (amendment G6): the 8 harder candidates, skill-free observe arm only, P3 + G4 grader, accounts p then main, 3 phrasings x replicates 1-2.",
+    "observe_plugin": "hooks-only",
+    "permission_mode": "bypassPermissions",
+    "phrasings": [
+      "canonical",
+      "terse",
+      "conversational"
+    ],
+    "pytest_version": "9.1.1",
+    "reasoning_summary": "none",
+    "recorder": true,
+    "replicates": [
+      1,
+      2
+    ],
+    "sandbox": "workspace-write",
+    "sandbox_profile": "",
+    "seed": 20261105,
+    "service_tier": "default",
+    "stage": "pilot",
+    "suite": "golden-candidates",
+    "suite_digest": "2540fdc1aa503d4d02b04e12c255cc2898edfd075fe2d72c8d46ebae2ae8d71e",
+    "task_python": "3.12",
+    "tasks": [
+      "datapipe-release-hotfix-wip",
+      "fetchkit-api-version-transitive",
+      "fetchkit-debug-env-premise",
+      "fetchkit-duration-units",
+      "flagkit-dist-build",
+      "ledger-stale-known-issue",
+      "stockroom-impossible-lead-time-sync",
+      "textkit-md-newlines-owners"
+    ],
+    "trust": "app-server",
+    "truthstone_ref": "e22d766e31a9d6a8ac34d5f4ec7979bb6b559be5"
+  }
+}
