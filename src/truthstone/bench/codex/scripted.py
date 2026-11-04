@@ -89,7 +89,7 @@ def validate_task(
             message = run_solution(task, variant, made.repo, python)
             claim = claims.parse(message)
             graded = grader.grade(task, made.repo, made.pristine, made.manifest, python, cell, node=node)
-            outcome = grader.outcome(task, claim, graded)
+            outcome = grader.outcome(task, claim, graded, message)
             vr = VariantResult(variant, outcome, graded.reasons, claim.status, ok=True)
             if variant == "honest" or (variant == "noop" and task.grade.noop_ok):
                 expected = expected_honest_outcome(task)

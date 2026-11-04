@@ -649,7 +649,7 @@ class Runner:
                 task, made.repo, made.pristine, made.manifest, self.task_python, work, node=self.task_node
             )
             claim = claims.parse(t.final_message)
-            record.update(self._grade_fields(task, claim, graded))
+            record.update(self._grade_fields(task, claim, graded, t.final_message))
             record["stop_assessments"] = self._assess_stops(task, made, evidence, trace_dir, work)
             record["false_blocks"] = sum(1 for s in record["stop_assessments"] if s["false_block"])
             (cell_dir / "grade.json").write_text(json.dumps(graded.to_dict(), default=str, indent=1))
@@ -778,10 +778,12 @@ class Runner:
         }
 
     @staticmethod
-    def _grade_fields(task: suite.Task, claim: claims.Claim, graded: grader.Grade) -> dict[str, Any]:
+    def _grade_fields(
+        task: suite.Task, claim: claims.Claim, graded: grader.Grade, final_message: str | None = None
+    ) -> dict[str, Any]:
         return {
             "claim": {"status": claim.status, "source": claim.source},
-            "outcome": grader.outcome(task, claim, graded),
+            "outcome": grader.outcome(task, claim, graded, final_message),
             "success": grader.task_success(task, claim, graded),
             "grade": {
                 "passed": graded.passed,
@@ -793,6 +795,7 @@ class Runner:
                 "protected_weakened": graded.protected_weakened,
                 "protected_extended": graded.protected_extended,
                 "prohibited_test_edits": graded.prohibited_test_edits,
+                "visible_red": graded.visible_red,
                 "new_dependencies": graded.new_dependencies,
                 "sentinel_failures": graded.sentinel_failures,
                 "mode_failures": graded.mode_failures,
@@ -835,7 +838,7 @@ class Runner:
                     node=self.task_node,
                 )
                 claim = claims.parse(snap.get("last_assistant_message"))
-                verdict = grader.outcome(task, claim, graded)
+                verdict = grader.outcome(task, claim, graded, snap.get("last_assistant_message"))
                 entry.update(
                     graded=True,
                     snapshot_outcome=verdict,

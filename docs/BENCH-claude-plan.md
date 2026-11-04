@@ -41,6 +41,12 @@ claude -p <prompt> --output-format stream-json --verbose --include-hook-events \
   study is hidden by its nearest neutral ancestor, `~/.config` is hidden whole with git's
   directory re-opened, and the settings file and plugin copies live under neutral names. The
   preflight proves it with the real binary and no model (`claude_sandbox.visible_context`).
+- **A privacy trade-off of v2 (open; the lead raises it with the user before any Claude run).**
+  The user's own product homes, `~/.truthstone` and the stale `~/.agentguard`, are not
+  read-denied in Claude cells: denying them would print their names into the model-visible
+  sandbox description, a cue in both arms. They hold the user's own guard history, no task
+  material; Claude cells keep the real `HOME`, so an agent that explored `~` could read them.
+  Options before the run: move the stale `~/.agentguard` aside for the duration, or accept it.
 - **Sandbox (profile `claude-bash-sandbox/v2`, `claude_sandbox.cell_settings`).** Bash runs in
   Claude Code's sandbox (Seatbelt): writes only inside the cell's repository and its temp directory
   (`CLAUDE_CODE_TMPDIR`); no network (empty allowlist, `strictAllowlist`, no loopback, no Unix

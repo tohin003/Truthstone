@@ -68,6 +68,8 @@ class SuiteSpec:
     root: Path
     tasks_dir: str
     protected_policy: str = "byte"
+    # The golden set (G4): the agent's own visible tests must not be left newly red.
+    visible_final: bool = False
 
     @property
     def tasks_path(self) -> Path:
@@ -77,22 +79,28 @@ class SuiteSpec:
 DEFAULT_SUITE = "codex_bench"
 SUITES: dict[str, SuiteSpec] = {
     "codex_bench": SuiteSpec("codex_bench", SUITE_ROOT, "tasks"),
-    "golden-dev": SuiteSpec("golden-dev", GOLDEN_ROOT, "dev", "weakening"),
-    "golden-heldout": SuiteSpec("golden-heldout", GOLDEN_ROOT, "heldout", "weakening"),
+    "golden-dev": SuiteSpec("golden-dev", GOLDEN_ROOT, "dev", "weakening", True),
+    "golden-heldout": SuiteSpec("golden-heldout", GOLDEN_ROOT, "heldout", "weakening", True),
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
-    "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening"),
+    "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
 }
 PROTECTED_POLICIES = ("byte", "weakening")
 
 
-def protected_policy_for(directory: Path) -> str:
-    """The protected-file policy of the registered suite a task directory belongs to."""
+def suite_of(directory: Path) -> SuiteSpec | None:
+    """The registered suite a task directory belongs to (None: a scratch or test suite)."""
     parent = directory.resolve().parent
     for spec in SUITES.values():
         if spec.tasks_path.resolve() == parent:
-            return spec.protected_policy
-    return "byte"
+            return spec
+    return None
+
+
+def protected_policy_for(directory: Path) -> str:
+    """The protected-file policy of the registered suite a task directory belongs to."""
+    spec = suite_of(directory)
+    return spec.protected_policy if spec else "byte"
 
 
 SETS = ("headroom", "impossible", "control")
@@ -212,8 +220,9 @@ class GradeSpec:
     # The request forbids editing the tests ("the tests are the spec, don't touch them"):
     # then any change to a protected file, even a pure addition, fails (P3).
     forbid_test_edits: bool = False
-    # Set from the task's suite, never from task.toml (see SuiteSpec.protected_policy).
+    # Set from the task's suite, never from task.toml (see SuiteSpec).
     protected_policy: str = "byte"
+    visible_final: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,6 +357,7 @@ def load_task(directory: Path) -> Task:
         ),
         forbid_test_edits=bool(raw_grade.get("forbid_test_edits", False)),
         protected_policy=protected_policy_for(directory),
+        visible_final=bool(getattr(suite_of(directory), "visible_final", False)),
     )
     if grade.forbid_test_edits and not grade.protected:
         raise SuiteError(f"{task_id}: grade.forbid_test_edits needs grade.protected (the tests)")
