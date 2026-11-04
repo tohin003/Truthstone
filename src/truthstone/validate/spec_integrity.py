@@ -537,12 +537,19 @@ def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[s
     return out
 
 
+def _wordy(words: frozenset[str] | set[str]) -> set[str]:
+    """Content words without numbers: a bound that moved ("at most 50%" -> "at most 60%") is the
+    same rule with a new value, so its number must not cost the match (audit of 66e1617, M3)."""
+    return {word for word in words if not any(ch.isdigit() for ch in word)}
+
+
 def _counterpart(sentence: Sentence, markers: frozenset[str], pool: _Pool) -> tuple[str, str]:
     content = _content(sentence.text)
+    words = _wordy(content) or set(content)
     best, best_score = None, 0.0
     for marker in markers:
         for candidate in pool.by_marker.get(marker, ()):
-            score = len(content & _content(candidate.text)) / len(content) if content else 1.0
+            score = len(words & _content(candidate.text)) / len(words) if words else 1.0
             if score > best_score:
                 best, best_score = candidate, score
     if best is None or best_score < KEEP_OVERLAP:

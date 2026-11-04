@@ -626,7 +626,6 @@ def test_rule_moved_into_new_module_under_test_pressure(tmp_path, sessions):
 # -- under real test pressure, a bound the request moves is a requested change (M3) ------------
 
 
-@pytest.mark.xfail(strict=True, reason="66e1617: M3 a changed number counts as a content word in the rule match")
 def test_requested_limit_change_under_test_pressure(tmp_path, sessions):
     session = sessions(invoicer(tmp_path))
     session.prompt(
