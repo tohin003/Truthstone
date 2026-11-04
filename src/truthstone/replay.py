@@ -95,10 +95,17 @@ class CellReplay:
             "notes": self.notes,
             "interventions": [_brief(e) for e in self.interventions],
             "withheld": [
-                {"index": e.index, "event": e.event, "kind": e.withheld} for e in self.events if e.withheld
+                {"index": e.index, "event": e.event, "kind": e.withheld, "text": _withheld_text(e)}
+                for e in self.events
+                if e.withheld
             ],
             "events": [asdict(e) for e in self.events],
         }
+
+
+def _withheld_text(result: EventResult) -> str:
+    marker = next((f for f in result.findings if f["subject"].startswith(profile.WITHHELD)), {})
+    return str(marker.get("detail") or "")[:400]
 
 
 def _brief(result: EventResult) -> dict[str, Any]:
@@ -168,18 +175,23 @@ def _rewrite(value: Any, old: str, new: str) -> Any:
 
 
 @contextlib.contextmanager
-def scratch_home(home: Path, config: Path | None = None) -> Iterator[Path]:
-    """``TRUTHSTONE_HOME`` pointed at ``home`` for the duration, with a fresh database."""
-    from truthstone.core.config import ENV_HOME
+def scratch_home(home: Path, config: Path | None = None, profile_name: str | None = None) -> Iterator[Path]:
+    """``TRUTHSTONE_HOME`` pointed at ``home`` for the duration, with a fresh database, and
+    ``TRUTHSTONE_PROFILE`` set to ``profile_name`` when one is given (else left as it is)."""
+    from truthstone.core.config import ENV_HOME, ENV_PROFILE
     from truthstone.core.store import Database
 
     home.mkdir(parents=True, exist_ok=True, mode=0o700)
     if config is not None:
         shutil.copyfile(config, home / "config.toml")
-    saved = {k: os.environ.get(k) for k in (ENV_HOME, "TRUTHSTONE_OBSERVE", "TRUTHSTONE_DISABLE")}
+    saved = {
+        k: os.environ.get(k) for k in (ENV_HOME, ENV_PROFILE, "TRUTHSTONE_OBSERVE", "TRUTHSTONE_DISABLE")
+    }
     os.environ[ENV_HOME] = str(home)
     for name in ("TRUTHSTONE_OBSERVE", "TRUTHSTONE_DISABLE"):
         os.environ.pop(name, None)
+    if profile_name:
+        os.environ[ENV_PROFILE] = profile_name
     Database.reset_shared()
     try:
         yield home
@@ -228,13 +240,16 @@ def _dispatch(guard: Any, payload: dict[str, Any], adapter: str) -> tuple[dict, 
 
 
 def _finding(f: Any) -> dict[str, Any]:
-    return {
+    out = {
         "subject": f.subject,
         "category": str(f.category),
         "failure_mode": str(f.failure_mode),
         "severity": str(f.severity),
         "summary": f.summary[:300],
     }
+    if f.subject.startswith(profile.WITHHELD):
+        out["detail"] = f.detail  # what the profile held back
+    return out
 
 
 def _result(
@@ -243,7 +258,7 @@ def _result(
     if decision is None:
         return EventResult(index, name, tool, "allow", None, None, None, output)
     perceived = reaches(output)
-    withheld = getattr(decision, "withheld", None)
+    withheld = profile.withheld_kind(decision)
     says = perceived is not None or decision.would_have is not None or withheld
     return EventResult(
         index=index,
@@ -251,7 +266,7 @@ def _result(
         tool=tool,
         action=str(decision.action),
         would_have=str(decision.would_have) if decision.would_have is not None else None,
-        kind=getattr(decision, "kind", None) or (profile.kind_of(decision) if says else None),
+        kind=withheld or (profile.kind_of(decision) if says else None),
         reaches=perceived,
         output=output,
         reason=decision.reason[:2000],
@@ -303,6 +318,7 @@ def replay_cell(
     config: Path | None = None,
     adapter: str = ADAPTER,
     index_timeout: float = 120.0,
+    profile_name: str | None = None,
 ) -> CellReplay:
     """Every recorded event of one cell through this build. Never touches the cell."""
     from truthstone.core.config import Settings
@@ -321,7 +337,7 @@ def replay_cell(
     results: list[EventResult] = []
     try:
         repo = ScratchRepo((work / "repo").resolve(), cell_dir / trace.TRACE / "objects")
-        with scratch_home(work / "home", config), deterministic_sweeps():
+        with scratch_home(work / "home", config, profile_name), deterministic_sweeps():
             settings = Settings.load()
             settings.enabled, settings.observe_only = True, False
             guard = Guard(settings)
@@ -331,8 +347,10 @@ def replay_cell(
                     if not results:  # the first event: the index is built, not raced
                         guard.workspace(repo.root).index.ready(timeout=index_timeout)
                     recorded_cwd = str(event.payload.get("cwd") or "")
-                    payload = _rewrite(event.payload, recorded_cwd, str(repo.root)) if recorded_cwd else dict(
-                        event.payload, cwd=str(repo.root)
+                    payload = (
+                        _rewrite(event.payload, recorded_cwd, str(repo.root))
+                        if recorded_cwd
+                        else dict(event.payload, cwd=str(repo.root))
                     )
                     output, decided, decision = _dispatch(guard, payload, adapter)
                     results.append(_result(event.index, event.event, event.tool, output, decided, decision))
@@ -412,8 +430,15 @@ def summarize(rows: list[tuple[CellOutcome, CellReplay]]) -> dict[str, Any]:
             continue
         group = groups.setdefault(
             outcome.group,
-            {"cells": 0, "cells_with_intervention": 0, "by_kind": Counter(), "cells_by_kind": Counter(),
-             "withheld_by_kind": Counter(), "examples": defaultdict(list)},
+            {
+                "cells": 0,
+                "cells_with_intervention": 0,
+                "by_kind": Counter(),
+                "cells_by_kind": Counter(),
+                "withheld_by_kind": Counter(),
+                "cells_withheld_by_kind": Counter(),
+                "examples": defaultdict(list),
+            },
         )
         group["cells"] += 1
         kinds = [f"{e.event}:{e.reaches}:{e.kind}" for e in replayed.interventions]
@@ -421,12 +446,14 @@ def summarize(rows: list[tuple[CellOutcome, CellReplay]]) -> dict[str, Any]:
             group["cells_with_intervention"] += 1
         group["by_kind"].update(kinds)
         group["cells_by_kind"].update(set(kinds))
-        group["withheld_by_kind"].update(f"{e.event}:{e.withheld}" for e in replayed.events if e.withheld)
+        withheld = [f"{e.event}:{e.withheld}" for e in replayed.events if e.withheld]
+        group["withheld_by_kind"].update(withheld)
+        group["cells_withheld_by_kind"].update(set(withheld))
         for kind in sorted(set(kinds)):
             if len(group["examples"][kind]) < 8:
                 group["examples"][kind].append(outcome.cell_id)
     for group in groups.values():
-        for key in ("by_kind", "cells_by_kind", "withheld_by_kind"):
+        for key in ("by_kind", "cells_by_kind", "withheld_by_kind", "cells_withheld_by_kind"):
             group[key] = dict(sorted(group[key].items()))
         group["examples"] = dict(group["examples"])
     return {"groups": dict(sorted(groups.items())), "unreplayable": unreplayable}
@@ -444,7 +471,8 @@ def render(summary: dict[str, Any]) -> str:
             examples = ", ".join(group["examples"].get(kind, [])[:3])
             lines.append(f"    {kind}: {count} event(s) in {cells} cell(s)  e.g. {examples}")
         for kind, count in group["withheld_by_kind"].items():
-            lines.append(f"    (recorded, not shown) {kind}: {count}")
+            cells = group["cells_withheld_by_kind"][kind]
+            lines.append(f"    withheld (recorded, not shown) {kind}: {count} event(s) in {cells} cell(s)")
     if summary["unreplayable"]:
         lines.append(f"not replayable: {len(summary['unreplayable'])} cell(s)")
         for item in summary["unreplayable"][:10]:
@@ -458,18 +486,27 @@ def replay_corpus(
     config: Path | None = None,
     adapter: str = ADAPTER,
     jobs: int = 1,
+    profile_name: str | None = None,
 ) -> list[tuple[CellOutcome, CellReplay]]:
     cells = [cell for run_dir in run_dirs for cell in outcomes(run_dir, exclude)]
     if jobs <= 1:
-        return [(cell, replay_cell(cell.cell_dir, config=config, adapter=adapter)) for cell in cells]
+        return [
+            (cell, replay_cell(cell.cell_dir, config=config, adapter=adapter, profile_name=profile_name))
+            for cell in cells
+        ]
     import multiprocessing
 
     context = multiprocessing.get_context("spawn")  # each worker owns its environment
     with context.Pool(jobs) as pool:
-        work = [(str(c.cell_dir), str(config or ""), adapter) for c in cells]
+        work = [(str(c.cell_dir), str(config or ""), adapter, profile_name or "") for c in cells]
         replayed = pool.starmap(_replay_in_worker, work)
     return list(zip(cells, replayed, strict=True))
 
 
-def _replay_in_worker(cell_dir: str, config: str, adapter: str) -> CellReplay:
-    return replay_cell(Path(cell_dir), config=Path(config) if config else None, adapter=adapter)
+def _replay_in_worker(cell_dir: str, config: str, adapter: str, profile_name: str) -> CellReplay:
+    return replay_cell(
+        Path(cell_dir),
+        config=Path(config) if config else None,
+        adapter=adapter,
+        profile_name=profile_name or None,
+    )

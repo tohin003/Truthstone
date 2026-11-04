@@ -18,7 +18,7 @@ import secrets
 import stat
 import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 
@@ -29,6 +29,7 @@ from truthstone.daemon import private_paths
 ENV_DISABLE = "TRUTHSTONE_DISABLE"
 ENV_HOME = "TRUTHSTONE_HOME"
 ENV_OBSERVE = "TRUTHSTONE_OBSERVE"
+ENV_PROFILE = "TRUTHSTONE_PROFILE"
 PRIVATE_DIR_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
 
@@ -192,6 +193,17 @@ def is_observe_only() -> bool:
     return _flag(ENV_OBSERVE)
 
 
+def profile_override() -> Literal["minimal", "full"] | None:
+    """``TRUTHSTONE_PROFILE``, when it names a profile: it wins over config.toml, as
+    ``TRUTHSTONE_OBSERVE`` does (a harness or a test pins one without writing a file)."""
+    value = (names.env(ENV_PROFILE) or "").strip().lower()
+    if value == "minimal":
+        return "minimal"
+    if value == "full":
+        return "full"
+    return None
+
+
 def token_path() -> Path:
     return truthstone_home() / "token"
 
@@ -344,6 +356,19 @@ class ChallengeSettings(BaseModel):
         return normalized
 
 
+class NotesSettings(BaseModel):
+    """Context Truthstone may add on its own initiative (M9, silence by default).
+
+    The planning note (complexity, grounding, a proportional approach) went with every
+    prompt. Its value for current agents is unmeasured and its misfires are recorded (it
+    pointed agents at the protected tests and flagged the method they were asked to build),
+    so it is off unless turned on here. The minimal profile (`core/profile.py`) still decides
+    what reaches the agent; this only lets the planning note be one of those things.
+    """
+
+    planning: bool = False
+
+
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 # Keys that used to exist. Reported like any unknown key, with the reason it is ignored.
@@ -359,6 +384,10 @@ class Settings(BaseModel):
     # recorded; the agent hears none of it (see `core/observe.py`). Off by default —
     # while it is on, Truthstone provides no protection at all.
     observe_only: bool = False
+    # What may reach the agent (core/profile.py, verify/arbiter.py): "minimal" lets only the
+    # sanctioned interventions speak and records everything else; "full" lets every check speak.
+    # TRUTHSTONE_PROFILE overrides it (`profile_override`), here and in `load`.
+    profile: Literal["minimal", "full"] = Field(default_factory=lambda: profile_override() or "minimal")
     # Level for Truthstone's own loggers ("truthstone.*"), applied by `configure_logging`
     # in the daemon, whose stderr is daemon.log. WARNING is what was effectively
     # printed before the setting did anything; DEBUG adds e.g. missing-grammar notes.
@@ -368,6 +397,7 @@ class Settings(BaseModel):
     challenge: ChallengeSettings = Field(default_factory=ChallengeSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     disk: DiskSettings = Field(default_factory=DiskSettings)
+    notes: NotesSettings = Field(default_factory=NotesSettings)
     _config_warnings: list[str] = PrivateAttr(default_factory=list)
     _unknown_keys: list[str] = PrivateAttr(default_factory=list)
     _daemon_config_error: str | None = PrivateAttr(default=None)
@@ -444,6 +474,9 @@ class Settings(BaseModel):
             settings.enabled = False
         if is_observe_only():
             settings.observe_only = True
+        override = profile_override()
+        if override is not None:
+            settings.profile = override
         return settings
 
     @classmethod
