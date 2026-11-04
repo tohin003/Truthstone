@@ -44,10 +44,27 @@ from agentguard.core.config import (
 )
 from agentguard.core.engine import Guard
 from agentguard.core.metrics import METRICS
+from agentguard.daemon import degraded
 from agentguard.daemon.lifecycle import handshake_lock_path, interprocess_lock
 
 log = logging.getLogger(__name__)
 
+# R9: rejected hook requests are counted over this window and reported by /health.
+AUTH_FAILURE_WINDOW_S = 600.0
+# Degradation messages are keyed on by the command hooks (once per session per reason),
+# so they never embed counts or times; those go in `degraded_detail`.
+AUTH_FAILURES_REASON = (
+    "hook requests with a missing or wrong token were rejected in the last 10 minutes, so "
+    "whatever sent them is not being guarded. If that is a Claude Code session installed "
+    "through settings hooks, its token is stale: re-run `agentguard install claude` and "
+    "restart that session."
+)
+OBSERVE_ONLY_REASON = (
+    "the daemon is in observe-only mode: it records findings but says nothing, so no session "
+    "is guarded (`agentguard observe off`, then restart the daemon)."
+)
+STORE_REASON = "its storage is degraded, so what it sees may not be recorded: {reason}"
+ADAPTER_REASON = "the {name} adapter could not be loaded, so that host's hooks are not judged ({error})."
 MAX_HOOK_BODY_BYTES = 1_000_000
 MAX_HEALTH_BODY_BYTES = 64_000
 
@@ -190,11 +207,62 @@ def _health_reports(hs: dict[str, Any], pid: int) -> bool:
             conn.close()
 
 
+def _store_reasons(guard: Guard) -> list[str]:
+    """What the stores say about themselves (``degraded_reason``), when they say anything.
+
+    Read defensively: the attribute may not exist yet, may be a property or a method, and
+    the workspace table may change while it is read. None of that may break ``/health``.
+    """
+    found: list[str] = []
+    try:
+        workspaces = list(dict(getattr(guard, "_workspaces", {}) or {}).values())
+    except Exception:  # noqa: BLE001 - changed while copied: report nothing this time
+        return found
+    for ws in workspaces:
+        store = getattr(ws, "store", None)
+        for holder in (store, getattr(store, "db", None)):
+            try:
+                reason = getattr(holder, "degraded_reason", None)
+                if callable(reason):
+                    reason = reason()
+            except Exception:  # noqa: BLE001 - a store that cannot say is not a new reason
+                continue
+            if isinstance(reason, str) and reason.strip() and reason.strip() not in found:
+                found.append(reason.strip())
+    return found
+
+
+def degradation(app: FastAPI) -> list[degraded.Reason]:
+    """Every reason this daemon is guarding less than it seems (R9)."""
+    found: list[degraded.Reason] = []
+    rejected = app.state.auth_failures.count()
+    if rejected:
+        detail = {
+            "count": rejected,
+            "window_s": int(AUTH_FAILURE_WINDOW_S),
+            "last_s_ago": app.state.auth_failures.seconds_since_last(),
+        }
+        found.append(degraded.Reason("auth_failures", AUTH_FAILURES_REASON, detail=detail))
+    if app.state.guard.settings.observe_only:
+        found.append(degraded.Reason("observe_only", OBSERVE_ONLY_REASON, since=app.state.started_at))
+    for index, reason in enumerate(_store_reasons(app.state.guard)):
+        code = "store" if index == 0 else f"store-{index + 1}"
+        found.append(degraded.Reason(code, STORE_REASON.format(reason=reason[:200])))
+    for name, error in registry.load_errors().items():
+        found.append(degraded.Reason(f"adapter-{name}", ADAPTER_REASON.format(name=name, error=error)))
+    found.extend(degraded.reasons())
+    return found
+
+
 def create_app(token: str, settings: Settings | None = None, guard: Guard | None = None) -> FastAPI:
     app = FastAPI(title="AgentGuard", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.token = token
     app.state.guard = guard or Guard(settings)
     app.state.started_at = time.time()
+    # Hook requests refused for their token. Each still gets the fail-open "{}", which is
+    # exactly why they must be counted: a stale token is otherwise indistinguishable from
+    # a quiet, healthy session (R9).
+    app.state.auth_failures = degraded.RecentEvents(AUTH_FAILURE_WINDOW_S)
 
     def _authorized(authorization: str | None) -> bool:
         """Constant-time comparison of the bearer header, on bytes (R16).
@@ -220,6 +288,14 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
+        try:
+            reasons = degradation(app)
+        except Exception:
+            # /health is the liveness probe: it must answer, or a client revives a second
+            # daemon. Say that the check itself failed rather than claim all is well.
+            log.exception("agentguard: degradation check failed")
+            unknown = "the daemon could not check its own state; see daemon.log"
+            reasons = [degraded.Reason("health_check", unknown)]
         return {
             "status": "ok",
             "pid": os.getpid(),
@@ -234,6 +310,11 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
             # "no opinion" forever, so clients check this before trusting the silence.
             # Only adapters that actually load are listed.
             "adapters": registry.available(),
+            # Fail open, but never silently (R9): why this daemon is guarding less than it
+            # seems. `degraded` holds one stable message per reason (the command hooks show
+            # each once per session); `degraded_detail` adds a stable `code` and counts.
+            "degraded": [reason.message for reason in reasons],
+            "degraded_detail": [reason.as_json() for reason in reasons],
         }
 
     @app.get("/metrics")
@@ -253,8 +334,14 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
         try:
             _check_auth(authorization)
         except HTTPException:
-            # Even an auth failure fails open: log it, decide nothing.
-            log.warning("agentguard: rejected unauthenticated hook request")
+            # Even an auth failure fails open: decide nothing. But count it, because the
+            # host cannot tell this "{}" from a healthy one (R9); /health reports it.
+            if app.state.auth_failures.note() == 1:
+                log.warning(
+                    "agentguard: rejected a hook request with a missing or wrong token "
+                    "(further rejections within %d minutes are counted in /health, not logged)",
+                    int(AUTH_FAILURE_WINDOW_S // 60),
+                )
             return JSONResponse({}, status_code=200)
 
         adapter = registry.get(adapter_name)

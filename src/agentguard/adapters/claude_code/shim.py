@@ -355,17 +355,43 @@ def daemon_notices(body: dict, mode: str) -> list[tuple[str, str]]:
                 "restart the daemon).",
             )
         )
-    degraded = body.get("degraded")
-    if isinstance(degraded, list):
-        import zlib
+    import zlib
 
-        for reason in degraded[:5]:
-            if isinstance(reason, str) and reason.strip():
-                # A stable key per reason (``hash()`` is randomised per process, which
-                # would re-raise the same notice on every prompt).
-                kind = f"degraded-{zlib.crc32(reason.strip().encode('utf-8')):08x}"
-                notices.append((kind, f"AgentGuard: {reason.strip()}"))
+    for key, reason in _degraded_reasons(body)[:MAX_DEGRADED_NOTICES]:
+        # A stable key per reason (``hash()`` is randomised per process, which would
+        # re-raise the same notice on every prompt). The daemon's ``code`` when it sends
+        # one, so a reworded or re-counted message is still the same notice.
+        kind = f"degraded-{zlib.crc32(key.encode('utf-8')):08x}"
+        notices.append((kind, f"AgentGuard: {reason}"))
     return notices
+
+
+# Degradation codes the notices above already cover, with this session's own mode taken
+# into account (an observe-mode session asked for silence).
+_COVERED_CODES = frozenset({"observe_only"})
+MAX_DEGRADED_NOTICES = 5
+
+
+def _degraded_reasons(body: dict) -> list[tuple[str, str]]:
+    """``[(key, message)]`` from ``/health``: ``degraded_detail`` (code + message) when the
+    daemon sends it, else the plain ``degraded`` messages of an older daemon."""
+    detail = body.get("degraded_detail")
+    if isinstance(detail, list) and detail:
+        found = []
+        for item in detail:
+            if not isinstance(item, dict):
+                continue
+            code, message = item.get("code"), item.get("message")
+            if not (isinstance(code, str) and code.strip() and isinstance(message, str) and message.strip()):
+                continue
+            if code.strip() not in _COVERED_CODES:
+                found.append((code.strip(), message.strip()))
+        return found
+    degraded = body.get("degraded")
+    if not isinstance(degraded, list):
+        return []
+    plain = [reason.strip() for reason in degraded if isinstance(reason, str) and reason.strip()]
+    return [(reason, reason) for reason in plain]
 
 
 def pending_notices(body: dict, session_id: str, mode: str) -> list[str]:
