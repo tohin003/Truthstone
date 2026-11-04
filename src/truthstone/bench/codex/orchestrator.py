@@ -49,8 +49,11 @@ class PairState:
     last_attempt: int = 0
 
 
-def pair_states(records: list[dict], max_attempts: int) -> dict[str, PairState]:
+def pair_states(records: list[dict], max_attempts: int, arms: int = 2) -> dict[str, PairState]:
+    """Per pair: complete when all ``arms`` cells of one attempt are valid (2 for a paired
+    plan, 1 for an observe-only screening plan)."""
     states: dict[str, PairState] = {}
+    needed = arms
     by_attempt: dict[tuple[str, int], list[dict]] = {}
     for record in records:
         if record.get("kind") == "pair_excluded":
@@ -62,8 +65,8 @@ def pair_states(records: list[dict], max_attempts: int) -> dict[str, PairState]:
     for (pair_id, attempt), cells in sorted(by_attempt.items()):
         state = states.setdefault(pair_id, PairState())
         state.last_attempt = max(state.last_attempt, attempt)
-        arms = {c["arm"]: c for c in cells}
-        if len(arms) == 2 and all(c["status"] == "valid" for c in arms.values()):
+        by_arm = {c["arm"]: c for c in cells}
+        if len(by_arm) == needed and all(c["status"] == "valid" for c in by_arm.values()):
             state.complete = True
         elif not all(c.get("void_reason") == "usage_limit" for c in cells if c["status"] != "valid"):
             state.attempts += 1
@@ -71,6 +74,20 @@ def pair_states(records: list[dict], max_attempts: int) -> dict[str, PairState]:
         if not state.complete and state.attempts >= max_attempts:
             state.excluded = True
     return states
+
+
+def screened_cells(records: list[dict]) -> list[dict]:
+    """Observe-only screening: each pair's first valid observe cell."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for record in sorted(
+        (r for r in records if r.get("kind") == "cell" and r["status"] == "valid" and r["arm"] == "observe"),
+        key=lambda r: (r["pair_id"], r["attempt"]),
+    ):
+        if record["pair_id"] not in seen:
+            seen.add(record["pair_id"])
+            out.append(record)
+    return out
 
 
 def complete_pairs(records: list[dict]) -> list[tuple[dict, dict]]:
@@ -260,7 +277,8 @@ class Runner:
     def run(self, max_pairs: int | None = None) -> dict[str, Any]:
         self.bind()
         records = load_records(self.cells_path)
-        states = pair_states(records, self.plan.max_attempts)
+        arms = len(self.plan.arms)
+        states = pair_states(records, self.plan.max_attempts, arms)
         queue = [
             entry
             for entry in self.plan.schedule()
@@ -274,7 +292,7 @@ class Runner:
             return {"pairs_run": 0, "stopped": "nothing to do"}
         self.setup_arms()
         try:
-            self._check_allowance(2 * (len(queue) if max_pairs is None else min(max_pairs, len(queue))))
+            self._check_allowance(arms * (len(queue) if max_pairs is None else min(max_pairs, len(queue))))
             self.manipulation_checks()
             while queue and (max_pairs is None or done_pairs < max_pairs):
                 pair, order = queue[0]
@@ -325,7 +343,7 @@ class Runner:
                 state.last_attempt = attempt
                 if any(c["status"] == "valid" for c in cells):
                     self.consecutive_limit_voids = 0
-                if len(cells) == 2 and all(c["status"] == "valid" for c in cells):
+                if len(cells) == arms and all(c["status"] == "valid" for c in cells):
                     state.complete = True
                     self.consecutive_voids = 0
                     done_pairs += 1

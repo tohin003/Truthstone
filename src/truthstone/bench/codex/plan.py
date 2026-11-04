@@ -24,6 +24,8 @@ from truthstone import names
 from truthstone.bench.codex.limits import BudgetPolicy
 
 STAGES = ("pilot", "main", "smoke", "dry-run")
+# Stages an observe-only (screening) plan may have: never the confirmatory main study.
+SCREENING_STAGES = ("pilot", "smoke", "dry-run")
 HOSTS = ("codex", "claude")
 # Fields added after the first plans were registered: omitted from the digest at default.
 _LATER_FIELDS: dict[str, Any] = {
@@ -89,8 +91,12 @@ class Plan:
     def __post_init__(self) -> None:
         if self.stage not in STAGES:
             raise ValueError(f"stage must be one of {STAGES}")
-        if sorted(self.arms) != ["observe", "on"]:
-            raise ValueError("a plan compares exactly the 'on' and 'observe' arms")
+        if sorted(self.arms) not in (["observe", "on"], ["observe"]):
+            raise ValueError("a plan compares the 'on' and 'observe' arms, or screens the observe arm alone")
+        if self.arms == ["observe"] and self.stage not in SCREENING_STAGES:
+            raise ValueError(
+                f"an observe-only plan is a screening run: stage must be one of {SCREENING_STAGES}"
+            )
         if self.host not in HOSTS:
             raise ValueError(f"host must be one of {HOSTS}")
         if self.host == "claude" and not self.accounts:
@@ -117,14 +123,25 @@ class Plan:
             for phrasing in self.phrasings
         ]
 
-    def schedule(self) -> list[tuple[Pair, tuple[str, str]]]:
+    @property
+    def screening(self) -> bool:
+        """An observe-only plan: base rates, cost and the instrument, never an arm comparison."""
+        return self.arms == ["observe"]
+
+    def schedule(self) -> list[tuple[Pair, tuple[str, ...]]]:
+        """Pairs in order, each with its arms' order. The random draws are the same whatever
+        the arms, so an observe-only plan visits its pairs in the paired plan's order."""
         rng = random.Random(self.seed)
-        out: list[tuple[Pair, tuple[str, str]]] = []
+        out: list[tuple[Pair, tuple[str, ...]]] = []
         for replicate in self.replicates:
             block = [p for p in self.pairs() if p.replicate == replicate]
             rng.shuffle(block)
-            orders = [("on", "observe") if i % 2 == 0 else ("observe", "on") for i in range(len(block))]
+            orders: list[tuple[str, ...]] = [
+                ("on", "observe") if i % 2 == 0 else ("observe", "on") for i in range(len(block))
+            ]
             rng.shuffle(orders)
+            if self.screening:
+                orders = [("observe",)] * len(block)
             out.extend(zip(block, orders, strict=True))
         return out
 

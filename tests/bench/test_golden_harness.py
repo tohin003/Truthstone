@@ -487,6 +487,101 @@ def test_cells_record_language_and_recipe(tmp_path):
     assert cell["language"] == "python" and cell["recipe"] == ""
 
 
+# -- observe-only screening plans (the dev pilot), status and detached runs -----------------
+
+
+def _plan_kwargs(**kw):
+    base = dict(
+        name="screen",
+        stage="pilot",
+        seed=11,
+        tasks=["ledger-tax-rounding", "ledger-impossible-cap", "ledger-known-failure"],
+        phrasings=["canonical", "terse"],
+        replicates=[0],
+    )
+    base.update(kw)
+    return base
+
+
+def test_an_observe_only_plan_is_a_screening_pilot_never_a_main_study():
+    screening = Plan(**_plan_kwargs(arms=["observe"]))
+    paired = Plan(**_plan_kwargs())
+    assert screening.screening and not paired.screening
+    assert screening.digest() != paired.digest()
+    # the same pairs in the same order; one arm each
+    assert [p for p, _ in screening.schedule()] == [p for p, _ in paired.schedule()]
+    assert {order for _, order in screening.schedule()} == {("observe",)}
+    assert {order for _, order in paired.schedule()} == {("on", "observe"), ("observe", "on")}
+    with pytest.raises(ValueError, match="screening"):
+        Plan(**_plan_kwargs(arms=["observe"], stage="main"))
+    with pytest.raises(ValueError):
+        Plan(**_plan_kwargs(arms=["on"]))
+
+
+def test_a_screening_run_needs_one_cell_per_pair_and_reports_observe_rates_only(tmp_path, capsys):
+    from truthstone.bench.codex import agents, guards
+
+    tasks = suite.load_suite(only=_plan_kwargs()["tasks"])
+    plan = Plan(
+        **_plan_kwargs(
+            arms=["observe"], stage="dry-run", model="scripted", suite_digest=suite.suite_digest(tasks)
+        )
+    )
+    runner = orchestrator.Runner(
+        plan,
+        {t.id: t for t in tasks},
+        guards.FakeGuard(),
+        agents.ScriptedAgent(agents.dry_run_policy(seed=1, base_fc=1.0), PYTHON),
+        tmp_path / "run",
+        tmp_path / "work",
+        PYTHON,
+        real_codex=False,
+        log=lambda _m: None,
+    )
+    summary = runner.run()
+    cells = [
+        r for r in orchestrator.load_records(tmp_path / "run" / "cells.jsonl") if r.get("kind") == "cell"
+    ]
+    assert summary["pairs_run"] == 6 and len(cells) == 6
+    assert {c["arm"] for c in cells} == {"observe"} and all(c["status"] == "valid" for c in cells)
+    states = orchestrator.pair_states(orchestrator.load_records(tmp_path / "run" / "cells.jsonl"), 3, arms=1)
+    assert all(s.complete for s in states.values())
+    analysis = report.analyze(tmp_path / "run")
+    assert analysis["blind"] and analysis["data_quality"]["complete_pairs"] == 6
+    assert analysis["calibration"]["guarded_harm"] is None
+    assert analysis["pooled_base_rates"]["opportunity"]["cells"] == 4
+    assert "Guarded arm: not run" in report.render_markdown(analysis)
+    # nothing to do on a second run: a screening pair is complete with its one cell
+    assert runner.run()["stopped"] == "nothing to do"
+    cli.main(["status", "--run-dir", str(tmp_path / "run")])
+    out = capsys.readouterr().out
+    assert "pairs complete 6/6" in out and "arms observe" in out and "runner: not running" in out
+
+
+def test_detach_reruns_the_same_command_in_a_new_session(tmp_path, monkeypatch, capsys):
+    started = {}
+
+    class FakePopen:
+        def __init__(self, argv, **kwargs):
+            started.update(argv=argv, **kwargs)
+            self.pid = 424242
+
+    monkeypatch.setattr(cli.subprocess, "Popen", FakePopen)
+    run_dir = tmp_path / "run"
+    args = argparse.Namespace(raw_argv=["run", "--plan", "p.json", "--confirm-live", "--detach"])
+    assert cli._detach(args, run_dir) == 0
+    argv = started["argv"]
+    assert started["start_new_session"] is True
+    assert "--detach" not in argv and argv[argv.index("--run-dir") + 1] == str(run_dir)
+    assert argv[argv.index("-m") + 1] == "truthstone.bench.codex"
+    assert (run_dir / "run.pid").read_text().strip() == "424242"
+    assert "kill -TERM -- -424242" in capsys.readouterr().out
+    monkeypatch.undo()
+    # a pid that is not this harness (reused, or never ours) does not count as a live runner
+    (run_dir / "run.pid").write_text(f"{os.getpid()}\n")
+    assert cli._runner_alive(run_dir / "run.pid") is None
+
+
 # -- the dev review ---------------------------------------------------------------------
 
 

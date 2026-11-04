@@ -74,7 +74,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         for v in result.variants:
             flag = "ok " if v.ok else "BAD"
             detail = (v.problem or ", ".join(v.reasons))[:90]
-            print(f"{flag} {task.id:<34}{v.variant:<8}{v.outcome:<18}{detail}")
+            print(f"{flag} {task.id:<42}{v.variant:<8}{v.outcome:<18}{detail}")
         failures += 0 if result.ok else 1
         rows.append(
             {
@@ -149,6 +149,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         max_attempts=args.max_attempts,
         suite_digest=suite.suite_digest(tasks),
         notes=args.notes or "",
+        arms=ARM_CHOICES[args.arms],
         **common,
         **host_fields,
     )
@@ -159,11 +160,16 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     plan.save(out)
+    unit = "observe-only screening cells" if plan.screening else "cells"
     print(
-        f"plan {plan.name}: {len(plan.pairs())} pairs = {2 * len(plan.pairs())} cells; "
+        f"plan {plan.name}: {len(plan.pairs())} pairs = {len(plan.arms) * len(plan.pairs())} {unit}; "
         f"suite {plan.suite} {plan.suite_digest[:16]}; digest {plan.digest()[:16]}"
     )
     return 0
+
+
+# `--arms`: both arms (the paired study), or the observe arm alone (a screening pilot).
+ARM_CHOICES = {"both": ["on", "observe"], "observe": ["observe"]}
 
 
 # -- wiring a real run ------------------------------------------------------------
@@ -531,12 +537,89 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
     return 0
 
 
+def _runner_alive(pid_path: Path) -> int | None:
+    """The detached runner's pid if that process is still this harness (a pid can be reused)."""
+    try:
+        pid = int(pid_path.read_text().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    proc = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, check=False
+    )
+    return pid if "truthstone.bench.codex" in proc.stdout else None
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    """Progress of a run directory: counts only (no outcomes), the runner, stops and halts."""
+    run_dir = Path(args.run_dir)
+    plan = Plan.load(run_dir / "plan.json")
+    records = orchestrator.load_records(run_dir / "cells.jsonl")
+    cells = [r for r in records if r.get("kind") == "cell"]
+    states = orchestrator.pair_states(records, plan.max_attempts, len(plan.arms))
+    complete = sum(s.complete for s in states.values())
+    excluded = sum(s.excluded for s in states.values())
+    voids: dict[str, int] = {}
+    for c in cells:
+        if c["status"] != "valid":
+            voids[str(c.get("void_reason"))] = voids.get(str(c.get("void_reason")), 0) + 1
+    print(
+        f"{plan.name}: suite {plan.suite}, arms {'+'.join(plan.arms)}, {plan.model}/{plan.effort}, "
+        f"stage {plan.stage}"
+    )
+    print(f"pairs complete {complete}/{len(plan.pairs())}; excluded {excluded}")
+    print(f"cells run {len(cells)}: valid {sum(c['status'] == 'valid' for c in cells)}; voids {voids}")
+    if cells:
+        last = cells[-1]
+        print(f"last cell {last['cell_id']} ({last['status']}) at {time.ctime(last.get('finished_at') or 0)}")
+    alive = _runner_alive(run_dir / "run.pid")
+    print(f"runner: {'running, pid ' + str(alive) if alive else 'not running'}")
+    for name in ("HALTED", "last-session.json", "allowance.json"):
+        path = run_dir / name
+        if path.exists():
+            print(f"{name}: {path.read_text(encoding='utf-8').strip()[:400]}")
+    return 0
+
+
+def _detach(args: argparse.Namespace, run_dir: Path) -> int:
+    """Re-run this exact command in a new session, detached from the terminal.
+
+    The child survives the parent shell and session ending (``start_new_session``; macOS
+    has no ``setsid`` command), keeps the machine awake while it runs (``caffeinate -i``),
+    and writes ``run.log`` and ``run.pid`` in the run directory. Resuming is running the
+    same command again: completed pairs are skipped.
+    """
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pid_path = run_dir / "run.pid"
+    active = _runner_alive(pid_path)
+    if active:
+        print(f"refusing: a runner is already active for {run_dir} (pid {active})")
+        return 2
+    raw = [a for a in getattr(args, "raw_argv", sys.argv[1:]) if a != "--detach"]
+    argv = [sys.executable, "-m", "truthstone.bench.codex", *raw]
+    if "--run-dir" not in raw:
+        argv += ["--run-dir", str(run_dir)]
+    caffeinate = shutil.which("caffeinate")
+    if caffeinate:
+        argv = [caffeinate, "-i", *argv]
+    log = run_dir / "run.log"
+    with log.open("ab") as out, open(os.devnull, "rb") as devnull:
+        child = subprocess.Popen(
+            argv, stdin=devnull, stdout=out, stderr=subprocess.STDOUT, start_new_session=True, cwd=os.getcwd()
+        )
+    pid_path.write_text(f"{child.pid}\n")
+    print(f"detached: pid {child.pid} (stop it with: kill -TERM -- -{child.pid}); log {log}")
+    print(f"watch with: python -m truthstone.bench.codex status --run-dir {run_dir}")
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     if not args.confirm_live:
         print("refusing: a live run spends subscription usage; pass --confirm-live")
         return 2
     plan = Plan.load(Path(args.plan))
     run_dir = Path(args.run_dir) if args.run_dir else RESULTS / plan.name
+    if getattr(args, "detach", False):
+        return _detach(args, run_dir)
     runner = _real_runner(plan, run_dir, args)
     try:
         summary = runner.run(max_pairs=args.max_pairs)
@@ -584,6 +667,7 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
         model="scripted",
         effort="medium",
         suite_digest=suite.suite_digest(tasks),
+        arms=ARM_CHOICES[args.arms],
         **host_fields,
     )
     work_root = Path(args.work_root) if args.work_root else run_dir / "work"
@@ -681,7 +765,7 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
         plan = Plan.load(Path(args.plan))
         run_dir = Path(args.run_dir) if args.run_dir else RESULTS / plan.name
         states = orchestrator.pair_states(
-            orchestrator.load_records(run_dir / "cells.jsonl"), plan.max_attempts
+            orchestrator.load_records(run_dir / "cells.jsonl"), plan.max_attempts, len(plan.arms)
         )
         remaining = sum(
             1
@@ -689,7 +773,7 @@ def _cmd_allowance(args: argparse.Namespace) -> int:
             if not states.get(p.id, orchestrator.PairState()).complete
             and not states.get(p.id, orchestrator.PairState()).excluded
         )
-        verdict = limits.feasibility(reading, 2 * remaining, plan.budget_policy())
+        verdict = limits.feasibility(reading, len(plan.arms) * remaining, plan.budget_policy())
         print(f"plan {plan.name}: {verdict.reason}")
         status = 0 if verdict.ok else 1
     if args.json:
@@ -721,6 +805,15 @@ def _suite_option(p: argparse.ArgumentParser, live: bool = False) -> None:
             if live
             else f"Named task suite (default {suite.DEFAULT_SUITE})."
         ),
+    )
+
+
+def _arms_option(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--arms",
+        choices=list(ARM_CHOICES),
+        default="both",
+        help="both (the paired study) or observe (a screening pilot: base rates, cost, instrument).",
     )
 
 
@@ -797,6 +890,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--codex", default=DEFAULT_CODEX)
     p.add_argument("--notes")
+    _arms_option(p)
     p.add_argument("--out", required=True)
     p.set_defaults(func=_cmd_plan)
 
@@ -822,7 +916,16 @@ def build_parser() -> argparse.ArgumentParser:
             default=None if name == "run" else 2,
             help="Hard cap on live codex exec invocations in this session.",
         )
+        p.add_argument(
+            "--detach",
+            action="store_true",
+            help="Run in a new session (survives the terminal), awake, logging to <run-dir>/run.log.",
+        )
         p.set_defaults(func=_cmd_run)
+
+    p = sub.add_parser("status", help="Progress of a run directory (counts only; no outcomes).")
+    p.add_argument("--run-dir", required=True)
+    p.set_defaults(func=_cmd_status)
 
     p = sub.add_parser("dry-run", help="The whole pipeline with a scripted agent and a fake guard.")
     _suite_option(p)
@@ -837,6 +940,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", action="store_true")
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--host", default="codex", choices=["codex", "claude"])
+    _arms_option(p)
     p.set_defaults(func=_cmd_dry_run)
 
     p = sub.add_parser(
@@ -875,6 +979,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    args.raw_argv = list(sys.argv[1:] if argv is None else argv)  # `run --detach` re-runs exactly this
     return int(args.func(args) or 0)
 
 
