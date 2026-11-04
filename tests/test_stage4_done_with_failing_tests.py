@@ -285,10 +285,8 @@ def test_without_a_baseline_a_claim_they_were_already_failing_is_taken_at_its_wo
 
 
 TOTALS_RED = pytest_output(["tests/test_export.py::test_export_totals"], 35)
-S1 = pytest.mark.xfail(strict=True, reason="stage 4 misfire S1: no baseline, the message's 'not the change's' ignored")
 
 
-@S1
 @pytest.mark.parametrize(
     "message",
     [

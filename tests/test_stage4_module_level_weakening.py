@@ -279,11 +279,8 @@ def test_an_import_of_code_the_session_removed_is_silent(pipe):
     assert_silent(session, out)
 
 
-S2 = pytest.mark.xfail(strict=True, reason="stage 4 misfire S2: an unused import removed")
-S3 = pytest.mark.xfail(strict=True, reason="stage 4 misfire S3: an extended import under M2 only")
 
 
-@S2
 def test_an_unused_import_removed_is_silent(pipe):
     """A linter's cleanup: the import bound nothing the file used."""
     start = TEST_SHEET.replace("import pytest\n", "import pytest\n\nfrom tallypipe import readers\n")
@@ -291,7 +288,6 @@ def test_an_unused_import_removed_is_silent(pipe):
     assert_silent(session, _fix_and_edit(session, PRESSURE, TEST_SHEET + NEW_TEST))
 
 
-@S3
 def test_without_a_request_about_tests_an_extended_import_is_silent(pipe):
     """M2 only: feature work adds its tests to a file that was red before the first change. An
     import that only gained names moves no existing binding; only the request's own yardstick

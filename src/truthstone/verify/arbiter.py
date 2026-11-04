@@ -442,8 +442,9 @@ _CAUSED = "disclosed, but the change made them fail"
 #         them failing);
 #   and, with no run before the first edit that ran those tests (``runners.covers``), the
 #   failing file is the changed module's own test file — the one pairing that needs no
-#   baseline to read as caused — and the message does not say they failed before the change.
-#   With such a baseline, the evidence decides, whatever the message says.
+#   baseline to read as caused — and the message does not put the failure outside the change
+#   (already failing, unrelated, flaky, a known issue, failing on main too: the known-failure
+#   control shape). With such a baseline, the evidence decides, whatever the message says.
 # A disclosure that the tests could not run here (no database, no network) is not this case.
 
 _ENVIRONMENT = re.compile(
@@ -484,9 +485,31 @@ def _caused_by_the_change(
         return False  # (v)
     if any(run.passed is not None and runners.covers(run, failure) for run in before):
         return True  # a baseline that ran these tests, and they did not fail there
-    # No baseline for them: the message's word that they failed before the change stands, and
-    # only the changed module's own test file reads as caused.
-    return not _PREEXISTING.search(text) and _own_test_file(failing, state)
+    # No baseline for them: the message's word that they are not the change's stands, and only
+    # the changed module's own test file reads as caused.
+    return not _not_the_changes(text, failure) and _own_test_file(failing, state)
+
+
+# What a message says to put a failure outside the change: it predates the change, is unrelated
+# to it, is flaky, is a known issue, or fails on the main branch as well. It is taken only where no
+# baseline run says otherwise, and only in a sentence about the failure.
+_NOT_THE_CHANGES = re.compile(
+    r"\bunrelated\b|\bnot\s+related\s+to\b|\bnothing\s+to\s+do\s+with\b"
+    r"|\bindependent(?:ly)?\s+of\s+(?:this|my|the)\s+(?:change|work|task|edit)s?\b"
+    r"|\bflak(?:y|iness)\b|\bintermittent(?:ly)?\b|\bknown\s+(?:failure|issue|bug|problem)\b"
+    r"|\b(?:fail\w*|red|broken)\b[^.!?\n]{0,40}?\bon\s+(?:main|master|trunk|develop|the\s+(?:base|main)\s+branch)\b",
+    re.I,
+)
+_PLAIN_SENTENCES = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def _not_the_changes(text: str, failure: runners.TestOutcome) -> bool:
+    names = [test.rsplit("::", 1)[-1].split("[", 1)[0] for test in failure.failing_tests]
+    for sentence in _PLAIN_SENTENCES.split(text):
+        about = _FAIL_WORD.search(sentence) or any(name and name in sentence for name in names)
+        if about and (_PREEXISTING.search(sentence) or _NOT_THE_CHANGES.search(sentence)):
+            return True
+    return False
 
 
 def _excused(prompt: str, failure: runners.TestOutcome, failing: set[str]) -> bool:
