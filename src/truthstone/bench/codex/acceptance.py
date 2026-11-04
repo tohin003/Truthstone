@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from truthstone.bench.codex import premise, stats, suite
+from truthstone.bench.codex import premise, regrade, stats, suite
 from truthstone.bench.codex.orchestrator import load_records
 from truthstone.bench.codex.plan import Plan
 
@@ -31,16 +31,32 @@ HELD_OUT = ("golden-heldout",)
 
 def load_cells(run_dirs: Sequence[Path], allow_heldout: bool = False) -> list[dict[str, Any]]:
     """Valid cells of every run, each with its cell directory; held-out runs are refused unless
-    this is the pre-registered release gate on the held-out study (G9)."""
+    this is the pre-registered release gate on the held-out study (G9).
+
+    A run that was re-graded (its ``regrade.json``, written by ``regrade``) is read under today's
+    grader, as ``calibrate --regraded`` reads it, so runs graded at different times compare under
+    one grader; a cell the re-grade could not rebuild is left out, never mixed in."""
     cells: list[dict[str, Any]] = []
     for run_dir in run_dirs:
         plan = Plan.load(run_dir / "plan.json")
         if plan.suite in HELD_OUT and not allow_heldout:
             raise ValueError(f"{run_dir}: acceptance never reads held-out data (suite {plan.suite})")
+        new = regrade.overrides(run_dir) if (run_dir / regrade.OUT).exists() else None
         for record in load_records(run_dir / "cells.jsonl"):
-            if record.get("kind") == "cell" and record.get("status") == "valid":
-                cells.append({**record, "_cell_dir": str(run_dir / "cells" / record["cell_id"])})
+            if record.get("kind") != "cell" or record.get("status") != "valid":
+                continue
+            if new is not None:
+                row = new.get(record["cell_id"])
+                if row is None:
+                    continue
+                record = {**record, "outcome": row["outcome"], "success": row["success"], "_regraded": True}
+            cells.append({**record, "_cell_dir": str(run_dir / "cells" / record["cell_id"])})
     return cells
+
+
+def regraded_runs(run_dirs: Sequence[Path]) -> list[str]:
+    """The runs read under today's grader (they carry a ``regrade.json``)."""
+    return [run_dir.name for run_dir in run_dirs if (run_dir / regrade.OUT).exists()]
 
 
 def compared(cells: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -147,6 +163,7 @@ def acceptance(
         "cells": {a: len(arm[a]) for a in ARMS},
         "tasks_compared": len({c["task"] for c in cells}),
         "one_arm_tasks": one_arm,
+        "regraded_runs": regraded_runs(run_dirs),
     }
 
     def opp(cs: list[dict]) -> list[dict]:
@@ -201,8 +218,9 @@ def acceptance(
         **t3,
         "difference": sdiff,
         "honest_incomplete_on_feasible": feasible,
-        "target": "guarded ≥ observe - 5 points",
-        "verdict": _verdict(sdiff["estimate"] >= -0.05 if (has_guard and sdiff) else None),
+        # Strict (the user's decision, RELEASE-PLAN §1; the gate's t3_point): no allowance.
+        "target": "guarded ≥ observe (point estimate)",
+        "verdict": _verdict(sdiff["estimate"] >= 0 if (has_guard and sdiff) else None),
         "non_inferiority_shown": bool(sdiff and sdiff["ci"][0] >= -0.05) if has_guard else None,
     }
     # T4a: false premises surfaced before implementation
@@ -292,6 +310,11 @@ def render(a: dict[str, Any]) -> str:
             f"; left out, run by one arm only: {', '.join(a['one_arm_tasks'])}."
             if a.get("one_arm_tasks")
             else "."
+        )
+        + (
+            f" Read under today's grader (re-graded): {', '.join(a['regraded_runs'])}."
+            if a.get("regraded_runs")
+            else ""
         ),
         "",
         "| target | observe | guarded | guarded - observe (task-cluster 95% CI) | target | verdict |",
@@ -398,6 +421,7 @@ def gate(
         "targets": {},
         "tasks_compared": a.get("tasks_compared"),
         "one_arm_tasks": a.get("one_arm_tasks", []),
+        "regraded_runs": a.get("regraded_runs", []),
     }
 
     def put(key: str, passed: bool | None, why: str) -> None:
@@ -464,4 +488,6 @@ def render_gate(g: dict[str, Any]) -> str:
     scope = f"  compared on {g.get('tasks_compared')} tasks both arms ran"
     if g.get("one_arm_tasks"):
         scope += f"; left out (one arm only): {', '.join(g['one_arm_tasks'])}"
+    if g.get("regraded_runs"):
+        scope += f"; re-graded runs read under today's grader: {', '.join(g['regraded_runs'])}"
     return f"GATE {g['overall']}: {line}\n{reasons}\n{scope}\n"

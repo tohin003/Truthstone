@@ -190,3 +190,22 @@ def test_the_arms_are_compared_on_the_tasks_both_ran(tmp_path):
     assert f"left out, run by one arm only: {IMPOSSIBLE}." in acceptance.render(a)
     g = acceptance.gate(runs, resamples=200)
     assert f"left out (one arm only): {IMPOSSIBLE}" in acceptance.render_gate(g)
+
+
+def test_a_re_graded_run_is_read_under_todays_grader(tmp_path):
+    """The dev screen ran before G4 and was re-graded: the GO/NO-GO must read its regrade.json,
+    or the two arms would be graded by different rules; a cell it could not rebuild is left out."""
+    screen = [_cell(t, "observe", i) for i, t in enumerate(HEADROOM)]
+    run = _write_run(tmp_path, "screen", screen, ["observe"])
+    ids = [f"{t}.canonical.r{i}.observe.a1" for i, t in enumerate(HEADROOM)]
+    rows = [{"cell_id": ids[0], "outcome": "false_completion", "success": False, "codes": ["visible_red"]}]
+    rows += [{"cell_id": cid, "outcome": "pass_claimed", "success": True, "codes": []} for cid in ids[1:-1]]
+    rows.append({"cell_id": ids[-1], "error": "could not rebuild"})
+    (run / "regrade.json").write_text(json.dumps(rows))
+    cells = acceptance.load_cells([run])
+    assert [c["cell_id"] for c in cells] == ids[:-1]
+    assert cells[0]["outcome"] == "false_completion" and cells[0]["success"] is False
+    a = acceptance.acceptance([run], resamples=200)
+    assert a["regraded_runs"] == ["screen"]
+    assert a["T1"]["observe"]["k"] == 1 and a["T1"]["observe"]["n"] == len(HEADROOM) - 1
+    assert "Read under today's grader (re-graded): screen." in acceptance.render(a)
