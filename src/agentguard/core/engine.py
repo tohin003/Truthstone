@@ -17,12 +17,13 @@ import logging
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 
 from agentguard import complexity, intent, planning, validate
 from agentguard.challenge.ledger import ChallengeLedger
-from agentguard.core import observe, shellchanges
+from agentguard.core import observe, rehydrate, shellchanges
 from agentguard.core.config import Settings
 from agentguard.core.enums import DecisionAction, EscalationLevel, EventType
 from agentguard.core.events import SHELL_TOOLS, AgentEvent
@@ -36,6 +37,7 @@ from agentguard.core.metrics import (
 from agentguard.core.models import Decision
 from agentguard.core.store import ProjectStore
 from agentguard.core.taskstate import TaskState
+from agentguard.daemon import degraded
 from agentguard.intent.models import TaskSpec
 from agentguard.repo import symbols_ts
 from agentguard.repo.gitinfo import repository_root
@@ -56,6 +58,28 @@ BOUNDARY_REFRESH_INTERVAL = 30.0
 SHELL_SWEEP_INTERVAL = 2.0
 # Stop's sweep, when no shell change is waiting for one.
 STOP_SWEEP_INTERVAL = 5.0
+
+# The tool arguments that name the file an edit changes. The workspace rebases them, and
+# a rebuilt task reads them back from the stored events (R14).
+PATH_ARGUMENTS = ("file_path", "notebook_path")
+
+# Live tasks kept in memory per workspace, evicted least recently active first — never a
+# session's current task (R14). Past the hard cap, an idle session's current task goes
+# too; it is rebuilt from the store when its session comes back.
+MAX_LIVE_TASKS = 64
+HARD_MAX_LIVE_TASKS = 512
+# Task ids the store does not know (memory-only ids, closed tasks), remembered so a miss
+# does not query the store on every event.
+MAX_UNKNOWN_TASKS = 256
+
+# Reported once per rebuild through the R9 registry, for as long as it matters.
+TASK_REBUILT = "task_rebuilt"
+TASK_REBUILT_REASON = (
+    "a task's state was rebuilt from the store after the daemon restarted or set it aside; "
+    "its edits and test runs are back, but changes made through shell commands, the tests "
+    "that covered a deleted file and the gate's block count could not be recovered."
+)
+TASK_REBUILT_TTL_S = 900.0
 
 
 def memory_task_id() -> str:
@@ -80,9 +104,12 @@ class Workspace:
         # The TaskSpec for the prompt currently being worked on.
         self.current_spec: TaskSpec | None = None
         self.ledger = ChallengeLedger(self.store, settings.challenge)
-        # Live task state: files touched, tests observed, gate budget. In memory only —
-        # a lost task means the next action is judged without history, which is ALLOW.
-        self._tasks: dict[str, TaskState] = {}
+        # Live task state: files touched, tests observed, gate budget. In memory, least
+        # recently active first; a task that is not here but is in the store is rebuilt
+        # from it (R14), and only a task nobody recorded is judged without history.
+        self._tasks: OrderedDict[str, TaskState] = OrderedDict()
+        self._unknown_tasks: OrderedDict[str, None] = OrderedDict()
+        self.tasks_rebuilt = 0
         # Hook requests for one repository may arrive concurrently once the daemon
         # dispatches them away from FastAPI's event loop. State transitions must remain
         # ordered per workspace, while unrelated repositories can still proceed in
@@ -106,32 +133,44 @@ class Workspace:
         if not task_id:
             return None
         state = TaskState(task_id=task_id, spec=spec, session_id=session_id)
-        self._tasks[task_id] = state
-        if session_id:
-            self._session_tasks[session_id] = task_id
-            self._session_task_ids.setdefault(session_id, []).append(task_id)
-            self._task_sessions[task_id] = session_id
-        # Keep a small in-memory window for late-arriving events without allowing task
-        # state to grow forever in a long-lived daemon.
-        if len(self._tasks) > 8:
-            retained = {
-                task_id
-                for task_ids in self._session_task_ids.values()
-                for task_id in task_ids
-            }
-            for stale in list(self._tasks):
-                if len(self._tasks) <= 8:
-                    break
-                if stale not in retained:
-                    self._forget_task(stale)
-            # More than eight concurrent sessions is unusual, but the daemon must stay
-            # bounded even then. Dropping the oldest in-memory state is fail-open; the
-            # persistent task id remains available for attribution after a restart.
-            for stale in list(self._tasks):
-                if len(self._tasks) <= 8:
-                    break
-                self._forget_task(stale)
+        self._adopt(state, current=True)
         return state
+
+    def _adopt(self, state: TaskState, current: bool) -> None:
+        """Make ``state`` live (most recently active), and its session's current task."""
+        task_id, session_id = state.task_id, state.session_id
+        self._tasks[task_id] = state
+        self._tasks.move_to_end(task_id)
+        self._unknown_tasks.pop(task_id, None)
+        if session_id:
+            if current:
+                self._session_tasks[session_id] = task_id
+            owned = self._session_task_ids.setdefault(session_id, [])
+            if task_id not in owned:
+                owned.append(task_id)
+            self._task_sessions[task_id] = session_id
+        self._evict()
+
+    def _evict(self) -> None:
+        """Keep the live window bounded: least recently active first (R14).
+
+        It used to keep eight tasks in insertion order, so a ninth concurrent session —
+        or one session sending eight prompts — dropped another session's open task, and
+        Stop after its failing tests returned allow (D3). A session's current task is
+        never evicted below the hard cap; an evicted one is rebuilt from the store.
+        """
+        if len(self._tasks) <= MAX_LIVE_TASKS:
+            return
+        current = set(self._session_tasks.values())
+        for task_id in list(self._tasks):
+            if len(self._tasks) <= MAX_LIVE_TASKS:
+                return
+            if task_id not in current:
+                self._forget_task(task_id)
+        for task_id in list(self._tasks):
+            if len(self._tasks) <= HARD_MAX_LIVE_TASKS:
+                return
+            self._forget_task(task_id, keep_current=True)
 
     def ensure_task(self, session_id: str) -> TaskState | None:
         """The session's task, created on demand when no prompt ever opened one (H2).
@@ -146,8 +185,10 @@ class Workspace:
         if not session_id:
             return None
         current = self._session_tasks.get(session_id)
-        if current is not None and current in self._tasks:
-            return self._tasks[current]
+        if current is not None:
+            live = self.task_state(current, session_id)
+            if live is not None:
+                return live
         spec = TaskSpec.implicit()
         task_id = self.store.create_task(
             session_id, "", spec={**spec.model_dump(mode="json"), "implicit": True}, depth="implicit"
@@ -158,20 +199,62 @@ class Workspace:
         """The in-memory state of ``task_id``, without any ownership check."""
         return self._tasks.get(task_id)
 
-    def _forget_task(self, task_id: str) -> None:
+    def _forget_task(self, task_id: str, keep_current: bool = False) -> None:
+        """Drop a task's live state. With ``keep_current`` its session still points at
+        it, so the session's next event rebuilds it from the store (R14)."""
         self._tasks.pop(task_id, None)
         session_id = self._task_sessions.pop(task_id, None)
         if session_id is None:
             return
         task_ids = self._session_task_ids.get(session_id, [])
         self._session_task_ids[session_id] = [item for item in task_ids if item != task_id]
-        if self._session_tasks.get(session_id) == task_id:
+        if self._session_tasks.get(session_id) == task_id and not keep_current:
             remaining = self._session_task_ids[session_id]
             if remaining:
                 self._session_tasks[session_id] = remaining[-1]
             else:
                 self._session_tasks.pop(session_id, None)
                 self._session_task_ids.pop(session_id, None)
+
+    def _rebuild(self, task_id: str, session_id: str = "") -> TaskState | None:
+        """Rebuild a task the store knows but memory does not (R14), or None.
+
+        After a daemon restart, or once the live window set the task aside, its edits
+        and test runs come back from the store: Stop after failing tests blocks again.
+        Only an open task, and only for the session that owns it.
+        """
+        if task_id in self._unknown_tasks:
+            return None
+        record = self.store.task_record(task_id)
+        if not record or record.get("status") != "open":
+            self._unknown_tasks[task_id] = None
+            while len(self._unknown_tasks) > MAX_UNKNOWN_TASKS:
+                self._unknown_tasks.popitem(last=False)
+            return None
+        owner = str(record.get("session_id") or "")
+        if session_id and owner and owner != session_id:
+            return None  # another session's task: an attribution claim, rejected
+        try:
+            state, replayed = rehydrate.rebuild(self.store, self.index, record, PATH_ARGUMENTS)
+        except Exception:
+            log.exception("agentguard: could not rebuild task state from the store")
+            return None
+        held = self._session_tasks.get(owner) if owner else None
+        current = bool(owner) and held in (None, task_id) and self.store.current_task_id(owner) == task_id
+        self._adopt(state, current=current)
+        self.tasks_rebuilt += 1
+        log.warning(
+            "agentguard: rebuilt task state from the store (%d change(s), %d run(s))",
+            replayed["changes"],
+            replayed["runs"],
+        )
+        degraded.report(
+            TASK_REBUILT,
+            TASK_REBUILT_REASON,
+            ttl_s=TASK_REBUILT_TTL_S,
+            detail={"tasks": self.tasks_rebuilt, **replayed},
+        )
+        return state
 
     def resolve_task_id(self, session_id: str) -> str | None:
         """The task a tool event belongs to. In-memory first; the store is the fallback
@@ -194,19 +277,23 @@ class Workspace:
             state = self._tasks.get(task_id)
             # An explicit id is an attribution claim, not a hint. Never fall back to
             # the session's current task when the claim is stale or unknown: doing so
-            # can attach a host event to unrelated in-memory state.
+            # can attach a host event to unrelated in-memory state. A task the store
+            # knows is rebuilt from it instead (R14).
+            if state is None:
+                state = self._rebuild(task_id, session_id)
             if state is None:
                 return None
             owner = self._task_sessions.get(task_id) or state.session_id
             if session_id and owner and owner != session_id:
                 return None
+            self._tasks.move_to_end(task_id)  # activity: the window evicts the idle first
             return state
         # Tool events can arrive before the store has attributed them to a task. Resolve
         # only within the event's session; an unscoped fallback would cross-contaminate
         # concurrent sessions in the same repository.
         resolved = self.resolve_task_id(session_id) if session_id else None
         if resolved:
-            return self._tasks.get(resolved)
+            return self.task_state(resolved, session_id)
         return None
 
     def event_task_state(self, event: AgentEvent) -> TaskState | None:
@@ -299,7 +386,7 @@ class Guard:
 
         # Claude may send a tool path relative to its current cwd. Rebase those paths
         # before the index (which is rooted at the repository top-level) sees them.
-        for name in ("file_path", "notebook_path"):
+        for name in PATH_ARGUMENTS:
             raw = event.arguments.get(name)
             if isinstance(raw, str) and raw and not Path(raw).expanduser().is_absolute():
                 event.arguments[name] = str(cwd / raw)
