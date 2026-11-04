@@ -72,6 +72,29 @@ def _source_stem(path: str) -> str:
     return path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
 
+@dataclass(frozen=True, slots=True)
+class IndexDelta:
+    """What one sweep found changed on disk since the index last looked (G5).
+
+    Paths are repo-relative. ``swept`` is False when no sweep ran: the index is not
+    built (or not available), or ``min_interval`` had not elapsed. An empty delta with
+    ``swept=False`` therefore means "not looked", never "nothing changed".
+    """
+
+    added: frozenset[str] = frozenset()
+    modified: frozenset[str] = frozenset()
+    removed: frozenset[str] = frozenset()
+    swept: bool = False
+
+    @property
+    def changed(self) -> frozenset[str]:
+        """Every path the sweep saw change, deletions included."""
+        return self.added | self.modified | self.removed
+
+    def counts(self) -> dict[str, int]:
+        return {"added": len(self.added), "modified": len(self.modified), "removed": len(self.removed)}
+
+
 @dataclass(slots=True)
 class ParsedFile:
     symbols: list[SymbolRecord] = field(default_factory=list)
@@ -212,25 +235,39 @@ class RepoIndex:
     def refresh(self, min_interval: float = 0.0) -> dict[str, int]:
         """Re-parse only what changed. Returns counts for logging/tests.
 
-        `min_interval` guards against re-statting a large tree on every event.
+        `min_interval` guards against re-statting a large tree on every event. An index
+        that is not built yet is built here; `refresh_delta` reports the changed paths.
         """
         if not self.is_built:
             self.build()
             return {"added": len(self.files), "modified": 0, "removed": 0}
+        return self.refresh_delta(min_interval).counts()
 
+    def refresh_delta(self, min_interval: float = 0.0) -> IndexDelta:
+        """Sweep the tree, re-parse what changed, and say exactly which paths changed.
+
+        The same sweep as `refresh()`, returning the path sets rather than counts, so a
+        change made outside Edit/Write (`sed -i`, a codemod, a generator, `rm`, `git mv`)
+        can be attributed (G5). Unlike `refresh()` it never builds: without a baseline
+        there is no delta, so an unbuilt index answers ``swept=False``, as does a call
+        inside `min_interval` of the previous sweep.
+        """
+        if not self.is_built:
+            return IndexDelta()
         if min_interval and (time.monotonic() - self.last_refresh) < min_interval:
-            return {"added": 0, "modified": 0, "removed": 0}
+            return IndexDelta()
 
         with self._lock:
             self.last_refresh = time.monotonic()
             current = scanner.scan(self.root, self.settings)
-            added = current.keys() - self.files.keys()
-            removed = self.files.keys() - current.keys()
+            previous = self.files
+            added = current.keys() - previous.keys()
+            removed = previous.keys() - current.keys()
             modified = {
                 path
-                for path in current.keys() & self.files.keys()
-                if current[path].mtime_ns != self.files[path].mtime_ns
-                or current[path].size != self.files[path].size
+                for path in current.keys() & previous.keys()
+                if current[path].mtime_ns != previous[path].mtime_ns
+                or current[path].size != previous[path].size
             }
 
             for path in removed:
@@ -239,11 +276,16 @@ class RepoIndex:
                 self.parsed[path] = self._parse(path, current[path])
 
             self.files = current
-            if added | removed | modified:
+            if added or removed or modified:
                 self.dependencies = manifests.read_dependencies(self.root, self.files)
                 self._rebuild_derived()
 
-        return {"added": len(added), "modified": len(modified), "removed": len(removed)}
+        return IndexDelta(
+            added=frozenset(added),
+            modified=frozenset(modified),
+            removed=frozenset(removed),
+            swept=True,
+        )
 
     def _parse(self, path: str, record: FileRecord) -> ParsedFile:
         if not record.parsable:
