@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 
 from truthstone import evidence
 from truthstone.challenge import render as render_challenge
@@ -48,10 +49,17 @@ def validate(
     state: TaskState | None,
     ledger: ChallengeLedger,
     task_id: str | None,
+    defer: Callable[[Callable[[], Decision]], None] | None = None,
 ) -> Decision:
-    """One proposed action in, one decision out. Never raises."""
+    """One proposed action in, one decision out. Never raises.
+
+    ``defer``: the engine's way to run the advisory checks later (WP9). When the caller's
+    profile lets none of them speak, everything after the sign-off and rewrite decisions
+    (verification bypass, secrets, evidence, patterns, dependencies, scope, the ledger) is
+    handed over as a job that returns the decision to record, with the edited file
+    snapshotted now; what is returned here is the answer: allow.
+    """
     findings: list[Finding] = []
-    level = EscalationLevel.DETERMINISTIC
 
     # -- Level 0: the action's own arguments, no repository access ----------------
     #
@@ -93,6 +101,25 @@ def validate(
         review = _review(findings, human, modify.safer_form(event, risky))
         return signoff.settle(event, getattr(ledger, "store", None), review)
 
+    if defer is not None:
+        snapshot = extractors.read_before(event, index.root) if index.is_built else None
+        if snapshot is not None:
+            event._before = snapshot[1]
+        defer(lambda: _advise(event, index, state, ledger, task_id, findings))
+        return Decision.allow(EscalationLevel.REPOSITORY if index.is_built else EscalationLevel.DETERMINISTIC)
+    return _advise(event, index, state, ledger, task_id, findings)
+
+
+def _advise(
+    event: AgentEvent,
+    index: RepoIndex,
+    state: TaskState | None,
+    ledger: ChallengeLedger,
+    task_id: str | None,
+    findings: list[Finding],
+) -> Decision:
+    """Everything after the sign-off: concerns the agent hears once, at most."""
+    level = EscalationLevel.DETERMINISTIC
     # Concerns the agent should hear (once), which need no index: a command that switches
     # off the checks verifying the work (A8), and a credential newly written into a file
     # git does not ignore (A11).

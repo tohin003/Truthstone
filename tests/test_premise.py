@@ -407,3 +407,15 @@ def test_a_held_edit_still_records_the_file_as_the_task_found_it(session):
     send({**_tool(repo, "apply_patch", patch), "hook_event_name": "PostToolUse", "tool_response": "Success"})
     held = send(_stop(repo, "Enabled ACME_TRACE for the smoke job.\n\nFINAL: done"))
     assert "Nothing in this repository reads `ACME_TRACE`" in held.get("reason", "")
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Approve it, but use --soft instead.",
+        "Use --maxfail=1 so the run stops early.",
+        "Pass --no-cache to the build.",
+    ],
+)
+def test_a_tools_own_flag_is_not_a_premise(tmp_path, prompt):
+    assert not _check(_repo(tmp_path), prompt).missing

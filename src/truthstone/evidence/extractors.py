@@ -175,17 +175,12 @@ class EditOutcome:
         self.applied = applied
 
 
-def resolve_edit(event: AgentEvent, root: Path) -> EditOutcome | None:
-    """Compute the file content this action would produce.
-
-    Returns None when the tool does not edit a file, or when the edit cannot be applied
-    (a missing `old_string` means the tool call will fail on its own — not our problem).
-    """
-    tool = event.tool
+def read_before(event: AgentEvent, root: Path) -> tuple[str, str] | None:
+    """``(path, text)``: the file an edit targets, as it is now (``""`` if it does not exist
+    yet), or None when the action edits no file inside ``root``."""
     raw_path = event.arg("file_path") or event.arg("notebook_path")
     if not isinstance(raw_path, str) or not raw_path:
         return None
-
     path = relative_path(root, raw_path)
     if path is None:
         return None
@@ -199,9 +194,31 @@ def resolve_edit(event: AgentEvent, root: Path) -> EditOutcome | None:
     except (OSError, RuntimeError):
         return None
     try:
-        before = full.read_text(encoding="utf-8", errors="replace") if full.is_file() else ""
+        return path, (full.read_text(encoding="utf-8", errors="replace") if full.is_file() else "")
     except OSError:
         return None
+
+
+def resolve_edit(event: AgentEvent, root: Path) -> EditOutcome | None:
+    """Compute the file content this action would produce.
+
+    Returns None when the tool does not edit a file, or when the edit cannot be applied
+    (a missing `old_string` means the tool call will fail on its own — not our problem).
+    A snapshot taken when the action was proposed (``event._before``) is preferred to the
+    disk: a check deferred past the action must see the file the action found (WP9).
+    """
+    tool = event.tool
+    if event._before is not None:
+        raw_path = event.arg("file_path") or event.arg("notebook_path")
+        path = relative_path(root, raw_path) if isinstance(raw_path, str) and raw_path else None
+        if path is None:
+            return None
+        before = event._before
+    else:
+        found = read_before(event, root)
+        if found is None:
+            return None
+        path, before = found
 
     if tool == "Write":
         content = event.arg("content")
