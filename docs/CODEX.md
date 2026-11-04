@@ -467,10 +467,14 @@ found, "all 6 AgentGuard hooks are trusted in Codex".
 - **`systemMessage` is invisible in `codex exec`.** The "session is unguarded" and sign-off
   notices reach TUI/app users only. `agentguard doctor` remains the reliable check.
 - **Windows** is untested, and the plugin's launcher is POSIX `sh`.
-- **The bootstrap source is unpinned** (`git+https://github.com/tohin003/AgentGuard`), so it
-  installs whatever the default branch holds on first use. Pin `RUNTIME_SOURCE` to a
-  release tag once tags exist; then the plugin version and the runtime version move
-  together. After PyPI publication, switch it to the package spec.
+- **The bootstrap source is pinned to this plugin's release tag**
+  (`git+https://github.com/tohin003/AgentGuard@v<plugin version>`, from `runtime_source()` in
+  `adapters/codex/plugin.py`). An unpinned source would install whatever the default branch
+  held at first use and run it on every tool call, unreviewed. With the tag in the launcher,
+  each runtime version change is a plugin-file change, which Codex sends back through hook
+  review. Consequence for releases: push the tag `v<version>` *before* publishing a plugin
+  version, or the bootstrap fails open with its install hint. Protect `v*` tags on GitHub so
+  they cannot be moved. After PyPI publication, switch the spec to the package.
 - **Listing URLs are placeholders.** The privacy and terms URLs point at the placeholder
   sections below.
 

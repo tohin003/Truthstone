@@ -48,11 +48,17 @@ REPOSITORY_URL = "https://github.com/tohin003/AgentGuard"
 LICENSE = "Apache-2.0"
 CATEGORY = "Developer Tools"
 # The runtime the hooks call, and where the launcher installs it from when it is missing.
-# "Works today" source: the public Git repository. Once on PyPI this becomes the package
-# spec (e.g. "agentguard==0.1.0"); pinning a release tag here also pins the runtime.
+# "Works today" source: the public Git repository, pinned to the release tag of this very
+# plugin version. An unpinned source would install whatever the default branch holds at the
+# moment and run it on every tool call, which no one approved; Codex's hook trust covers the
+# plugin's files, so pinning the tag in the launcher puts every runtime version change through
+# that review. Releases must push the tag `v<version>` (see docs/CODEX.md). Once on PyPI this
+# becomes the package spec, e.g. "agentguard==0.1.0".
 RUNTIME_COMMAND = "agentguard-codex-hook"
-RUNTIME_SOURCE = f"git+{REPOSITORY_URL}"
-INSTALL_HINT = f"uv tool install {RUNTIME_SOURCE}"
+
+
+def runtime_source(version: str | None = None) -> str:
+    return f"git+{REPOSITORY_URL}@v{plugin_version(version)}"
 
 PLUGIN_DIR = Path("plugins") / PLUGIN_NAME
 MARKETPLACE_FILE = Path(".agents") / "plugins" / "marketplace.json"
@@ -117,6 +123,10 @@ def plugin_version(version: str | None = None) -> str:
         if sep and tail.isdigit() and head and head[-1].isdigit():
             return f"{head}-{label}.{tail}"
     return version
+
+
+RUNTIME_SOURCE = runtime_source()
+INSTALL_HINT = f"uv tool install {RUNTIME_SOURCE}"
 
 
 def launcher_command(spec_arg: str) -> str:
