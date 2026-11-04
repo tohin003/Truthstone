@@ -39,6 +39,7 @@ def bash(command: str) -> AgentEvent:
 def best_of(runs: int, command: str) -> float:
     best = float("inf")
     for _ in range(runs):
+        shell.parse.cache_clear()  # time the parse too, not a cache hit
         began = time.perf_counter()
         checks.risky_command(bash(command))
         best = min(best, time.perf_counter() - began)
@@ -49,9 +50,9 @@ def best_of(runs: int, command: str) -> float:
 def test_risky_command_is_linear(shape):
     make = ADVERSARIAL[shape]
     assert best_of(1, make(900_000)) < 1.0, "a 900 KB line must not wedge the daemon"
-    small, large = best_of(3, make(8_000)), best_of(3, make(32_000))
-    # 4x the input: linear is ~4x, quadratic 16x. Generous for timer noise.
-    assert large < max(small, 0.0005) * 10, (shape, small, large)
+    small, large = best_of(5, make(4_000)), best_of(5, make(32_000))
+    # 8x the input: linear is ~8x, quadratic ~64x. The margin absorbs a loaded machine.
+    assert large < max(small, 0.0005) * 24, (shape, small, large)
 
 
 def test_a_900kb_line_through_the_guard_finishes_in_a_second(tmp_path):

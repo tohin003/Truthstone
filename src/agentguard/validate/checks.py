@@ -473,16 +473,39 @@ _RULES: tuple[_Rule, ...] = (
     ),
 )
 _KEYWORD = re.compile(r"\b(?:rm|git|drop|truncate|curl|wget|chmod|mkfs|dd)\b", re.IGNORECASE)
-# Download-and-execute spans a pipe, so it is judged across adjacent pieces: a download in
-# the piece whose output is piped straight into a shell.
-_DOWNLOAD = re.compile(r"\b(?:curl|wget)\b")
-_SHELL_HEAD = re.compile(r"(?:sudo\s++)?(?:ba)?sh\b")
+_SQL_FAMILIES = frozenset({"sql"})
 _DOWNLOAD_EXEC = "piping a download straight into a shell"
-_GUARD = re.compile(r"\[\s*+-[nz]\s++\"?\$\{?(\w++)\}?\"?\s*+\]")
+# `[ -n "$OUT" ]`, `[[ -z $OUT ]]`, `test -n "$OUT"`.
+_GUARD = re.compile(r"(?:\[\[?|\btest)\s++-[nz]\s++\"?\$\{?(\w++)\}?\"?")
 # A command longer than `shell.MAX_SCAN` is checked in its first MAX_SCAN characters and
 # its last `_TAIL` — where a long heredoc's trailing `&& git push --force` would be.
 _TAIL = 4096
-_NESTED_BODIES = 3
+
+# A2: arguments that are text, not commands. A commit message saying "never git push
+# --force", a grep for "DROP TABLE", an echo of `rm -rf /`: of 221 risky-command hits in
+# 42,426 real commands, 128 were text inside heredocs or quoted arguments (D2).
+_DATA_COMMANDS = frozenset(
+    {
+        "grep", "egrep", "fgrep", "rg", "ag", "ack", "echo", "printf",
+        "sed", "gsed", "awk", "gawk", "mawk", "nawk",
+    }
+)
+# Options whose value is text: git commit/tag/notes/merge -m, git log --grep/-S/-G,
+# gh pr/issue --body/--title.
+_TEXT_OPTIONS: dict[str, frozenset[str]] = {
+    "git": frozenset(
+        {
+            "-m", "--message", "--grep", "-S", "-G", "--author", "--committer", "--format",
+            "--pretty", "--trailer",
+        }
+    ),
+    "gh": frozenset({"--body", "-b", "--title", "-t", "--notes", "-n", "--message", "-m"}),
+}
+_DECLARERS = frozenset({"export", "local", "declare", "typeset", "readonly"})
+_NAME_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+_MKTEMP = re.compile(r"\$\(\s*mktemp\b[^()`]*\)|`\s*mktemp\b[^`]*`")
+_UNKNOWN = object()  # an assignment whose value cannot be known (an expansion)
+_SCRATCH = object()  # `$(mktemp ...)`: a fresh temporary path
 
 
 def is_variable_delete(finding: Finding) -> bool:
@@ -490,7 +513,7 @@ def is_variable_delete(finding: Finding) -> bool:
     return finding.category is ChallengeCategory.RISK and finding.summary.endswith(VARIABLE_DELETE)
 
 
-def _guarded_names(command: str) -> set[str]:
+def _guarded_names(text: str) -> set[str]:
     """Variables the command tests for emptiness: `[ -n "$OUT" ] && rm -rf "$OUT"`.
 
     That is the recommended form: it refuses to run rather than expanding to `/`.
@@ -498,34 +521,7 @@ def _guarded_names(command: str) -> set[str]:
     from ever being able to fix the unguarded version. Found in one pass, so judging many
     deletes costs no more than judging one.
     """
-    return {match.group(1) for match in _GUARD.finditer(command)}
-
-
-def _segments(command: str) -> tuple[list[tuple[str, str]], bool]:
-    """(piece text, text of the piece it pipes into or "") for every simple command,
-    here-document bodies included, and whether the command was too long to read whole.
-
-    Bodies are still read as commands here, as they always were; deciding which bodies
-    are only data needs the parser, not the splitter.
-    """
-    out: list[tuple[str, str]] = []
-    first = shell.split(command)
-    pending = [(first, 0)]
-    while pending:
-        line, depth = pending.pop()
-        pieces = line.pieces
-        for at, piece in enumerate(pieces):
-            nxt = pieces[at + 1].text if piece.piped and at + 1 < len(pieces) else ""
-            out.append((piece.text, nxt))
-        if depth < _NESTED_BODIES:
-            pending.extend((shell.split(doc.body), depth + 1) for doc in line.heredocs if doc.body.strip())
-    if first.truncated:
-        tail = shell.split(command[-_TAIL:])
-        out.extend(
-            (piece.text, tail.pieces[at + 1].text if piece.piped and at + 1 < len(tail.pieces) else "")
-            for at, piece in enumerate(tail.pieces)
-        )
-    return out, first.truncated
+    return {match.group(1) for match in _GUARD.finditer(text)}
 
 
 def _match(rule: _Rule, text: str, guarded: set[str]) -> str | None:
@@ -546,12 +542,125 @@ def _match(rule: _Rule, text: str, guarded: set[str]) -> str | None:
     return None
 
 
+def _assignment(raw: str) -> tuple[str, object] | None:
+    """`NAME=value` as written -> (NAME, literal value | _SCRATCH | _UNKNOWN)."""
+    name, sep, rest = raw.partition("=")
+    if not sep or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        return None
+    words = shell.tokens(rest) if rest else []
+    if not words:
+        return name, ""
+    if len(words) != 1:
+        return name, _UNKNOWN
+    word = words[0]
+    if not word.expands:
+        return name, word.value
+    return name, _SCRATCH if _MKTEMP.fullmatch(word.value) else _UNKNOWN
+
+
+def _record_assignments(part: shell.Part, values: dict[str, object], scratch: set[str]) -> None:
+    """Assignments that hold for the rest of this shell: `D=x;`, `export D=x &&`.
+
+    Not a prefix (`D=x cmd` sets it for `cmd` only), not in a pipeline or after `||` or
+    `&`, where it may not run in this shell or may not run at all.
+    """
+    if part.piece.before not in ("", ";", "&&", "\n") or part.piece.piped:
+        return
+    if part.argv and part.name not in _DECLARERS:
+        return
+    raws = list(part.assignments) + [w.raw for w in part.words[1:]] if part.argv else list(part.assignments)
+    for raw in raws:
+        parsed = _assignment(raw)
+        if parsed is None:
+            continue
+        name, value = parsed
+        values[name] = value
+        if value is _SCRATCH:
+            scratch.add(name)
+
+
+def _render(word: shell.Token, values: dict[str, object]) -> str:
+    """One word as the risk rules should read it.
+
+    A literal value assigned earlier in the same command stands in for its variable, so
+    `D=build; rm -rf $D` is judged as `rm -rf build` — and `D=/; rm -rf $D` as `rm -rf /`.
+    A `$` the shell will not expand (`'$D'`) is kept from looking like a variable.
+    """
+    value = word.value
+    if not word.expands:
+        return f"'{value}'" if "$" in value else value
+
+    def substitute(match: re.Match[str]) -> str:
+        known = values.get(match.group(1) or match.group(2))
+        return known if isinstance(known, str) else match.group(0)
+
+    return _NAME_REF.sub(substitute, value) if values else value
+
+
+def _judged(part: shell.Part, values: dict[str, object], piped_to_runner: bool) -> str:
+    """The text of one simple command that the risk rules read: the command with its
+    data arguments left out.
+
+    An opaque part is read whole, as before, so recall never drops.
+    """
+    if part.opaque:
+        return part.text
+    if not part.argv:
+        return ""
+    name = part.name
+    words = part.words
+    if name in _DATA_COMMANDS and not piped_to_runner:
+        return name  # its arguments are patterns, text or a script, not commands
+    if name in shell.SHELLS and shell.shell_flag(part.argv) is not None:
+        words = words[: shell.shell_flag(part.argv) + 1]  # the string is parsed as its own parts
+    elif name == "eval":
+        return name
+    text_options = _TEXT_OPTIONS.get(name, frozenset())
+    rendered: list[str] = []
+    skip = False
+    for word in words:
+        if skip:
+            skip = False
+            continue
+        value = word.value
+        if value in text_options:
+            rendered.append(value)
+            skip = True  # its value is text
+            continue
+        if any(value.startswith(f"{option}=") for option in text_options if option.startswith("--")):
+            rendered.append(value.split("=", 1)[0])
+            continue
+        if name == "git" and value.startswith("-m") and len(value) > 2:
+            rendered.append("-m")  # a glued message: -m"text"
+            continue
+        rendered.append(_render(word, values))
+    return " ".join(rendered)
+
+
+def _feeds_a_runner(parts: tuple[shell.Part, ...], at: int) -> shell.Part | None:
+    """The part this one pipes into, when that part runs what it reads: a shell reading
+    its standard input, or a database client."""
+    part = parts[at]
+    if not part.piece.piped:
+        return None
+    for later in parts[at + 1 :]:
+        if later.scope != part.scope:
+            continue
+        reads = later.name in shell.STDIN_SHELLS and shell.shell_flag(later.argv) is None
+        return later if reads or later.name in shell.DB_CLIENTS else None
+    return None
+
+
 def risky_command(event: AgentEvent) -> list[Finding]:
     """Commands worth a human's attention before they run.
 
     These produce REQUEST_REVIEW rather than a block. AgentGuard is not the authority on
     whether a force push is appropriate — the developer is — so the right move is to
     surface it, not to overrule it.
+
+    Judged per simple command, on what runs (A2): a here-document body is data unless a
+    shell or a database client reads it; a commit message, a grep pattern or an echo is
+    text; `sh -c`, `bash -c` and `eval` strings are read as commands of their own.
     """
     if event.tool != "Bash":
         return []
@@ -559,15 +668,33 @@ def risky_command(event: AgentEvent) -> list[Finding]:
     if not isinstance(command, str) or not command.strip():
         return []
 
-    segments, truncated = _segments(command)
-    if truncated:
+    parsed = shell.parse(command)
+    texts: list[tuple[str, frozenset[str] | None]] = []  # (text, only these families)
+    guarded = _guarded_names(parsed.line)
+    values_by_scope: dict[int, dict[str, object]] = {}
+    downloads: list[str] = []
+    for at, part in enumerate(parsed.parts):
+        values = values_by_scope.setdefault(part.scope, {})
+        runner = _feeds_a_runner(parsed.parts, at)
+        texts.append((_judged(part, values, runner is not None), None))
+        _record_assignments(part, values, guarded)
+        if (
+            runner is not None
+            and runner.name in shell.STDIN_SHELLS
+            and (part.name in ("curl", "wget") or (part.opaque and _KEYWORD.search(part.text)))
+        ):
+            downloads.append(f"{part.name or 'download'} … | {runner.name}")
+    texts.extend((body, _SQL_FAMILIES) for body in parsed.sql)
+    if parsed.truncated:
         log.warning(
             "agentguard: a %d-character command was checked in its first %d and last %d characters",
             len(command),
             shell.MAX_SCAN,
             _TAIL,
         )
-    guarded = _guarded_names(command[: shell.MAX_SCAN] + command[-_TAIL:] if truncated else command)
+        tail = command[-_TAIL:]
+        guarded |= _guarded_names(tail)
+        texts.extend((piece.text, None) for piece in shell.split(tail).pieces)
 
     # One finding per family: the most severe rule that matched. Rules are tried in order,
     # so on a tie the earlier (more specific) description wins.
@@ -578,12 +705,14 @@ def risky_command(event: AgentEvent) -> list[Finding]:
         if held is None or _SEVERITY_RANK[grade] > _SEVERITY_RANK[held[2]]:
             chosen[family] = (matched, description, grade)
 
-    for text, piped_into in segments:
+    for text, families in texts:
+        if not text:
+            continue
         words = {word.lower() for word in _KEYWORD.findall(text)}
         if not words:
             continue
         for rule in _RULES:
-            if not rule.keywords & words:
+            if not rule.keywords & words or (families is not None and rule.family not in families):
                 continue
             grade = Severity(rule.severity)
             held = chosen.get(rule.family)
@@ -592,10 +721,8 @@ def risky_command(event: AgentEvent) -> list[Finding]:
             matched = _match(rule, text, guarded)
             if matched is not None:
                 offer(rule.family, matched, rule.description, grade)
-        if piped_into and words & {"curl", "wget"} and _SHELL_HEAD.match(piped_into):
-            download = _DOWNLOAD.search(text)
-            if download:
-                offer("download", f"{download.group(0)} … | {piped_into[:20]}", _DOWNLOAD_EXEC, Severity.HIGH)
+    if downloads:
+        offer("download", downloads[0], _DOWNLOAD_EXEC, Severity.HIGH)
 
     ordered = sorted(chosen.values(), key=lambda item: -_SEVERITY_RANK[item[2]])
     return [

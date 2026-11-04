@@ -15,7 +15,8 @@ in the file. Being blamed for pre-existing code is the fastest way to become noi
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 
 from agentguard.core.enums import ClaimKind
 from agentguard.core.events import AgentEvent
@@ -25,18 +26,141 @@ from agentguard.repo.paths import relative_path
 
 PYTHON_SUFFIXES = (".py", ".pyi")
 
-# Commands that add a dependency — SPEC §16's DEPENDENCY challenge.
-_INSTALL_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\bpip3?\s+install\s+(?!-)(?P<pkgs>[^\n;&|]+)"),
-    re.compile(r"\buv\s+(?:pip\s+install|add)\s+(?!-)(?P<pkgs>[^\n;&|]+)"),
-    re.compile(r"\bpoetry\s+add\s+(?!-)(?P<pkgs>[^\n;&|]+)"),
-    re.compile(r"\b(?:npm|pnpm)\s+(?:install|i|add)\s+(?!-)(?P<pkgs>[^\n;&|]+)"),
-    re.compile(r"\byarn\s+add\s+(?!-)(?P<pkgs>[^\n;&|]+)"),
-    re.compile(r"\bcargo\s+add\s+(?!-)(?P<pkgs>[^\n;&|]+)"),
-    re.compile(r"\bgo\s+get\s+(?!-)(?P<pkgs>[^\n;&|]+)"),
-)
+# -- dependency installs (SPEC §16 DEPENDENCY) ----------------------------------------
+#
+# Read from the installer's own argv (IMPROVEMENTS.md A2), never from text: a regex over
+# the line denied `git commit -m "...pip install requests..."` and
+# `grep -rn "npm install lodash" docs/` as new dependencies (probes Q1/Q2).
 
-_PKG_NAME = re.compile(r"^[@A-Za-z0-9][\w.@/-]*")
+# (command, subcommand words) -> whether the installer records the package in the
+# project's manifest itself. `npm install <pkg>` saves by default; `pip install` never does.
+_INSTALLERS: dict[tuple[str, ...], bool] = {
+    ("pip", "install"): False,
+    ("pip3", "install"): False,
+    ("uv", "pip", "install"): False,
+    ("uv", "add"): True,
+    ("poetry", "add"): True,
+    ("pipenv", "install"): True,
+    ("npm", "install"): True,
+    ("npm", "i"): True,
+    ("npm", "add"): True,
+    ("pnpm", "add"): True,
+    ("yarn", "add"): True,
+    ("bun", "add"): True,
+    ("cargo", "add"): True,
+    ("go", "get"): True,
+}
+# Options that take a value, which is never a package (a requirements file, an index URL,
+# a workspace, a feature list ...).
+_VALUED = frozenset(
+    {
+        "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-i", "--index-url",
+        "--extra-index-url", "-f", "--find-links", "-t", "--target", "--prefix", "--root",
+        "--python", "-p", "--group", "-G", "--optional", "--extra", "-E", "--extras",
+        "--source", "--index", "--default-index", "--rev", "--tag", "--branch", "--package",
+        "--registry", "-w", "--workspace", "--filter", "-F", "--dir", "-C", "--cwd",
+        "--features", "--path", "--git", "--rename", "--manifest-path", "--omit", "--include",
+        "--platform", "--python-version", "--implementation", "--abi", "--markers",
+        "--config-settings", "--trusted-host", "--proxy", "--timeout", "--retries", "--cache-dir",
+    }
+)
+# Flags after which nothing is saved to the manifest.
+_AD_HOC = frozenset({"--no-save", "-g", "--global", "--no-sync"})
+_PACKAGE = re.compile(r"[@A-Za-z0-9][\w.@/+-]*")
+
+
+@dataclass(frozen=True, slots=True)
+class Install:
+    """One package an installer command adds."""
+
+    name: str
+    tool: str  # "pip install", "uv add", "npm install" ...
+    writes_manifest: bool  # whether the tool records it in the project manifest itself
+
+
+def installs(command: str) -> list[Install]:
+    """Packages that installer commands in this line add, read from their argv.
+
+    Options and their values are skipped, as are paths, URLs and anything holding an
+    expansion (`pip install $PKG` names nothing knowable).
+    """
+    from agentguard.validate import shell  # the validator's parser; no import cycle at load
+
+    found: list[Install] = []
+    seen: set[str] = set()
+    for part in shell.parse(command).parts:
+        located = _installer(part.argv)
+        if located is None:
+            continue
+        start, tool, writes = located
+        args = part.argv[start:]
+        words = part.words[start:]  # argv is these tokens' values, one for one
+        if any(arg in _AD_HOC for arg in args):
+            writes = False
+        skip = False
+        for position, arg in enumerate(args):
+            if skip:
+                skip = False
+                continue
+            if arg.startswith("-"):
+                skip = arg in _VALUED
+                continue
+            if words and words[position].expands:
+                continue
+            name = _package_name(arg, tool)
+            if name and name not in seen:
+                seen.add(name)
+                found.append(Install(name, tool, writes))
+    return found
+
+
+def _installer(argv: tuple[str, ...]) -> tuple[int, str, bool] | None:
+    """(index of the first argument after the install verb, tool, writes manifest)."""
+    if not argv:
+        return None
+    head = PurePosixPath(argv[0]).name
+    rest = list(argv[1:])
+    if head.startswith("python") and rest[:2] == ["-m", "pip"]:
+        head, rest = "pip", rest[2:]
+        offset = 3
+    else:
+        offset = 1
+    # Global options before the verb: `npm --prefix web install x`, `uv --quiet add x`.
+    while rest and rest[0].startswith("-"):
+        step = 2 if rest[0] in _VALUED and len(rest) > 1 else 1
+        rest = rest[step:]
+        offset += step
+    for verbs, writes in _INSTALLERS.items():
+        if verbs[0] != head:
+            continue
+        tail = list(verbs[1:])
+        if rest[: len(tail)] == tail:
+            return offset + len(tail), " ".join(verbs), writes
+    return None
+
+
+def _package_name(arg: str, tool: str) -> str:
+    """The package a spec names: `requests[socks]>=2` -> requests, `@types/node@18` ->
+    @types/node, `github.com/x/y@v1` -> github.com/x/y. "" for paths and URLs."""
+    if (
+        arg in (".", "..")
+        or arg.startswith(("./", "../", "/", "~", "git+", "http:", "https:", "file:"))
+        or "://" in arg
+        or arg.endswith((".whl", ".tar.gz", ".zip", ".tgz"))
+    ):
+        return ""
+    if tool.startswith(("pip", "uv", "poetry", "pipenv")):
+        name = re.split(r"[\[=<>!~;@ ]", arg, maxsplit=1)[0]
+        if "/" in name:
+            return ""  # a local path such as `src/pkg`
+    elif tool.startswith(("npm", "pnpm", "yarn", "bun")):
+        scoped = arg.startswith("@")
+        body = arg[1:] if scoped else arg
+        name = ("@" if scoped else "") + body.split("@", 1)[0]
+    else:  # cargo add, go get
+        name = arg.split("@", 1)[0]
+    match = _PACKAGE.fullmatch(name)
+    return match.group(0).rstrip(",") if match else ""
 
 
 class EditOutcome:
@@ -158,36 +282,15 @@ def claims_from_edit(outcome: EditOutcome) -> tuple[list[Claim], pyanalysis.Sour
 
 
 def claims_from_bash(command: str) -> list[Claim]:
-    """Dependency additions only.
+    """Dependency additions only, read from installer argv (`installs`).
 
     File paths in shell commands are far too noisy to treat as claims — most commands
     create the paths they mention. Dependency installs are unambiguous.
     """
-    claims: list[Claim] = []
-    seen: set[str] = set()
-
-    for pattern in _INSTALL_PATTERNS:
-        for match in pattern.finditer(command):
-            for token in match.group("pkgs").split():
-                if token.startswith("-"):
-                    continue
-                name_match = _PKG_NAME.match(token)
-                if not name_match:
-                    continue
-                name = name_match.group(0).rstrip(",")
-                # Version specifiers and extras are not part of the package identity.
-                name = re.split(r"[=<>!~\[]", name)[0]
-                if not name or name in seen or name in {"install", "add", "get"}:
-                    continue
-                seen.add(name)
-                claims.append(
-                    Claim(
-                        kind=ClaimKind.DEPENDENCY_DECLARED,
-                        subject=name,
-                        snippet=command.strip()[:160],
-                    )
-                )
-    return claims
+    return [
+        Claim(kind=ClaimKind.DEPENDENCY_DECLARED, subject=install.name, snippet=command.strip()[:160])
+        for install in installs(command)
+    ]
 
 
 def claims_for_event(event: AgentEvent, root: Path) -> tuple[list[Claim], pyanalysis.SourceFacts | None]:
