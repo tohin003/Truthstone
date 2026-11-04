@@ -12,7 +12,6 @@ from tests.test_audit_stop3_premise import WEB_PY, WEB_TS, _first_edits_held, _n
 from tests.test_audit_stop_kit import CodexSession, assert_silent, make_repo, pytest_output
 
 Q1 = pytest.mark.xfail(strict=True, reason="66e1617: R3-1 the request states the corrected rule by contrast ('X, not Y')")
-Q4 = pytest.mark.xfail(strict=True, reason="66e1617: R3-4 a name the prompt says is absent ('ignores', 'has no', 'lacks') is noted and held")
 
 
 WINDOW = '''"""Date windows."""
@@ -93,19 +92,16 @@ TS_ABSENT = [
 ]
 
 
-@Q4
 def test_absent_names_next_to_existence_words_python(tmp_path):
     spoke = _notes(WEB_PY, PY_ABSENT, tmp_path)
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
 
 
-@Q4
 def test_absent_names_next_to_existence_words_monorepo(tmp_path):
     spoke = _notes(WEB_TS, TS_ABSENT, tmp_path)
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
 
 
-@Q4
 def test_absent_names_first_edit_not_held(tmp_path):
     patch = "*** Begin Patch\n*** Update File: README.md\n@@\n # stockroom\n+\n*** End Patch"
     held = _first_edits_held(WEB_PY, PY_ABSENT, tmp_path / "py", patch)

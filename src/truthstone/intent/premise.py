@@ -140,6 +140,15 @@ _EXISTS_NEAR = re.compile(
     r"enable|on top of|based on|build (?:it |this |that )?(?:on|upon))\b",
     re.IGNORECASE,
 )
+# Absence, in the words just before a name: the request says it is NOT there ("the existing
+# route ignores `offset`", "currently has no `updated_at` field", "lacks `customerId`") — the
+# name is what the request adds, not a premise (audit of 66e1617, R3-4). `_WORD` keeps letters
+# only, so "doesn't" reads as "doesn".
+_ABSENT = re.compile(
+    r"\b(?:ignor(?:e|es|ed|ing)|lacks?|lacking|missing|no|without|not|never|doesn|don|isn|aren|"
+    r"hasn|haven|wasn|weren|neither|nor)\b",
+    re.IGNORECASE,
+)
 # A sentence that names the program a flag belongs to: "the `--cov` flag ... pytest-cov",
 # "when running node --test". That flag is the tool's switch, not the project's.
 _TOOL_NAMED = re.compile(
@@ -394,6 +403,8 @@ def _asserted(sentence: str, offset: int, name: str, kind: str = "name") -> bool
     # Creation binds tighter than the sentence: a creating word within the four words before.
     if _CREATES.search(window):
         return False
+    if _ABSENT.search(window):
+        return False  # "the route ignores `offset`", "has no `updated_at`": said not to be there
     near = {match.lower() for match in _EXISTS_NEAR.findall(window)}
     if near - {"enable"} or (near and kind == "env"):
         return True

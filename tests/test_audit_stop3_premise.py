@@ -14,8 +14,6 @@ from truthstone.adapters.codex import translate
 from truthstone.core.config import Settings
 from truthstone.core.engine import Guard
 
-Q4 = pytest.mark.xfail(strict=True, reason="66e1617: R3-4 a name the prompt says is absent ('ignores', 'has no', 'lacks') is noted and held")
-
 
 @pytest.fixture(autouse=True)
 def _product_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -159,13 +157,11 @@ def test_web_and_data_prompts_python_get_no_premise_note(tmp_path):
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
 
 
-@Q4
 def test_web_and_data_prompts_monorepo_get_no_premise_note(tmp_path):
     spoke = _notes(WEB_TS, TS_PROMPTS, tmp_path)
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
 
 
-@Q4
 def test_first_edit_after_web_prompts_is_not_held(tmp_path):
     py_patch = "*** Begin Patch\n*** Update File: src/stockroom/app.py\n@@\n from flask import Flask, jsonify\n+import os\n*** End Patch"
     ts_patch = "*** Begin Patch\n*** Update File: packages/api/src/server.ts\n@@\n import express from \"express\";\n+import { randomUUID } from \"node:crypto\";\n*** End Patch"
