@@ -366,12 +366,14 @@ class Guard:
 
                     # Keep persistence in the same critical section as state mutation. A
                     # SessionEnd arriving concurrently must not close a session and then
-                    # lose or reorder the event that preceded it.
+                    # lose or reorder the event that preceded it. One transaction (R7):
+                    # the event, its decision and the findings are recorded together or
+                    # not at all — never an event whose decision was lost — in one commit
+                    # instead of two or more. The id is set only when it was persisted.
                     decision.latency_ms = t.elapsed_ms()
                     try:
-                        ws.store.record_event(event)
                         decision.decision_id = (
-                            ws.store.record_decision(event, decision) or decision.decision_id
+                            ws.store.record_event_and_decision(event, decision) or decision.decision_id
                         )
                     except Exception:
                         log.exception("agentguard: failed to persist event/decision")
