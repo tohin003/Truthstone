@@ -396,7 +396,9 @@ def _stop_out(decision: Decision, hook_name: str) -> dict[str, Any]:
     """Completion Gate (SPEC §19). Blocking Stop forces the agent to keep working."""
     if decision.action in (DecisionAction.BLOCK, DecisionAction.CHALLENGE) and CLAUDE.stop_block:
         return {"decision": "block", "reason": decision.reason}
-    unresolved = gate_gave_up(decision)
+    # Only the main agent's Stop ends the developer's turn; a subagent finishing is not
+    # the task finishing, and the core never gates it (G9).
+    unresolved = gate_gave_up(decision) if hook_name == "Stop" else None
     if unresolved and CLAUDE.system_message:
         return {
             "systemMessage": (

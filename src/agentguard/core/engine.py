@@ -210,7 +210,7 @@ class Guard:
             EventType.POST_TOOL_USE: self._on_post_tool_use,
             EventType.POST_TOOL_FAILURE: self._on_post_tool_use,
             EventType.STOP: self._on_stop,
-            EventType.SUBAGENT_STOP: self._on_stop,
+            EventType.SUBAGENT_STOP: self._on_subagent_stop,
             EventType.SESSION_END: self._on_session_end,
         }
 
@@ -571,6 +571,31 @@ class Guard:
             action=DecisionAction.BLOCK,
             level=EscalationLevel.DEEP_VERIFICATION,
             reason=f"AgentGuard — completion gate: {verdict.result.value}\n\n{verdict.reason}",
+            findings=verdict.findings,
+        )
+
+    def _on_subagent_stop(self, event: AgentEvent, ws: Workspace) -> Decision:
+        """A subagent finishing is not the task finishing (G9).
+
+        The gate judges the *task*: its edits, its test runs. A subagent shares the
+        session — on Codex, the very session id — so running the gate here told an
+        Explore subagent to run the parent's tests, and spent the parent's block budget
+        on it (probe F). The verdict is still computed, for the census, and returned on
+        an ALLOW: it never blocks and never touches ``stop_blocks``.
+        """
+        state = ws.event_task_state(event)
+        if state is None or not ws.index.is_built:
+            return Decision.allow()
+        verdict = completion_gate.evaluate(
+            state=state,
+            index=ws.index,
+            max_blocks=self.settings.challenge.max_stop_blocks_per_task,
+            message=event.last_assistant_message,
+            pending_tasks=event.pending_tasks,
+        )
+        return Decision(
+            action=DecisionAction.ALLOW,
+            level=EscalationLevel.DEEP_VERIFICATION,
             findings=verdict.findings,
         )
 
