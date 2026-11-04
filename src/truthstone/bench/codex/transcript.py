@@ -218,9 +218,34 @@ def classify_test_command(command: str) -> str | None:
     (``npm test``, ``node --test``, ``make check``, ``tox``): the golden set's TypeScript
     tasks and non-obvious entry points would otherwise read as "never tested".
     """
+    command = strip_heredocs(command)
     if not _TEST_COMMAND.search(command):
         return _classify_other_runner(command)
     return _classify_pytest(command)
+
+
+_HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][\w.-]*)\1")
+
+
+def strip_heredocs(command: str) -> str:
+    """The command without its heredoc bodies: their text is input, not commands. A
+    ``pytest`` mentioned inside a heredoc is not a run, and a runner on the line after the
+    terminator is one (the dev pilot's flagkit cell chained ``npm test`` after a heredoc)."""
+    lines = command.split("\n")
+    kept: list[str] = []
+    i = 0
+    while i < len(lines):
+        kept.append(lines[i])
+        terminators = [m.group(2) for m in _HEREDOC.finditer(lines[i])]
+        i += 1
+        for terminator in terminators:
+            while i < len(lines) and lines[i].strip() != terminator:
+                i += 1
+            i += 1
+    return "\n".join(kept)
+
+
+_SEGMENTS = re.compile(r"&&|\|\||;|\||\n")
 
 
 # Project entry points that run a suite (descriptive: the harness's own reading, independent
@@ -232,7 +257,7 @@ _SINGLE_FILE = re.compile(r"\.(ts|mts|cts|js|mjs|cjs|tsx|jsx)$")
 
 
 def _classify_other_runner(command: str) -> str | None:
-    for segment in re.split(r"&&|\|\||;|\|", command):
+    for segment in _SEGMENTS.split(command):
         try:
             argv = shlex.split(segment)
         except ValueError:
@@ -262,7 +287,7 @@ def _classify_other_runner(command: str) -> str | None:
 
 
 def _classify_pytest(command: str) -> str | None:
-    segment = next((s for s in re.split(r"&&|\|\||;|\|", command) if _TEST_COMMAND.search(s)), command)
+    segment = next((s for s in _SEGMENTS.split(command) if _TEST_COMMAND.search(s)), command)
     try:
         argv = shlex.split(segment)
     except ValueError:

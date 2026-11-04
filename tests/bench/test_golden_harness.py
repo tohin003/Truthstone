@@ -519,6 +519,11 @@ def test_codex_cells_whose_rollout_shows_network_or_another_sandbox_are_drift(tm
         ("node src/cli.ts quote", None),
         ("make build", None),
         ("pytest tests/test_slug.py", "narrowed"),  # unchanged pytest logic
+        # a runner on the line after a heredoc is a run (the dev pilot's flagkit cell) ...
+        ("python3 - <<'PY'\nprint('it\\'s \"quoted\"')\nPY\nnpm test", "full"),
+        ("cat > notes.txt <<EOF\nsee pytest -k slow\nEOF\npython -m pytest -q", "full"),
+        # ... and a test command inside a heredoc's text is not one
+        ("cat > notes.md <<'EOF'\nrun python -m pytest -q before merging\nEOF", None),
     ],
 )
 def test_project_entry_points_count_as_test_runs(command, scope):
