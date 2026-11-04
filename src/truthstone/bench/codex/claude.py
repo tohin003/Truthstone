@@ -725,10 +725,11 @@ class TruthstoneClaudePlugin:
         return guards._health(ctx.port)
 
     def collect(self, ctx: guards.ArmContext, repo: Path, trace_dir: Path | None) -> guards.HookEvidence:
-        evidence = guards.read_guard_db(ctx.guard_home / naming.DB_FILENAME, repo)
-        if trace_dir is not None:
-            guards.read_recorder(trace_dir, evidence)
-        return evidence
+        evidence = (
+            guards.read_recorder(trace_dir, guards.HookEvidence()) if trace_dir else guards.HookEvidence()
+        )
+        db = ctx.guard_home / naming.DB_FILENAME
+        return guards.read_guard_db(db, repo, evidence, evidence.recorder_sessions)
 
     def teardown_arm(self, ctx: guards.ArmContext, archive: Path | None) -> None:
         guards.stop_arm_daemon(ctx.guard_home, self.build, ctx.shell_home)
