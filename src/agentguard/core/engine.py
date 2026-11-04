@@ -46,6 +46,10 @@ log = logging.getLogger(__name__)
 # Events that act on the workspace, and so need a task to be judged against (H2).
 _TOOL_EVENTS = frozenset({EventType.PRE_TOOL_USE, EventType.POST_TOOL_USE, EventType.POST_TOOL_FAILURE})
 
+# How often a session start or a prompt may re-scan the tree for changes made outside
+# the agent (R4). Off the per-tool path; about 100 ms on a large repository.
+BOUNDARY_REFRESH_INTERVAL = 30.0
+
 
 def memory_task_id() -> str:
     """A task id minted without the store, for when it cannot record one (H2)."""
@@ -398,7 +402,21 @@ class Guard:
         # Creating the Workspace already kicked off the build; this hook has a 20s
         # budget, so give it a moment to finish while the session is still starting up.
         ws.index.ready(timeout=5.0)
+        self._refresh_at_boundary(ws)
         return Decision.allow()
+
+    @staticmethod
+    def _refresh_at_boundary(ws: Workspace) -> None:
+        """Pick up what changed while no agent was working (R4).
+
+        A long-lived daemon outlives sessions; between them the developer switches
+        branches, reverts files, pulls. Its index only refreshed at Stop and after shell
+        commands, so it went on vouching for a method reverted underneath it — silent
+        where a fresh daemon challenged the same Write (D6 E4). Rate-limited, and only
+        once the index exists: a first build is already current.
+        """
+        if ws.index.is_built:
+            ws.index.refresh(min_interval=BOUNDARY_REFRESH_INTERVAL)
 
     def _on_user_prompt(self, event: AgentEvent, ws: Workspace) -> Decision:
         """Intent Gateway + Complexity Engine + Planning Governor (SPEC §9, §12, §13).
@@ -408,6 +426,7 @@ class Guard:
         (SPEC §39).
         """
         self._open_session(event, ws)
+        self._refresh_at_boundary(ws)  # the spec is grounded in the tree as it is now
 
         prompt = event.prompt_text or ""
         index = ws.index if ws.index.is_built else None
