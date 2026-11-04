@@ -252,3 +252,26 @@ ENABLE_TS = [
 def test_requests_to_switch_on_a_tool_option_get_no_premise_note(tmp_path):
     spoke = {**_notes(PY_REPO, ENABLE_PY, tmp_path / "py"), **_notes(TS_REPO, ENABLE_TS, tmp_path / "ts")}
     assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
+
+
+# "X currently / already does A; it should do B with `Y`": every name before the change is in
+# the repository, `Y` is what the request brings in, or the language's own.
+CHANGE_PY = [
+    "`fetch_rates` currently retries 3 times; it should honour a `max_retries` argument instead.",
+    "The tests currently build invoices by hand; switch them to `pytest-mock`'s `mocker` fixture.",
+    "The CLI currently prints the total with `print`; it should go through `logging` instead.",
+    "Invoice totals are currently floats; they should be `Decimal` values rounded to cents.",
+    "Totals are currently formatted with an f-string; use `quantize` with `ROUND_HALF_UP` instead.",
+    "`parse_amount` currently raises on empty input; it should return `None` instead.",
+]
+CHANGE_TS = [
+    "The existing `formatPrice` should return `'0.00'` for `NaN` instead of `'NaN'`.",
+    "`snapshot` currently uses a JSON round-trip, which drops `Date` values; keep them as `Date`.",
+    "`cartTotal` already handles empty carts; it should also reject negative `qty` with a `RangeError`.",
+]
+
+
+@pytest.mark.xfail(strict=True, reason="premise note on names in the requested change (66e1617)")
+def test_names_in_the_requested_change_get_no_premise_note(tmp_path):
+    spoke = {**_notes(PY_REPO, CHANGE_PY, tmp_path / "py"), **_notes(TS_REPO, CHANGE_TS, tmp_path / "ts")}
+    assert spoke == {}, "\n".join(f"{p!r}\n    -> {n}" for p, n in spoke.items())
