@@ -45,6 +45,7 @@ class TestOutcome:
     failed: int = 0
     summary: str = ""
     command: str = ""
+    exit_code: int | None = None  # the command's exit status, when the host reported one
 
     @property
     def is_failure(self) -> bool:
@@ -156,10 +157,14 @@ def output_text(result: Any) -> str:
     if isinstance(result, str):
         return result
     if isinstance(result, dict):
-        parts = [str(result.get(key, "")) for key in ("stdout", "stderr", "output", "content")]
-        joined = "\n".join(part for part in parts if part)
-        return joined or str(result)
+        keys = [key for key in _TEXT_KEYS if key in result]
+        if not keys:
+            return str(result)
+        return "\n".join(str(result[key]) for key in keys if result[key])
     return "" if result is None else str(result)
+
+
+_TEXT_KEYS = ("stdout", "stderr", "output", "content")
 
 
 def parse_output(command: str, output: str) -> TestOutcome:
@@ -184,6 +189,95 @@ def parse_output(command: str, output: str) -> TestOutcome:
         return outcome
     outcome.passed = summary.status == "passed"
     outcome.summary = summary.line
+    return outcome
+
+
+# -- exit status first (G1) ----------------------------------------------------------------
+#
+# A failing run's exit status is the strongest evidence there is, and on Claude Code it
+# is often the only evidence: a non-zero Bash exit arrives as PostToolUseFailure, and
+# text parsing alone classified only 73 of 281 such real runs (docs/IMPROVEMENTS.md G1).
+# But a status belongs to the runner only when the runner is what the command returns
+# (`commands.TestInvocation.exit_reliable`): `pytest | tail` exits with tail's status.
+
+# Statuses that say nothing about the tests: the command timed out (124), could not be
+# executed (126) or found (127), or was stopped by a signal (SIGHUP 129, SIGINT 130,
+# SIGKILL 137, SIGPIPE 141 — `| head` closing early — SIGTERM 143).
+NO_VERDICT_EXIT = frozenset({124, 126, 127, 129, 130, 137, 141, 143})
+
+
+def exit_verdict(runner: str, exit_code: int) -> bool | None:
+    """False when this non-zero status means the tests failed; None when it does not say.
+
+    pytest: 1 is failures; 2 interrupted or collection errors, 3 internal error, 4 usage
+    error, 5 no tests collected — the text decides those. cargo fails tests with 101,
+    nextest with 100 (101: build failed), go with 1 (2: build failed); unittest 5 is
+    "no tests". Every other runner fails tests with any non-zero status.
+    """
+    if exit_code == 0 or exit_code in NO_VERDICT_EXIT:
+        return None
+    if runner in ("pytest", "hatch"):
+        return False if exit_code == 1 else None
+    if runner in ("unittest", "django"):
+        return False if exit_code == 1 else None
+    if runner == "cargo":
+        return False if exit_code == 101 else None
+    if runner == "nextest":
+        return None if exit_code == 4 else False
+    if runner == "go":
+        return False if exit_code in (1, 2) else None
+    return False
+
+
+def result_fields(result: Any) -> tuple[str, int | None, bool]:
+    """(text, exit status, interrupted) from any shape a host delivers.
+
+    The adapter contract is ``{"stdout", "exit_code", "interrupted"}`` (``exit_code`` may
+    be None: Codex reports none for Bash). A Claude Code PostToolUse result
+    (``{stdout, stderr, interrupted, …}``) has no status, and a plain string is just text.
+    """
+    if not isinstance(result, dict):
+        return output_text(result), None, False
+    code = result.get("exit_code", result.get("exitCode"))
+    if not isinstance(code, int) or isinstance(code, bool):
+        code = None
+    return output_text(result), code, bool(result.get("interrupted"))
+
+
+def outcome_from_result(command: str, result: Any) -> TestOutcome | None:
+    """What a shell command's result says about the tests, or None if it ran no tests.
+
+    1. **Interrupted** → ``passed=None``: a stopped run is inconclusive, never a failure.
+    2. **The status is known and is the runner's**: 0 takes the parser's verdict (if
+       any); a non-zero status fails the run where it means failure for that runner
+       (``exit_verdict``). Where it does not (timeouts, pytest's 2 to 5), the text may
+       still show a failure — a collection error under pytest's 2 — but never a pass:
+       a run that exited non-zero did not pass.
+    3. **The status is unknown or belongs to something else** (``| tail``, ``; true``,
+       ``|| echo``) → the text's verdict only.
+    """
+    invocation = commands.test_invocation(command or "")
+    if invocation is None:
+        return None
+    text, exit_code, interrupted = result_fields(result)
+    outcome = parse_output(command, text)
+    outcome.exit_code = exit_code
+    if interrupted:
+        outcome.passed = None
+        outcome.summary = "the run was interrupted" + (f" ({outcome.summary})" if outcome.summary else "")
+        return outcome
+    if exit_code is None or exit_code == 0 or not invocation.exit_reliable:
+        return outcome
+    verdict = exit_verdict(invocation.runner, exit_code)
+    if verdict is False:
+        outcome.passed = False
+        outcome.failed = max(outcome.failed, 1)
+        outcome.summary = f"exit status {exit_code}" + (f"; {outcome.summary}" if outcome.summary else "")
+    elif outcome.passed is True:
+        outcome.passed = None
+        outcome.summary = f"exit status {exit_code} after: {outcome.summary}"
+    elif not outcome.summary:
+        outcome.summary = f"exit status {exit_code}"
     return outcome
 
 

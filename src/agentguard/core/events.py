@@ -26,6 +26,11 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset(
 # Tools that write to the workspace. These get the full pipeline.
 MUTATING_TOOLS: frozenset[str] = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 
+# Tools that run a shell command (`arguments["command"]`): where test runs come from.
+# PowerShell is Claude Code's primary shell on Windows, and its failing runs reach the
+# core through the same PostToolUseFailure contract as Bash's.
+SHELL_TOOLS: frozenset[str] = frozenset({"Bash", "PowerShell"})
+
 
 class AgentEvent(BaseModel):
     """One thing an agent did or is about to do."""

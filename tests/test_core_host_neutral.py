@@ -43,10 +43,13 @@ VOCABULARY = TOOL_NAMES | ARGUMENT_NAMES | HOOK_FIELDS
 ALLOWED: dict[tuple[str, str], int] = {
     ("agentguard.bench.mutation", "Write"): 1,
     ("agentguard.bench.mutation", "file_path"): 1,
-    ("agentguard.core.engine", "Bash"): 1,
     ("agentguard.core.engine", "file_path"): 2,
     ("agentguard.core.engine", "notebook_path"): 2,
     ("agentguard.core.engine", "stop_hook_active"): 1,
+    # SHELL_TOOLS (G1-core): the one place the core names host shell tools, so the
+    # engine no longer does. Goes when canonical actions (H6) replace tool names.
+    ("agentguard.core.events", "Bash"): 1,
+    ("agentguard.core.events", "PowerShell"): 1,
     ("agentguard.core.events", "Edit"): 1,
     ("agentguard.core.events", "MultiEdit"): 1,
     ("agentguard.core.events", "NotebookEdit"): 1,

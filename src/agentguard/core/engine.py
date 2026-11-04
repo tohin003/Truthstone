@@ -23,7 +23,7 @@ from agentguard.challenge.ledger import ChallengeLedger
 from agentguard.core import observe
 from agentguard.core.config import Settings
 from agentguard.core.enums import DecisionAction, EscalationLevel, EventType
-from agentguard.core.events import AgentEvent
+from agentguard.core.events import SHELL_TOOLS, AgentEvent
 from agentguard.core.metrics import (
     M_DECISION,
     M_FALSE_COMPLETION_BLOCKED,
@@ -416,9 +416,9 @@ class Guard:
             if ws.index.is_built:
                 ws.index.refresh_path(path)
 
-        elif event.tool == "Bash":
+        elif event.tool in SHELL_TOOLS:
             command = event.arg("command")
-            if isinstance(command, str) and runners.is_test_command(command):
+            if isinstance(command, str):
                 self._record_test_run(event, ws, state, command)
             # A shell command can touch anything; fall back to a rate-limited sweep.
             if ws.index.is_built:
@@ -433,24 +433,17 @@ class Guard:
         """Read the agent's own test output.
 
         This is what lets the Completion Gate contradict "all tests pass" without running
-        anything itself: the agent produced the evidence.
+        anything itself: the agent produced the evidence. Only a test runner in command
+        position counts (G3a), and its exit status leads wherever it is the runner's
+        (G1): a failing run on Claude Code arrives as PostToolUseFailure, with the
+        status and the output in ``result``.
         """
         if state is None:
             return
+        outcome = runners.outcome_from_result(command, event.result)
+        if outcome is None:
+            return
         state.verification.commands_seen.append(command.strip()[:200])
-
-        # Tool results arrive as a dict from Claude Code; stdout and stderr both matter.
-        outcome = runners.parse_output(command, runners.output_text(event.result))
-        if isinstance(event.result, dict):
-            if event.result.get("interrupted"):
-                outcome.passed = False
-                outcome.failed = max(outcome.failed, 1)
-                outcome.summary = outcome.summary or "test command was interrupted"
-            exit_code = event.result.get("exit_code", event.result.get("exitCode"))
-            if isinstance(exit_code, int) and exit_code != 0:
-                outcome.passed = False
-                outcome.failed = max(outcome.failed, 1)
-                outcome.summary = outcome.summary or f"test command exited with status {exit_code}"
         if outcome.passed is not None:
             state.verification.outcomes.append(outcome)
             ws.store.finish_verification(
