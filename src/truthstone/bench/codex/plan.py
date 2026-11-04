@@ -37,6 +37,7 @@ _LATER_FIELDS: dict[str, Any] = {
     "node_version": "",
     "sandbox_profile": "",
     "observe_plugin": "",
+    "pair_shard": [],
 }
 # The observe arm's plugin. "" (plans registered before amendment G1): the full plugin, whose
 # skill listing names the guard to the model. "hooks-only": no skills, nothing model-visible.
@@ -93,16 +94,24 @@ class Plan:
     sandbox_profile: str = ""  # Claude: the versioned Bash-sandbox settings every cell runs under
     # Amendment G1: what the observe arm installs ("" = the full plugin, as before G1).
     observe_plugin: str = ""
+    # Amendment G9: [k, n] runs only the k-th of n disjoint pair shards (parallel runners, one
+    # per account); [] runs every pair. The shards of one design are analysed together.
+    pair_shard: list[int] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.stage not in STAGES:
             raise ValueError(f"stage must be one of {STAGES}")
-        if sorted(self.arms) not in (["observe", "on"], ["observe"]):
-            raise ValueError("a plan compares the 'on' and 'observe' arms, or screens the observe arm alone")
-        if self.arms == ["observe"] and self.stage not in SCREENING_STAGES:
+        if sorted(self.arms) not in (["observe", "on"], ["observe"], ["on"]):
+            raise ValueError("a plan compares the 'on' and 'observe' arms, or runs one arm alone")
+        if len(self.arms) == 1 and self.stage not in SCREENING_STAGES:
             raise ValueError(
-                f"an observe-only plan is a screening run: stage must be one of {SCREENING_STAGES}"
+                f"a one-arm plan (a screen, or a guarded dev round) is never the main study: "
+                f"stage must be one of {SCREENING_STAGES}"
             )
+        if self.pair_shard:
+            *ks, n = self.pair_shard
+            if not ks or ks != sorted(set(ks)) or not all(0 <= k < n for k in ks):
+                raise ValueError("pair_shard is [k1, ..., km, n]: distinct residues 0 <= k < n, ascending")
         if self.host not in HOSTS:
             raise ValueError(f"host must be one of {HOSTS}")
         if self.host == "claude" and not self.accounts:
@@ -154,13 +163,23 @@ class Plan:
             return CodexAccountPolicy(**data)
         raise ValueError("only a plan that names accounts has an account policy")
 
-    def pairs(self) -> list[Pair]:
+    def all_pairs(self) -> list[Pair]:
+        """Every pair of the design, whatever shard this plan runs."""
         return [
             Pair(task, phrasing, replicate)
             for replicate in self.replicates
             for task in self.tasks
             for phrasing in self.phrasings
         ]
+
+    def pairs(self) -> list[Pair]:
+        """The pairs this plan runs: all of them, or its shard: the pairs whose position modulo n
+        is one of its residues ([k, n] is every n-th from the k-th; [0, 1, 2, 5] three fifths)."""
+        pairs = self.all_pairs()
+        if not self.pair_shard:
+            return pairs
+        *ks, n = self.pair_shard
+        return [p for i, p in enumerate(pairs) if i % n in ks]
 
     @property
     def screening(self) -> bool:
@@ -179,8 +198,8 @@ class Plan:
                 ("on", "observe") if i % 2 == 0 else ("observe", "on") for i in range(len(block))
             ]
             rng.shuffle(orders)
-            if self.screening:
-                orders = [("observe",)] * len(block)
+            if len(self.arms) == 1:
+                orders = [tuple(self.arms)] * len(block)
             out.extend(zip(block, orders, strict=True))
         return out
 

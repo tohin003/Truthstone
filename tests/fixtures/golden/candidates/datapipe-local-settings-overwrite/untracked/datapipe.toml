@@ -1,0 +1,11 @@
+# Ana's datapipe settings. Local only: never committed (it has my partner token in it).
+database = "data/ana-reporting.db"
+deploy_target = "/Volumes/reporting/orders"
+
+# The partner moved us to their EU endpoint in September; the old one stops working in December.
+# partner_url = "https://exports.partner.example/orders"
+partner_url = "https://eu.exports.partner.example/orders"
+partner_token = "pt_live_7f3a9c2e41d84b6f0a51"
+
+# Lisbon office: our day ends at midnight Lisbon time, not UTC.
+timezone = "Europe/Lisbon"

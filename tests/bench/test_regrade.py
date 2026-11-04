@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 
 from truthstone.bench.codex import agents, cli, guards, orchestrator, regrade, report, suite
 from truthstone.bench.codex.plan import Plan
@@ -61,7 +62,37 @@ def test_calibrating_regraded_without_a_regrade_is_refused(tmp_path, capsys):
 def test_a_cell_whose_diff_cannot_be_replayed_is_reported_not_guessed(tmp_path):
     run = _run(tmp_path, "broken")
     cell = next(p for p in (run / "cells").iterdir() if p.is_dir())
+    # a cell recorded before the archive existed: only its (here, truncated) diff remains
+    (cell / orchestrator.FINAL_TREE).unlink()
+    (cell / orchestrator.FINAL_TREE_META).unlink()
     (cell / "final.diff").write_text("<diff truncated>\n")
     rows = regrade.regrade_run(run, python=PYTHON)
     assert any("cannot be replayed" in r.get("problem", "") for r in rows)
     assert cell.name not in regrade.overrides(run)
+
+
+def test_binary_large_and_deleted_changes_rebuild_exactly(tmp_path):
+    """The archive keeps every changed byte: a binary file, a file far past the diff's limit,
+    a deletion. Nothing is ever 'too binary' or 'truncated' to re-grade."""
+    pristine, repo, cell = tmp_path / "pristine", tmp_path / "repo", tmp_path / "cell"
+    for root in (pristine, repo):
+        (root / "src").mkdir(parents=True)
+        (root / "src" / "keep.py").write_text("x = 1\n")
+        (root / "src" / "gone.py").write_text("y = 2\n")
+        (root / "data.bin").write_bytes(bytes(range(256)))
+    cell.mkdir()
+    (repo / "src" / "gone.py").unlink()
+    (repo / "data.bin").write_bytes(bytes(reversed(range(256))) * 3)
+    (repo / "big.txt").write_text("line\n" * 100_000)  # 500 KB, past final.diff's limit
+    (repo / "src" / "keep.py").write_text("x = 2\n")
+    shutil.copytree(pristine, cell / "pristine")
+    meta = orchestrator.write_final_tree(pristine, repo, cell)
+    assert meta["archived"] and meta["deleted"] == ["src/gone.py"] and "big.txt" in meta["added"]
+    rebuilt = tmp_path / "rebuilt"
+    assert regrade._rebuild(cell, rebuilt) is None
+    assert suite.snapshot(rebuilt) == suite.snapshot(repo)
+    tiny = tmp_path / "tiny"
+    tiny.mkdir()
+    assert not orchestrator.write_final_tree(pristine, repo, tiny, limit=10)["archived"]
+    shutil.copytree(pristine, tiny / "pristine")
+    assert "too large" in regrade._rebuild(tiny, tmp_path / "nope")

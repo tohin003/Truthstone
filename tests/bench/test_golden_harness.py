@@ -110,6 +110,21 @@ def test_the_registered_extended_screen_runs_the_skill_free_observe_arm_on_today
     assert plan.truthstone_ref == pilot.truthstone_ref and plan.seed == pilot.seed
 
 
+def test_the_registered_candidate_screen_runs_its_8_tasks_on_the_dedicated_account_first():
+    plan = Plan.load(suite.BENCH_ROOT / "plans" / "golden-cand-sol-screen1.json")
+    assert plan.suite == "golden-candidates" and plan.arms == ["observe"] and plan.skill_free_observe
+    assert plan.accounts == ["p", "main"] and plan.account_policy().preference == ("p", "main")
+    assert len(plan.tasks) == 8 and len(plan.pairs()) == 48
+    tasks = suite.load_suite(suite="golden-candidates", only=plan.tasks)
+    assert plan.suite_digest == suite.suite_digest(tasks)  # later candidates never touch it
+    screen = Plan.load(suite.BENCH_ROOT / "plans" / "golden-dev-sol-screen2.json")
+    assert (plan.model, plan.effort, plan.truthstone_ref) == (
+        screen.model,
+        screen.effort,
+        screen.truthstone_ref,
+    )
+
+
 def test_a_plan_pins_its_suite_and_node_in_the_digest():
     base = dict(name="x", stage="pilot", seed=1, tasks=["t"], phrasings=["canonical"], replicates=[0])
     plain = Plan(**base)
@@ -577,10 +592,12 @@ def test_an_observe_only_plan_is_a_screening_pilot_never_a_main_study():
     assert [p for p, _ in screening.schedule()] == [p for p, _ in paired.schedule()]
     assert {order for _, order in screening.schedule()} == {("observe",)}
     assert {order for _, order in paired.schedule()} == {("on", "observe"), ("observe", "on")}
-    with pytest.raises(ValueError, match="screening"):
+    with pytest.raises(ValueError, match="one-arm"):
         Plan(**_plan_kwargs(arms=["observe"], stage="main"))
+    with pytest.raises(ValueError, match="one-arm"):  # a guarded dev round (G9) is never the main study
+        Plan(**_plan_kwargs(arms=["on"], stage="main"))
     with pytest.raises(ValueError):
-        Plan(**_plan_kwargs(arms=["on"]))
+        Plan(**_plan_kwargs(arms=["on", "on"]))
 
 
 def test_a_screening_run_needs_one_cell_per_pair_and_reports_observe_rates_only(tmp_path, capsys):

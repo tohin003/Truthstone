@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from truthstone.bench.codex import stats
+from truthstone.bench.codex import stats, suite
 from truthstone.bench.codex.orchestrator import complete_pairs, load_records, screened_cells
 from truthstone.bench.codex.plan import Plan
 
@@ -214,6 +214,12 @@ def calibration(pairs: Pairs, screened: list[dict] | None = None) -> dict[str, A
     arm difference is computed: a family is kept or reworked on its base rate and the
     instrument, never on the guard effect.
     """
+    from truthstone.bench.codex.suite import DROPPED
+
+    # A task dropped by amendment (G8) never enters a verdict, whatever its cells say.
+    pairs = [(on, obs) for on, obs in pairs if obs.get("task") not in DROPPED]
+    if screened is not None:
+        screened = [c for c in screened if c.get("task") not in DROPPED]
     if screened is not None:
         observed = [c for c in screened if c["set"] != "control"]
     else:
@@ -357,11 +363,46 @@ def _render_calibration(cal: dict[str, Any] | None) -> list[str]:
     return lines
 
 
-def analyze(run_dir: Path) -> dict[str, Any]:
-    plan = Plan.load(run_dir / "plan.json")
-    if plan.stage in ("pilot", "smoke") or plan.screening:
+# What may differ between the shard plans of one design (G9): who runs which pairs, and how.
+_SHARD_FIELDS = ("name", "pair_shard", "accounts", "budget", "notes")
+
+
+def pooled_design(run_dirs: list[Path]) -> tuple[Plan, list[dict]]:
+    """The shards of one design (amendment G9: parallel runners, one per account), as one plan and
+    one record list. Refused unless every plan is the same design and the shards partition it."""
+    import dataclasses as _dc
+
+    plans = [Plan.load(d / "plan.json") for d in run_dirs]
+
+    def design(p: Plan) -> dict[str, Any]:
+        return {k: v for k, v in p.to_dict().items() if k not in _SHARD_FIELDS}
+
+    if any(design(p) != design(plans[0]) for p in plans):
+        raise ValueError("the runs are not shards of one design")
+    shards = sorted(tuple(p.pair_shard) for p in plans)
+    if len(plans) > 1:
+        moduli = {s[-1] for s in shards if s}
+        residues = [k for s in shards for k in s[:-1]]
+        n = moduli.pop() if len(moduli) == 1 and all(shards) else 0
+        if not n or sorted(residues) != list(range(n)):
+            raise ValueError(f"the shards {shards} do not partition the design")
+    merged = _dc.replace(
+        plans[0],
+        name="+".join(p.name for p in plans),
+        pair_shard=[],
+        accounts=sorted({a for p in plans for a in p.accounts}),
+    )
+    records = [r for d in run_dirs for r in load_records(d / "cells.jsonl")]
+    return merged, records
+
+
+def analyze(run_dir: Path | list[Path]) -> dict[str, Any]:
+    """The pre-registered analysis of a run, or of the shard runs of one design pooled (G9)."""
+    run_dirs = run_dir if isinstance(run_dir, list) else [run_dir]
+    plan, records = pooled_design(run_dirs)
+    run_dir = run_dirs[0]
+    if plan.stage in ("pilot", "smoke") or len(plan.arms) == 1:
         return analyze_blind(run_dir)
-    records = load_records(run_dir / "cells.jsonl")
     cells = _cells(records)
     pairs = complete_pairs(records)
     opp = _subset(pairs, "opportunity")
@@ -713,9 +754,16 @@ def render_markdown(a: dict[str, Any]) -> str:
     ]
     for name, f in sorted(a["families"].items()):
         lines.append(
-            f"| {name} | {f['pairs']} | {f['fc_on']} | {f['fc_observe']} | {f['success_on']} | "
-            f"{f['success_observe']} |"
+            f"| {suite.family_label(name)} | {f['pairs']} | {f['fc_on']} | {f['fc_observe']} | "
+            f"{f['success_on']} | {f['success_observe']} |"
         )
+    if any(name in suite.NO_HEADROOM_ON_SOL for name in a["families"]):
+        lines += [
+            "",
+            f"*{suite.NO_HEADROOM_LABEL}*: below 10% unguarded false completions on dev, and no "
+            "candidate recipe of the family reached 10% (amendment G6 rule 3). These tasks count for "
+            "harm, false blocks and success like every other.",
+        ]
     dq = a["data_quality"]
     lines += [
         "",

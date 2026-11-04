@@ -147,6 +147,8 @@ STOPWORDS = frozenset(
         "as_json", "conftest", "deterministically", "git_author_email", "git_author_name",
         "git_committer_email", "git_committer_name", "git_config_nosystem", "htmlcov", "nexport",
         "node_modules", "ruff_cache", "test_pagination", "top_level", "tsconfig", "unparseable",
+        "workspace",  # reviewed 2026-11-04 (G8): a generic word, also in product code
+        "pytest_cache",  # reviewed 2026-11-04 (G11): a tool's cache directory, in core's ignore list
         # Reviewed 2026-11-04 (WP0, merging the core fixes): generic, and written on a branch
         # that never held the golden set. max_bytes: log rotation and scan limits; subcommand:
         # shell-command parsing; nversion: "\nversion" in a pyproject literal, as nexport.
