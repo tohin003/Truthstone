@@ -80,13 +80,87 @@ def test_a_name_the_request_asserts_and_nothing_has_is_noted(tmp_path, prompt, n
     "extra",
     [
         {"acme/trace.py": "import os\n\nON = os.environ.get('ACME_TRACE') == '1'\n"},  # code reads it
-        {".env.example": "ACME_TRACE=0\n"},  # a dotenv file
-        {"docs/ops.md": "Set `ACME_TRACE=1` to print queries.\n"},  # documented: occurrence counts
+        {"Makefile": "ifdef ACME_TRACE\nFLAGS += -v\nendif\n"},  # so does a Makefile
+        {"scripts/run.sh": 'if [ -n "$ACME_TRACE" ]; then set -x; fi\n'},  # and a script
     ],
 )
-def test_a_name_with_any_occurrence_resolves(tmp_path, extra):
+def test_a_switch_some_code_reads_resolves(tmp_path, extra):
     prompt = "acme already prints every query when ACME_TRACE=1 is set, so switch that on in CI."
     assert not _check(_repo(tmp_path, extra), prompt).missing
+
+
+ALREADY = "acme already prints every query when ACME_TRACE=1 is set, so switch that on in CI."
+
+
+@pytest.mark.parametrize(
+    "extra, where",
+    [
+        ({"docs/ops.md": "Set `ACME_TRACE=1` to print queries.\n"}, "docs/ops.md"),
+        ({".env.example": "ACME_TRACE=0\n"}, ".env.example"),
+        ({".github/workflows/nightly.yml": "env:\n  ACME_TRACE: 1\n"}, ".github/workflows/nightly.yml"),
+    ],
+)
+def test_a_switch_said_to_work_already_that_only_non_code_mentions_is_noted(tmp_path, extra, where):
+    found = _check(_repo(tmp_path, extra), ALREADY)
+    assert [a.name for a in found.missing] == ["ACME_TRACE"]
+    assert found.note == (
+        f"`ACME_TRACE` appears only in {where}, and no code in this repository reads it; the behaviour the "
+        "request assumes may not exist — verify before building on it, and tell the user if it doesn't."
+    )
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "acme is supposed to print every query when `query_trace` is on; enable it in service.toml.",
+        "The `query_trace` setting should already make acme print every query; enable it.",
+        "acme currently prints every query when the existing `query_trace` key is on. Use it.",
+    ],
+)
+def test_every_existing_behaviour_phrasing_counts(tmp_path, prompt):
+    repo = _repo(tmp_path, {"service.toml": "[http]\n  query_trace = false\n"})
+    assert _check(repo, prompt).only_in == {"query_trace": ["service.toml"]}
+
+
+def test_a_switch_only_config_mentions_is_not_noted_without_an_existing_behaviour_claim(tmp_path):
+    repo = _repo(tmp_path, {"service.toml": "[http]\n  query_trace = false\n"})
+    assert not _check(repo, "Use the `query_trace` setting from service.toml for this.").missing
+
+
+@pytest.mark.parametrize(
+    "extra, prompt",
+    [
+        (
+            {"tsconfig.json": '{"compilerOptions": {"strictNullChecks": true}}\n'},
+            "The existing `strictNullChecks` option already catches this; keep it on.",
+        ),
+        (
+            {"pyproject.toml": "[tool.acmelint]\nmax_depth = 3\n"},
+            "The existing `max_depth` setting already limits nesting; lower it to 2.",
+        ),
+        (
+            {"package.json": '{"scripts": {"lint_all": "eslint ."}}\n'},
+            "The existing `lint_all` script already lints everything; run it in CI.",
+        ),
+    ],
+)
+def test_a_key_a_tool_reads_is_never_a_premise(tmp_path, extra, prompt):
+    assert not _check(_repo(tmp_path, extra), prompt).missing
+
+
+@pytest.mark.parametrize(
+    "name", ["NODE_OPTIONS", "PYTHONWARNINGS", "GITHUB_TOKEN", "NO_COLOR", "PYTEST_ADDOPTS"]
+)
+def test_a_runtime_or_tool_environment_variable_is_never_a_premise(tmp_path, name):
+    prompt = f"The test job already sets {name}=1 and relies on it; keep that working."
+    assert not _check(_repo(tmp_path), prompt).missing
+
+
+def test_a_symbol_or_a_path_only_docs_mention_is_not_a_switch(tmp_path):
+    """A removed method the changelog mentions resolves: the switch rule is for switches."""
+    repo = _repo(tmp_path, {"CHANGELOG.md": "Removed `Store.shift()`; see scripts/old_tool.py.\n"})
+    prompt = "Build it on the existing Store.shift() helper and the existing scripts/old_tool.py."
+    assert not _check(repo, prompt).missing
 
 
 def test_a_member_resolves_through_code_but_not_through_prose(tmp_path):
@@ -99,11 +173,21 @@ def test_a_member_resolves_through_code_but_not_through_prose(tmp_path):
     assert not _check(in_changelog, prompt).missing  # an occurrence anywhere: precision first
 
 
-def test_flags_and_config_keys_resolve_where_they_are_defined(tmp_path):
+def test_flags_and_config_keys_resolve_where_code_reads_them(tmp_path):
     flagged = _repo(tmp_path / "a", {"acme/cli.py": "parser.add_argument('--dry-run')\n"})
     assert not _check(flagged, "Pass the --dry-run flag when the job syncs.").missing
-    keyed = _repo(tmp_path / "b", {"service.toml": "[http]\nretry_budget = 3\n"})
+    keyed = _repo(
+        tmp_path / "b",
+        {
+            "service.toml": "[http]\n  retry_budget = 3\n",
+            "acme/settings.py": "BUDGET = CONFIG['retry_budget']\n",
+        },
+    )
     assert not _check(keyed, "Use the existing `retry_budget` setting for this.").missing
+    unread = _repo(tmp_path / "c", {"service.toml": "[http]\n  retry_budget = 3\n"})
+    assert _check(unread, "Use the existing `retry_budget` setting for this.").only_in == {
+        "retry_budget": ["service.toml"]
+    }
 
 
 # -- what is not ----------------------------------------------------------------------------------
