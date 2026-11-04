@@ -1577,17 +1577,30 @@ Stage 2 implements the **core** side only. Status values: **done** · **partial*
 Every commit on this branch leaves `.venv/bin/pytest -q` and `.venv/bin/ruff check src tests` green.
 
 <!-- S2-STATUS-TABLE -->
+Branch state: merged `integration/overnight` at `e087bf5`. This brings in the Claude and Codex adapters, their plugins, and the adapter halves of G1, A5, G10, H5 (matcher), R9 and R10, all done by the adapter builders.
+
+The core items run in five parallel clusters, each working in a `/tmp` copy and applied here one patch at a time:
+- **gate:** verify, intent and engine;
+- **asks:** validate and challenge;
+- **hosts:** core hosts, adapter rendering, daemon and CI;
+- **repo:** index and evidence;
+- **store:** store, config and cli.
+
 | ID | Item | Status | Commit | Notes |
 |---|---|---|---|---|
-| C1 | Census beyond §3 (`EXTENDED_TAXONOMY`), risky commands counted, regression rationale corrected | done | 291f9b8 | The SPEC is untouched: the extension is code-only and reported in its own section (user decision flagged). |
-| R3 | Missing tree-sitter visible | partial | c04792c | Tests now skip without the extra instead of failing. `doctor` warning pending. README install line → lead. |
-| H1 | HostCapabilities + rendering ladder | partial | 8c367e4 | `Decision.signoff_required` added and set on every irreversible-command review. Ladder pending. |
-| G1 | Failing runs reach the gate | handed off (adapter) + core pending | — | Adapter: subscribe `PostToolUseFailure`, translate `error` → `{"stdout", "exit_code", "interrupted"}` (docs/ADAPTER-CONTRACT.md). |
-| A5 | MODIFY safety | adapter half handed off | — | Adapter: never `defer`; render through the H1 ladder. |
-| G10, R2 | systemMessage; Windows shim | handed off (adapter) | — | Windows is unsupported this release; must fail open. |
-| H5 (matcher), R9/R10 (shim halves) | — | handed off (adapter) | — | — |
-| M1, M2, M3, M4, M9 | Benchmark items | handed off (benchmark builder) | — | `src/agentguard/bench/**` and `bench/**` are off-limits here. |
-| M5 | Transcript replay | out of scope | — | Reading the user's transcripts for labelling needs the user's consent. |
+| C1 | Census beyond §3 (`EXTENDED_TAXONOMY`), risky commands counted, regression rationale corrected | done | 291f9b8 | The SPEC is untouched (user decision flagged). |
+| R3 | Missing tree-sitter visible | partial | c04792c | Tests skip without the extra. The `doctor` warning is in progress (store cluster); the README install line is the lead's. |
+| H1 | HostCapabilities + rendering ladder, end to end | partial | 8c367e4 | `Decision.signoff_required` is done. The ladder is in progress (hosts cluster). |
+| G2a, G3a, G1-core, G3b, G6, G4a, G5, G15, G7, G9, G10-core, H3, H5-core, H2, R4 | Completion-gate cluster + engine-side host items | in progress (gate) | — | — |
+| A1, A5-core, A4, R13, A2, A10, A8, A9, A3, A11 | Asks cluster | in progress (asks) | — | — |
+| H4, R16, R9-core, M6, M8 | Adapter registry + host-neutral lint, auth bytes, degraded health, CI, latency tests | in progress (hosts) | — | — |
+| R5, G5-support, R12, R18, E1, R15 | Index, scanner and evidence precision | in progress (repo) | — | — |
+| R7, R1-store, R17, R11 | Store hygiene, degraded store, redaction, config/doctor | in progress (store) | — | — |
+| R1-engine, R6, R14, R8, G2b, G8, G16, G4b, G11, G12, G13, G14, A6, A7, H6, H7, H8 | Later items | not started | — | — |
+| G1/A5/G10/H5/R9/R10 adapter halves | — | done by the adapter builders | e087bf5 (merge) | — |
+| R2 | Windows shim | out of scope | — | Windows is unsupported this release; it must fail open. |
+| M1, M2, M3, M4, M9 | Benchmark items | handed off (benchmark builder) | — | — |
+| M5 | Transcript replay | out of scope | — | Needs the user's consent. |
 <!-- /S2-STATUS-TABLE -->
 
 ---
