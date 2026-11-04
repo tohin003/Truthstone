@@ -47,9 +47,9 @@ ACCOUNTS: dict[str, Path] = {
     "work": Path.home() / ".claude-work",
     "personal": Path.home() / ".claude-personal",
 }
-CLAUDE_PLUGIN_RELATIVE = "plugins/truthstone-claude"
-ENV_RUNTIME_SPEC = "TRUTHSTONE_RUNTIME_SPEC"
-ENV_UV = "TRUTHSTONE_UV"
+CLAUDE_PLUGIN_RELATIVE = naming.CLAUDE_PLUGIN_RELATIVE
+ENV_RUNTIME_SPEC = naming.ENV_RUNTIME_SPEC
+ENV_UV = naming.ENV_UV
 ISOLATION_FLAGS = ["--setting-sources", "project", "--strict-mcp-config"]
 # The permission setup (pre-registered): ``dontAsk`` turns every prompt into a refusal, so
 # a guard's "ask" is deterministically a refusal the model reads (nobody is there to say
@@ -526,7 +526,7 @@ class TruthstoneClaudePlugin:
     a local path, so nothing comes from GitHub), and its spec is checked before every cell.
     """
 
-    name = "truthstone-claude-plugin"
+    name = f"{naming.PRODUCT}-claude-plugin"
     adapter = "claude-code"
 
     def __init__(

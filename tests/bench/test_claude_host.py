@@ -421,9 +421,20 @@ def test_an_observe_arm_that_injects_context_halts(tmp_path):
 def test_a_claude_plan_names_accounts_and_keeps_codex_digests_stable():
     with pytest.raises(ValueError, match="accounts"):
         _claude_plan(accounts=[])
-    # The registered Codex smoke plan still loads: its recorded digest matches its contents.
+    # The Codex smoke plan registered before the product rename still loads, and its
+    # recorded digest is reproduced under the former name's spelling of the build-ref field.
     smoke = Plan.load(suite.BENCH_ROOT / "plans" / "codex-smoke.json")
-    assert smoke.host == "codex" and smoke.digest().startswith("008142a8")
+    assert smoke.host == "codex" and smoke.digest(spelling=1).startswith("008142a8")
+    assert smoke.registered_digests()[1] == smoke.digest(spelling=1)
+    tampered = json.loads((suite.BENCH_ROOT / "plans" / "codex-smoke.json").read_text())
+    tampered["plan"]["seed"] += 1
+    with pytest.raises(ValueError, match="digest"):
+        path = suite.BENCH_ROOT / "plans" / "tampered.json"
+        try:
+            path.write_text(json.dumps(tampered))
+            Plan.load(path)
+        finally:
+            path.unlink(missing_ok=True)
     with pytest.raises(ValueError):
         _claude_plan().budget_policy()
     assert _claude_plan().account_policy().start_max_session == 98.0

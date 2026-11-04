@@ -1,20 +1,21 @@
-"""Every product-specific name the Codex benchmark depends on, in one place.
+"""Every product-specific name the benchmark depends on, in one place.
 
-The product is due to be renamed. Nothing else in `truthstone.bench.codex` may spell the
-working name, its environment variables, its plugin id or the text its reasons carry:
-they all come from here, and the core ones are imported from `core.config`, so a rename
-is one edit in each of two files rather than a search through the harness.
+The product is Truthstone (previously named AgentGuard). Nothing else in
+`truthstone.bench.codex` may spell its name, its environment variables, its plugin ids or
+the text its reasons carry: they all come from here, derived from `truthstone.names` (the
+product's own record of its names) and `core.config`.
 """
 
 from __future__ import annotations
 
 import re
 
+from truthstone import names as _names
 from truthstone.core import config as _core_config
 
-# Working name. The display form is what the product's own messages say.
-PRODUCT = "truthstone"
-PRODUCT_DISPLAY = "Truthstone"
+# The name. The display form is what the product's own messages say.
+PRODUCT = _names.SLUG
+PRODUCT_DISPLAY = _names.DISPLAY
 
 # Environment variables the product reads. Imported, never re-spelled.
 ENV_HOME = _core_config.ENV_HOME  # per-arm state directory
@@ -39,10 +40,18 @@ MODEL_VISIBLE_MARKER = re.compile(re.escape(PRODUCT_DISPLAY), re.IGNORECASE)
 # on purpose: the agent can read its environment, and this must not announce a benchmark.
 ENV_RECORD_DIR = "HOOK_TRACE_DIR"
 
-# Environment the plugin's launcher reads (plugins/truthstone/hooks/truthstone-hook.sh).
-ENV_CODEX_HOOK = "TRUTHSTONE_CODEX_HOOK"
-ENV_NO_BOOTSTRAP = "TRUTHSTONE_NO_BOOTSTRAP"
-HOOK_RUNTIME_SCRIPT = "truthstone-codex-hook"
+# Environment the Codex plugin's launcher reads (plugins/<name>/hooks/<name>-hook.sh).
+ENV_CODEX_HOOK = f"{_names.UPPER}_CODEX_HOOK"
+ENV_NO_BOOTSTRAP = f"{_names.UPPER}_NO_BOOTSTRAP"
+HOOK_RUNTIME_SCRIPT = f"{PRODUCT}-codex-hook"
+CODEX_LAUNCHER = f"{PRODUCT}-hook.sh"  # inside the plugin's hooks/ directory
 CLI_SCRIPT = PRODUCT
 MARKETPLACE_NAME = PRODUCT
 PLUGIN_ID = f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"
+
+# The Claude Code plugin (loaded per session with --plugin-dir) and what its hook.sh reads:
+# the runtime to install (a local path means an editable install of the build under test)
+# and the uv to install it with.
+CLAUDE_PLUGIN_RELATIVE = f"plugins/{PRODUCT}-claude"
+ENV_RUNTIME_SPEC = f"{_names.UPPER}_RUNTIME_SPEC"
+ENV_UV = f"{_names.UPPER}_UV"

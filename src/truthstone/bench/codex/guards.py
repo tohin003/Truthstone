@@ -629,7 +629,7 @@ class TruthstonePlugin:
         def send(event: str, arg: str, **fields: Any) -> str:
             payload = json.dumps({**base, "hook_event_name": event, **fields})
             proc = subprocess.run(
-                ["/bin/sh", str(ctx.plugin_root / "hooks" / "truthstone-hook.sh"), arg],
+                ["/bin/sh", str(ctx.plugin_root / "hooks" / naming.CODEX_LAUNCHER), arg],
                 input=payload,
                 capture_output=True,
                 text=True,

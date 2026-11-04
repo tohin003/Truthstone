@@ -16,10 +16,11 @@ from __future__ import annotations
 import hashlib
 import json
 import random
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from truthstone import names
 from truthstone.bench.codex.limits import BudgetPolicy
 
 STAGES = ("pilot", "main", "smoke", "dry-run")
@@ -122,13 +123,22 @@ class Plan:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-    def digest(self) -> str:
+    def digest(self, spelling: int = 0) -> str:
+        """SHA-256 of the canonical plan. ``spelling`` 0 spells product-named fields (the
+        build ref) with the current product name; 1.. with each former name, which is how
+        a plan registered before the rename was digested."""
         data = self.to_dict()
         for key, default in _LATER_FIELDS.items():
             if data.get(key) == default:
                 data.pop(key)
+        if spelling:
+            data = {_spelled(key, spelling): value for key, value in data.items()}
         canonical = json.dumps(data, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).hexdigest()
+
+    def registered_digests(self) -> list[str]:
+        """This plan's digest as written now and as written under each former name."""
+        return [self.digest(i) for i in range(len(names.FORMER) + 1)]
 
     def save(self, path: Path) -> None:
         payload = {"plan": self.to_dict(), "digest": self.digest()}
@@ -137,7 +147,18 @@ class Plan:
     @classmethod
     def load(cls, path: Path) -> Plan:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        plan = cls(**payload["plan"])
-        if payload.get("digest") and payload["digest"] != plan.digest():
+        known = {f.name for f in fields(cls)}
+        data = {}
+        for key, value in payload["plan"].items():
+            current = next((f for f in known if key in names.variants(f)), key)
+            data[current] = value
+        plan = cls(**data)
+        if payload.get("digest") and payload["digest"] not in plan.registered_digests():
             raise ValueError(f"{path}: the plan's recorded digest does not match its contents")
         return plan
+
+
+def _spelled(key: str, spelling: int) -> str:
+    """``key`` as the ``spelling``-th former product name wrote it (unchanged if unnamed)."""
+    spelled = names.variants(key)
+    return spelled[spelling] if spelling < len(spelled) else key
