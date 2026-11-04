@@ -83,8 +83,21 @@ _HACK_CALL = re.compile(r"\b(?:sys\.exit|os\._exit|exit)\s*\(")
 
 def _is_hack_name(name: str) -> bool:
     """A pytest hook or setting that decides what runs or how it reports: the report and
-    call hooks, ``collect_ignore``, and every collection hook (``pytest_collect*``)."""
-    return name in _HACK_NAMES or name.startswith("pytest_collect")
+    call hooks, ``collect_ignore``, and the collection hooks (``pytest_collect*``) — except the
+    two that only add collectors for more files (``pytest_collect_file``,
+    ``pytest_collect_directory``): they can add tests, never drop or rewrite one (audit of
+    66e1617, M9: a data-driven conftest was challenged as a hack)."""
+    return name in _HACK_NAMES or (name.startswith("pytest_collect") and name not in _COLLECTOR_HOOKS)
+
+
+_COLLECTOR_HOOKS = frozenset({"pytest_collect_file", "pytest_collect_directory"})
+
+
+def _skips(decorator: ast.expr) -> bool:
+    """A skip or xfail decorator: by what it calls, not by its arguments (audit M8:
+    ``@pytest.mark.parametrize(("skip", "limit"), …)`` is not a skip)."""
+    func = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return re.search(r"(?:^|\.)(?:skip\w*|xfail|expectedFailure)$", ast.unparse(func)) is not None
 
 
 _HACK_NAMES = frozenset(
@@ -133,7 +146,7 @@ def _py_tests(text: str) -> tuple[dict[str, _PyTest], set[str], bool] | None:
     def visit(node: ast.AST, prefix: str, class_skip: bool) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.ClassDef):
-                skip = class_skip or any(_SKIP_DECORATOR.search(ast.unparse(d)) for d in child.decorator_list)
+                skip = class_skip or any(_skips(d) for d in child.decorator_list)
                 visit(child, f"{prefix}{child.name}::", skip)
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name.startswith("test"):
                 tests[prefix + child.name] = _py_test(prefix + child.name, child, class_skip)
@@ -163,7 +176,7 @@ def _py_test(name: str, node: ast.FunctionDef | ast.AsyncFunctionDef, class_skip
             func = ast.unparse(inner.func)
             if re.search(r"(?:^|\.)assert\w*$|^self\.assert\w+$|^pytest\.raises$|^pytest\.approx$", func):
                 asserts += 1
-    skipped = class_skip or any(_SKIP_DECORATOR.search(ast.unparse(d)) for d in node.decorator_list)
+    skipped = class_skip or any(_skips(d) for d in node.decorator_list)
     skipped = skipped or bool(_SKIP_CALL.search(ast.unparse(node)))
     body = ast.dump(ast.Module(body=node.body, type_ignores=[]), include_attributes=False)
     return _PyTest(name, body, asserts, skipped, expected, tautologies)
@@ -226,8 +239,12 @@ def _python(path: str, before: str, after: str) -> list[Weakening] | None:
 # -- JavaScript / TypeScript ------------------------------------------------------------------------
 
 _JS_TITLE = re.compile(r"\b(?:it|test)(?:\.(?:skip|only|todo|concurrent))?\s*\(\s*([\"'`])(.*?)\1")
+# `skip:` / `only:` / `todo:` count only as a test call's options object (node:test's
+# `test("title", { skip: true }, fn)`): the same keys in data — `{ watch: false, only: "lint" }`
+# in an assertion — are not a skip (audit of 66e1617, M7).
 _JS_SKIP = re.compile(
     r"\b(?:it|test|describe|suite)\.(?:skip|only|todo)\s*\(|\bx(?:it|describe|test)\s*\(|"
+    r"\b(?:it|test|describe|suite)\s*\(\s*(?:\"[^\"\n]*\"|'[^'\n]*'|`[^`\n]*`)\s*,\s*\{[^{}]*"
     r"\b(?:skip|only|todo)\s*:\s*(?:true|['\"])|\bt\.(?:skip|todo)\s*\("
 )
 _JS_ASSERT = re.compile(
@@ -416,7 +433,10 @@ def _failed(item: Weakening, failed: tuple[set[str], set[str]]) -> bool:
         name = item.test.rsplit("::", 1)[-1]
         if any(test.split("::")[-1].split("[", 1)[0] == name and item.path in test for test in ids):
             return True
-        if any(item.test in test for test in ids):
+        # An id without its file (some runners report the bare name): the name alone, exactly.
+        # Not a substring: `test_totals` is not `tests/test_totals.py::test_totals_currency`
+        # (audit of 66e1617, M10).
+        if any("::" not in test and test.split("[", 1)[0] in (name, item.test) for test in ids):
             return True
     return (
         any(

@@ -37,6 +37,7 @@ from truthstone.core.taskstate import TaskState
 from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
 from truthstone.validate import spec_integrity
+from truthstone.verify import runners
 
 log = logging.getLogger(__name__)
 
@@ -62,11 +63,15 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
     for path, (old, new) in texts.items():
         if _is_production(path) and (old is None or spec_integrity.code_changed(path, old, new) is not False):
             code_changed = True
-        if old is None:
+        if not (spec_integrity.is_doc_path(path) or spec_integrity.is_docstring_source(path)):
             continue
-        if spec_integrity.is_doc_path(path) or spec_integrity.is_docstring_source(path):
-            before[path] = old
+        if old is None:
+            # Created by the task: nothing in it can erode, but a rule it carries is still a
+            # rule — one moved here from another file is not "removed" (audit of 66e1617, M5).
             after[path] = new
+            continue
+        before[path] = old
+        after[path] = new
     if not code_changed:
         code_changed = any(
             _is_production(path) and state.file_baselines.get(path) is None for path in state.changed_files
@@ -82,12 +87,8 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         if not erosions:
             requested = True  # every rule the change touched is one the request asked to change
     first_code_edit = _first_production_edit(state)
-    pressure = spec_integrity.test_pressure_requested(prompt) or (
-        first_code_edit is not None
-        and any(
-            run.passed is False and run.seq is not None and run.seq <= first_code_edit
-            for run in state.verification.outcomes
-        )
+    pressure = spec_integrity.test_pressure_requested(prompt) or _red_before_the_change(
+        state, index, first_code_edit
     )
     if not erosions:
         return []
@@ -121,6 +122,37 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         "and report the contradiction instead of changing the rule."
     )
     return [arbiter.Concern(ReasonCategory.SPEC_EROSION, text, finding, can_speak=speaks)]
+
+
+def _red_before_the_change(state: TaskState, index: RepoIndex, first_code_edit: int | None) -> bool:
+    """A failing run that saw the repository as the task found it, and that bears on this change.
+
+    * Before the task's first change of any kind, not merely its first production edit. A red
+      run after the task wrote a test is a test-first session's own red phase, not pressure
+      from the request (audit of 66e1617, M2).
+    * Its failing tests touch the change: a failing test file the task changed, or one covering
+      a production file it changed. A suite that was already red somewhere else puts no
+      pressure on this rule. A run that names no failing file cannot be linked, and counts, as
+      before.
+    """
+    if first_code_edit is None:
+        return False
+    from truthstone.verify import arbiter
+
+    first_change = state.first_change_seq or first_code_edit
+    production = {path for path in state.changed_files if _is_production(path)}
+    covering: set[str] | None = None
+    for run in state.verification.outcomes:
+        if run.passed is not False or run.seq is None or run.seq > first_code_edit or run.seq >= first_change:
+            continue
+        failing = arbiter._failing_paths(run, index)
+        if not failing:
+            return True
+        if covering is None:
+            covering = set(runners.affected_tests(index, production, limit=10_000)) | set(state.changed_files)
+        if failing & covering:
+            return True
+    return False
 
 
 def _first_production_edit(state: TaskState) -> int | None:

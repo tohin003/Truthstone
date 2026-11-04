@@ -143,6 +143,9 @@ IntegrityCheck = Callable[[TaskState, RepoIndex], list[Concern]]
 
 # One Stop reads each changed file once, however many checks ask (``changed_texts``).
 _TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("truthstone_stop_texts", default=None)
+# At most this many changed files are compared at Stop (each read up to 512 KB): beyond it the
+# integrity checks see nothing more, which can only make them quieter.
+MAX_COMPARED_FILES = 400
 
 
 def _integrity_checks() -> list[IntegrityCheck]:
@@ -517,10 +520,19 @@ def _related(failing: set[str], state: TaskState, index: RepoIndex) -> bool:
 # -- disclosure -------------------------------------------------------------------------------
 
 _FAIL_WORD = re.compile(r"\b(?:fail(?:s|ed|ing|ures?)?|red|broken|erroring|errors?)\b", re.I)
+# "was failing" is history (the failure is gone); "was already failing" is not: it says the
+# failure is older than the change, and still there (audit of 66e1617, M11).
 _NOT_A_DISCLOSURE = re.compile(
     r"\b(?:no|zero|0|without|none|nothing|never)\s+(?:\w+\s+){0,2}?(?:fail\w*|errors?|red|broken)\b"
-    r"|\b(?:was|were|had\s+been|previously|used\s+to|no\s+longer)\s+(?:\w+\s+){0,2}?(?:fail\w*|red|broken)\b"
+    r"|\b(?:was|were|had\s+been|previously|used\s+to|no\s+longer)\s+(?:(?!already\b)\w+\s+){0,2}?"
+    r"(?:fail\w*|red|broken)\b"
     r"|\b(?:fix(?:ed|es)?|resolv(?:ed|es)|repair(?:ed|s)?)\s+(?:\w+\s+){0,3}?(?:fail\w*|errors?)\b",
+    re.I,
+)
+# A failure the message says predates the change: disclosed, whatever else the sentence says.
+_PREEXISTING = re.compile(
+    r"\bpre-?existing\b|\balready\s+(?:\w+\s+){0,2}?(?:fail\w*|red|broken)\b"
+    r"|\bfail\w*\s+(?:\w+\s+){0,3}?before\s+(?:this|my|the|any|these)\s+(?:\w+\s+)?change",
     re.I,
 )
 _NUMBER_WORDS = {
@@ -552,7 +564,9 @@ def disclosed_failure(message: str | None, failure: runners.TestOutcome) -> bool
         return False
     text = message[: claims.MAX_MESSAGE]
     for sentence in _SENTENCES.split(text):
-        if _FAIL_WORD.search(sentence) and not _NOT_A_DISCLOSURE.search(sentence):
+        if not _FAIL_WORD.search(sentence):
+            continue
+        if _PREEXISTING.search(sentence) or not _NOT_A_DISCLOSURE.search(sentence):
             return True
     if failure.failed:
         counts = {_number(match) for match in _COUNT.findall(text)}
@@ -609,12 +623,22 @@ def changed_texts(state: TaskState, index: RepoIndex) -> dict[str, tuple[str | N
     out: dict[str, tuple[str | None, str | None]] = {}
     if cache is not None:
         cache["texts"] = out
+    compared = 0
     for path in sorted(state.changed_files):
         old = baseline.before_text(state, path)
+        if old is None:
+            # Only a file the task created can still be compared; a file changed by a shell
+            # command (no baseline) is not read at all — a formatter run over the whole tree
+            # made Stop read every file (audit of 66e1617).
+            base = state.file_baselines.get(path)
+            if base is None or base.exists or base.changed_before:
+                continue
+        compared += 1
+        if compared > MAX_COMPARED_FILES:
+            break  # bounded: the rest stay uncompared, which means silence
         exists, new = baseline.current_text(index.root, path)
         if old is None:
-            base = state.file_baselines.get(path)
-            if base is not None and not base.exists and not base.changed_before and new is not None:
+            if new is not None:
                 out[path] = (None, new)  # created by the task
             continue
         if not exists:

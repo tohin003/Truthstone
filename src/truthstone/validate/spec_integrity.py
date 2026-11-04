@@ -524,7 +524,9 @@ def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[s
             if owners_after is not None and sentence.owner not in owners_after:
                 continue  # the function or class it documented is gone: it went with its code
             tokens = _code_tokens(sentence.text)
-            if tokens & targets:
+            # A target the request renames or removes, named in the rule as code or as prose
+            # ("The max_items setting must be …"): the rule went with its name (audit M4).
+            if tokens & targets or any(_mentions(sentence.text, target) for target in targets):
                 continue
             if any(
                 _mentions(before_text_all, token) and not _mentions(after_text_all, token) for token in tokens
@@ -537,12 +539,19 @@ def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[s
     return out
 
 
+def _wordy(words: frozenset[str] | set[str]) -> set[str]:
+    """Content words without numbers: a bound that moved ("at most 50%" -> "at most 60%") is the
+    same rule with a new value, so its number must not cost the match (audit of 66e1617, M3)."""
+    return {word for word in words if not any(ch.isdigit() for ch in word)}
+
+
 def _counterpart(sentence: Sentence, markers: frozenset[str], pool: _Pool) -> tuple[str, str]:
     content = _content(sentence.text)
+    words = _wordy(content) or set(content)
     best, best_score = None, 0.0
     for marker in markers:
         for candidate in pool.by_marker.get(marker, ()):
-            score = len(content & _content(candidate.text)) / len(content) if content else 1.0
+            score = len(words & _content(candidate.text)) / len(words) if words else 1.0
             if score > best_score:
                 best, best_score = candidate, score
     if best is None or best_score < KEEP_OVERLAP:
@@ -655,10 +664,16 @@ def doc_change_requested(prompt: str | None) -> bool:
     return bool(_NOUN_THEN_VERB.search(text))
 
 
+# The request is about failing tests: they fail, they are red, or the request asks to make them
+# pass. Not routine wording (audit of 66e1617, M1): "… and make sure the tests still pass" ends
+# half of all ordinary requests, and "add tests for the error cases" names errors, not a red
+# suite. So the "make … pass" form needs the verb to govern the suite directly ("get the suite
+# green", "make the tests pass", "bring CI back to green"), and "errors" is not a failure word.
 _PRESSURE = re.compile(
-    r"\b(?:tests?|suite|specs?|ci|build|checks?)\b[^.!?\n]{0,60}?\b(?:fail(?:s|ing|ed)?|failures?|red|broken|errors?)\b"
+    r"\b(?:tests?|suite|specs?|ci|build|checks?)\b[^.!?\n]{0,60}?\b(?:fail(?:s|ing|ed)?|failures?|red|broken)\b"
     r"|\b(?:fail(?:s|ing|ed)?|failures?|broken)\b[^.!?\n]{0,40}?\b(?:tests?|suite|specs?)\b"
-    r"|\b(?:get|make|turn|bring)\b[^.!?\n]{0,40}?\b(?:green|pass(?:ing)?)\b",
+    r"|\b(?:get|make|turn|bring)\s+(?:it|them|(?:the\s+|all\s+(?:the\s+)?|our\s+)?"
+    r"(?:tests?|suite|build|ci|specs?|checks?))\s+(?:back\s+)?(?:to\s+)?(?:green|pass(?:ing)?)\b",
     re.IGNORECASE,
 )
 

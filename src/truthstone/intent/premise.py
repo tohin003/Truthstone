@@ -16,8 +16,11 @@ on routine work.
 
 * **Only asserted names.** A code-like name (an environment variable, a dotted or called
   symbol, a backticked name, a ``--flag``, a path) counts only in a sentence that asserts it
-  exists: "already", "existing", "use/call/reuse/build on/on top of", "the … helper, flag,
-  setting …", or a request to switch a named setting on ("enable", "turn/switch … on", "set").
+  exists: "already", "existing", "reuse/build on/on top of", "the … helper, flag, setting …",
+  or a request to switch a named setting on ("enable", "turn/switch … on", "set").
+* **Never an API the request adopts.** "Use `Decimal`", "call `logger.warning`", "use
+  `structuredClone`": telling the agent to use or call a name is how a request brings in the
+  standard library's, the runtime's or a dependency's API, which no repository defines.
 * **Never a name being created.** "add", "implement", "create", "introduce", "new", "define",
   "declare", "support", "rename … to", "becomes" just before the name: the request is to make
   it, and of course it is not there yet.
@@ -36,7 +39,9 @@ on routine work.
 * **Never another program's switch.** Keys of tool-owned configuration (``tsconfig.json``,
   ``package.json``, ``pyproject.toml``, lint and test-runner configs: the tool reads them) and
   well-known runtime and tool environment variables (``NODE_*``, ``PYTHON*``, ``CI``,
-  ``GITHUB_*``, ``DEBUG``, ``NO_COLOR``…) never get a note.
+  ``GITHUB_*``, ``DEBUG``, ``NO_COLOR``…) never get a note. Nor does a ``--flag`` in a
+  sentence that names the program it belongs to ("the `--cov` flag … pytest-cov", "when
+  running node --test"), unless the request says the behaviour works today.
 * **External things are skipped:** URLs, package specs (``@scope/pkg``, ``node:fs``), HTTP
   headers, versions, dates, numbers.
 * Silent while the index is not built, and once per name per session (the caller keeps that).
@@ -44,6 +49,7 @@ on routine work.
 
 from __future__ import annotations
 
+import builtins
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -113,13 +119,6 @@ _CAMEL = re.compile(r"(?<![\w./-])([a-z]+(?:[A-Z][a-z0-9]+)+)(?![\w/-])")
 _PATH = re.compile(r"(?<![\w@:/.-])((?:\.{1,2}/)?(?:[\w.-]+/)+[\w.-]*)(?![\w/-])")
 _EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,6}$")
 
-# Existence, anywhere in the sentence: it says the name is there already, or asks to switch a
-# named setting on ("… when X=1 is set: turn that on").
-_EXISTS = re.compile(
-    r"\b(?:already|existing|currently|(?:is|are) supposed to|"
-    r"(?:switch|switches|switching|turn|turns|turning|flip|flipping)\b[^.?!\n]{0,40}?\bon)\b",
-    re.IGNORECASE,
-)
 # A sentence whose request is to make something ("Add …", "Please make it …"): only "already"
 # or "existing" right before a name can assert it there.
 _CREATING_SENTENCE = re.compile(
@@ -130,9 +129,26 @@ _CREATING_SENTENCE = re.compile(
     re.IGNORECASE,
 )
 # Existence, in the few words just before the name: "use X", "call X", "set X", "build it on X".
+#
+# Not "use", "call", "invoke" or "via" on their own: that is how a request tells the agent to
+# adopt an API — the standard library's, the runtime's, a dependency's ("use `Decimal`", "call
+# `logger.warning`", "use `structuredClone`") — and no repository defines those. A request that
+# rests on the repository having a name says so: "the existing X", "already", "reuse X",
+# "build it on X", "the X helper" (audit of 66e1617: 14 of 46 ordinary requests were noted).
 _EXISTS_NEAR = re.compile(
-    r"\b(?:already|existing|current|reuse|reuses|use|uses|using|call|calls|calling|invoke|via|"
+    r"\b(?:already|existing|current|reuse|reuses|"
     r"enable|on top of|based on|build (?:it |this |that )?(?:on|upon))\b",
+    re.IGNORECASE,
+)
+# A sentence that names the program a flag belongs to: "the `--cov` flag ... pytest-cov",
+# "when running node --test". That flag is the tool's switch, not the project's.
+_TOOL_NAMED = re.compile(
+    r"\b(?:pytest(?:-cov)?|py\.test|coverage|tox|nox|pipx?|uvx?|poetry|pdm|hatch|ruff|black|isort|"
+    r"flake8|pylint|mypy|pyright|npm|npx|yarn|pnpm|tsc|tsx|ts-node|jest|vitest|mocha|eslint|"
+    r"prettier|webpack|vite|esbuild|rollup|babel|git|gh|docker(?:-compose)?|kubectl|helm|terraform|"
+    r"cargo|rustc|mvn|gradle|dotnet|curl|wget|rsync)\b"
+    r"|\b(?:node|deno|bun|python3?)\s+(?:-m\s+\w|--?[a-z])"
+    r"|\bgo\s+(?:test|build|run|vet|mod)\b|\bmake\s+(?:check|test|lint|build|all|install|ci)\b",
     re.IGNORECASE,
 )
 # A kind noun after the name: "the X helper", "the --foo flag".
@@ -140,6 +156,35 @@ _KIND_NOUN = re.compile(
     r"\s*[`)]?\s*(?:helper|function|method|class|module|flag|option|switch|setting|key|"
     r"variable|env(?:ironment)? var(?:iable)?|config|command|subcommand)s?\b",
     re.IGNORECASE,
+)
+_SETTING_NOUN = re.compile(
+    r"\b(?:option|switch|setting|key|config|variable|env(?:ironment)? var(?:iable)?)s?\b", re.IGNORECASE
+)
+# Where a sentence moves from what is to what should be: "…; it should …", "…: …", "… but
+# must …". An existence word speaks for its own clause only, so the names of the requested
+# change ("…currently retries 3 times; it should honour `max_retries`") are not asserted.
+_CLAUSE_BREAK = re.compile(
+    r"[;:](?=\s)|\s[\u2014\u2013]\s|\s--\s|\b(?:but|should(?!\s+already)|must|needs?\s+to|has\s+to|have\s+to)\b",
+    re.IGNORECASE,
+)
+# "… when X=1 is set: turn that on" — a switch-on phrase points back across the sentence.
+_SWITCH_ON = re.compile(
+    r"\b(?:switch|switches|switching|turn|turns|turning|flip|flipping)\b[^.?!\n]{0,40}?\bon\b",
+    re.IGNORECASE,
+)
+# The language's own names, which no repository defines: Python's builtins and the globals of
+# JavaScript and its runtimes. ("`NaN`", "`Date` values", "returns `None`", "with `print`".)
+_LANGUAGE_NAMES = frozenset(n for n in dir(builtins) if not n.startswith("_")) | frozenset(
+    {
+        "Array", "ArrayBuffer", "BigInt", "Boolean", "Buffer", "DataView", "Date", "Error",
+        "EvalError", "Function", "Infinity", "Intl", "JSON", "Map", "Math", "NaN", "Number",
+        "Object", "Promise", "Proxy", "RangeError", "ReferenceError", "Reflect", "RegExp", "Set",
+        "String", "Symbol", "SyntaxError", "TypeError", "URIError", "URL", "URLSearchParams",
+        "WeakMap", "WeakRef", "WeakSet", "AbortController", "TextDecoder", "TextEncoder",
+        "console", "structuredClone", "fetch", "process", "queueMicrotask",
+        "setTimeout", "setInterval", "clearTimeout", "clearInterval", "undefined", "null",
+        "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent", "decodeURIComponent",
+    }
 )
 # Creation: the name is what the request makes.
 _CREATES = re.compile(
@@ -244,13 +289,16 @@ def _sentences(text: str) -> list[tuple[int, str]]:
 
 
 def _external(name: str) -> bool:
-    """Things a repository does not define: URLs, package specs, headers, versions, dates."""
+    """Things a repository does not define: URLs, package specs, headers, versions, dates, and
+    the language's own names (Python's builtins, the JavaScript globals)."""
     lowered = name.lower()
+    head = name.removesuffix("()").partition(".")[0]
     return (
         "://" in name
         or lowered.startswith(("www.", "node:", "@", "x-", "http"))
         or re.fullmatch(r"v?\d+(?:[.\-/]\d+)*\w*", name) is not None
         or (re.fullmatch(r"[A-Z/:\-]+", name) is not None and not _ENV.fullmatch(name))
+        or head in _LANGUAGE_NAMES
     )
 
 
@@ -287,20 +335,55 @@ def _candidates(sentence: str) -> list[tuple[int, Assertion]]:
             put(m.start(1), Assertion(m.group(1), "name", (m.group(1),)))
     for m in _BACKTICK.finditer(sentence):
         inner = m.group(1).strip()
-        if re.fullmatch(r"[A-Za-z_][\w-]*", inner) and len(inner) >= 3:
+        if re.fullmatch(r"[A-Za-z_][\w-]*", inner) and len(inner) >= 3 and not _WELL_KNOWN_ENV.match(inner):
             put(m.start(1), Assertion(inner, "name", (inner,)))
     return sorted(found.values(), key=lambda item: item[0])
+
+
+def _clause(sentence: str, offset: int, length: int) -> str:
+    """The clause of ``sentence`` the name at ``offset`` sits in (``_CLAUSE_BREAK``). A modal
+    starts the clause it introduces: "…; it should honour `max_retries`" puts the name with
+    "should", not with what came before."""
+    start, end = 0, len(sentence)
+    for match in _CLAUSE_BREAK.finditer(sentence):
+        if match.end() <= offset:
+            start = match.start()
+        elif match.start() >= offset + length:
+            end = match.start()
+            break
+    return sentence[start:end]
+
+
+def _clause_start(sentence: str, offset: int) -> int:
+    """Where the clause holding ``offset`` begins (see :func:`_clause`)."""
+    start = 0
+    for match in _CLAUSE_BREAK.finditer(sentence):
+        if match.end() > offset:
+            break
+        start = match.start()
+    return start
 
 
 def _window(before: str) -> str:
     return " ".join(_WORD.findall(before)[-4:])
 
 
-def _asserted(sentence: str, offset: int, name: str) -> bool:
-    """Whether this sentence asserts that ``name`` (at ``offset``) is already there."""
+def _asserted(sentence: str, offset: int, name: str, kind: str = "name") -> bool:
+    """Whether this sentence asserts that ``name`` (at ``offset``) is already there.
+
+    Switching a setting on ("enable X", "turn X on") asserts only an environment switch — the
+    shape of a premise about behaviour behind a named switch. Any other name a request switches
+    on is an option it adds, almost always a tool's (`strictNullChecks`, an eslint rule, a mypy
+    or pytest setting), which no repository defines until the change is made (audit of 66e1617:
+    12 of 22 ordinary enable/turn-on requests were noted). With "already", "existing",
+    "currently" or "is supposed to" the request does say the behaviour exists, for any name.
+    """
     before = sentence[:offset]
     after = sentence[offset + len(name) :]
-    window = _window(before)
+    clause = _clause(sentence, offset, len(name))
+    # The words just before the name, within its own clause: "src/x.ts already has `a`; add
+    # `b`" must not lend `a`'s "already" to `b` (audit of 66e1617).
+    window = _window(before[_clause_start(sentence, offset) :])
     if re.search(r"\b(?:already|existing)\b", window, re.IGNORECASE):
         return True  # "on top of the existing X": nearest word wins
     if name.startswith("--"):
@@ -311,13 +394,24 @@ def _asserted(sentence: str, offset: int, name: str) -> bool:
     # Creation binds tighter than the sentence: a creating word within the four words before.
     if _CREATES.search(window):
         return False
-    if _EXISTS_NEAR.search(window):
+    near = {match.lower() for match in _EXISTS_NEAR.findall(window)}
+    if near - {"enable"} or (near and kind == "env"):
         return True
     if _CREATING_SENTENCE.search(sentence):
         return False
-    if _KIND_NOUN.match(after) and re.search(r"\b(?:the|our|its|their|your)\s+\S*$", before, re.IGNORECASE):
-        return True  # "the X helper", "the --foo flag"
-    return _EXISTS.search(sentence) is not None
+    noun = _KIND_NOUN.match(after)
+    if noun and re.search(r"\b(?:the|our|its|their|your)\s+\S*$", before, re.IGNORECASE):
+        # "the X helper", "the --foo flag": the project's own. "the X setting / option" is
+        # as often a tool's (GitHub's `concurrency` setting, a compiler option), and "the X
+        # environment variable" is how a request introduces one ("read the timeout from the
+        # `X` environment variable"): those assert themselves only with an existing-behaviour
+        # word in their clause ("the existing X setting", "X already …").
+        if not _SETTING_NOUN.search(noun.group(0)):
+            return True
+        return _EXISTING_BEHAVIOUR.search(clause) is not None
+    if _EXISTING_BEHAVIOUR.search(clause):
+        return True  # "X currently …", "the X setting is supposed to …": in X's own clause
+    return kind == "env" and _SWITCH_ON.search(sentence) is not None
 
 
 def assertions(prompt: str) -> list[Assertion]:
@@ -326,8 +420,11 @@ def assertions(prompt: str) -> list[Assertion]:
     out: dict[str, Assertion] = {}
     for _start, sentence in _sentences(prompt or ""):
         existing = _EXISTING_BEHAVIOUR.search(sentence) is not None
+        tool_named = _TOOL_NAMED.search(sentence) is not None
         for offset, candidate in _candidates(sentence):
-            if _asserted(sentence, offset, candidate.name):
+            if candidate.kind == "flag" and tool_named and not existing:
+                continue  # another program's switch, unless the request says it works today
+            if _asserted(sentence, offset, candidate.name, candidate.kind):
                 candidate.existing = existing
                 out.setdefault(candidate.name, candidate)
             elif _CREATES.search(_window(sentence[:offset])):
@@ -418,6 +515,39 @@ def _tool_owned(path: str) -> bool:
 # The kinds a "switch nobody reads" note is about: not a symbol or a path.
 _SWITCH_KINDS = frozenset({"env", "name", "flag"})
 
+# Configuration the repository index skips: its top-level dot-files and its CI and tool
+# directories. Without them a name defined only in `.eslintrc.json`, `.prettierrc`,
+# `.env.example` or a workflow read as "appears nowhere" (audit of 66e1617).
+_DOT_DIRS = frozenset({".github", ".circleci", ".gitlab", ".husky", ".devcontainer", ".vscode"})
+# A real `.env` holds secrets: never read. Its documented templates are configuration.
+_REAL_ENV = re.compile(r"^\.env(?:\.(?!(?:example|sample|template|dist|defaults)$)[\w.-]+)?$", re.IGNORECASE)
+MAX_DOT_FILES = 200
+
+
+def dot_config_files(root: Path) -> list[str]:
+    """The dot-files the index does not list: ``root``'s own (``.eslintrc.json``,
+    ``.env.example`` …, never ``.env``) and those under ``.github/`` and the like. Bounded;
+    never raises."""
+    out: list[str] = []
+    try:
+        for entry in sorted(root.iterdir()):
+            name = entry.name
+            if not name.startswith(".") or name in (".git", ".hg", ".svn"):
+                continue
+            if entry.is_file() and not _REAL_ENV.match(name):
+                out.append(name)
+            elif entry.is_dir() and name in _DOT_DIRS:
+                for path in sorted(entry.rglob("*")):
+                    if len(out) >= MAX_DOT_FILES:
+                        return out
+                    if path.is_file():
+                        out.append(path.relative_to(root).as_posix())
+            if len(out) >= MAX_DOT_FILES:
+                break
+    except OSError:
+        pass
+    return out
+
 
 def resolve(
     assertions_: Iterable[Assertion], root: Path, files: Iterable[str]
@@ -431,6 +561,8 @@ def resolve(
     if not pending:
         return []
     files = list(files)
+    present = set(files)
+    files += [rel for rel in dot_config_files(root) if rel not in present]
     present = set(files)
     names = {p.rpartition("/")[2] for p in files}
     unresolved: list[Assertion] = []
@@ -456,6 +588,9 @@ def resolve(
     tails = {a.keys[-1] for a in unresolved if a.kind == "symbol" and len(a.keys) > 1}
     found: set[str] = set()  # in code, or in a tool's configuration: resolved
     elsewhere: dict[str, list[str]] = {}  # only in other files (config, data, docs, CI)
+    env_keys = {a.keys[0] for a in unresolved if a.kind == "env"}
+    from truthstone.validate import config_reads  # here: validate's package imports the engine's world
+
     budget = MAX_SCAN_BYTES
     for rel in files:
         if len(found) == len(patterns):
@@ -473,6 +608,9 @@ def resolve(
             continue
         code = _code_file(rel)
         read_here = code or _tool_owned(rel)
+        if code and env_keys - found:
+            # A settings class, a computed key, the whole environment: read, though not spelled.
+            found |= config_reads.indirect_reads(text, env_keys - found)
         for key, pattern in patterns.items():
             if key in found or key not in text:
                 continue
