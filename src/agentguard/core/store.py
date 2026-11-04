@@ -44,7 +44,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NamedTuple
 from urllib.parse import urlsplit, urlunsplit
 
 from agentguard.core.config import (
@@ -325,15 +325,221 @@ def project_identity(root: str | Path) -> ProjectIdentity:
     )
 
 
+# -- secret redaction (R17) ---------------------------------------------------------
+#
+# Prompts (kept 270 days), tool arguments, verification details and finding text all
+# reach this database, and agents handle credentials constantly: `curl -H "Authorization:
+# Bearer …"`, `.env` files, keys pasted into a prompt. Every text column is redacted on
+# the way in. Each rule is gated on a cheap substring test, so text with nothing
+# credential-shaped in it costs one `lower()` and a few `in` checks; every pattern is
+# linear (no nested quantifiers), and callers bound the input (`_redact_bounded`).
+
+REDACTED = "[REDACTED]"
+# Redact a little past a column's limit before cutting it, so a secret that straddles
+# the cut is still removed whole rather than leaving a recognisable prefix behind.
+_REDACT_MARGIN = 512
+# How much of a prompt is scanned for secrets to scrub from its derived task spec.
+_PROMPT_SCAN_LIMIT = 64 * 1024
+
+# Keyword rules are written once and compiled twice. The plain pattern scans
+# `text.lower()` (SRE cannot skip ahead through a case-insensitive alternation: 4.6 ms ->
+# 0.6 ms on 64 KB of source code); each hit is then re-matched, anchored, against the
+# original text with the IGNORECASE twin, so the output keeps the original casing.
+#
+# A secret-bearing key (`DB_PASSWORD`, `api_key`, `"client_secret"`, `GITHUB_TOKEN`) and
+# its value. The keyword must end the key, so `max_tokens=` and `tokenizer =` are left
+# alone; a `:` separator (YAML, JSON, Python annotations) needs a quoted or
+# secret-looking value, so `password: str` survives.
+_KV_SECRET = (
+    r"(password|passwd|passphrase|secret|token|api[_-]?key|access[_-]?key|"
+    r"secret[_-]?key|private[_-]?key|client[_-]?secret)"
+    r"([\"']?[ \t]*[:=][ \t]*)([\"']?)"
+    r"([^\s\"',;&<>{}\[\]()=][^\s\"',;&<>{}\[\]()]*)"
+)
+# Prose: "my db password hunter2-x". Only a value that contains a digit or a symbol, so
+# "password reset flow" and "password manager" are not touched.
+_PROSE_PASSWORD = r"\b(password|passwd|passphrase)\b([ \t]+(?:is[ \t]+)?)([^\s\"'`]{6,})"
+
+
+def _looks_secret(value: str) -> bool:
+    return len(value) >= 8 or any(c.isdigit() for c in value) or not value.isalnum()
+
+
+def _kv_replacement(match: re.Match[str]) -> str:
+    key, sep, quote, value = match.groups()
+    if match.string.startswith(REDACTED, match.end()):
+        return match.group(0)  # a token rule got here first: keep its "sk-[REDACTED]"
+    if ":" in sep and not quote and not _looks_secret(value):
+        return match.group(0)
+    return f"{key}{sep}{quote}{REDACTED}"
+
+
+def _prose_replacement(match: re.Match[str]) -> str:
+    word, gap, value = match.groups()
+    if REDACTED in value:
+        return match.group(0)
+    if any(c.isdigit() for c in value) or not value.isalnum():
+        return f"{word}{gap}{REDACTED}"
+    return match.group(0)
+
+
+def _keep_prefix(match: re.Match[str]) -> str:
+    return f"{match.group(1)}{REDACTED}"
+
+
+class _Rule(NamedTuple):
+    triggers: tuple[str, ...]  # lower-case substrings; the rule runs only if one occurs
+    pattern: re.Pattern[str]
+    replace: Any  # replacement string, or a function of the match
+    # Keyword rules only: `pattern` scans the lower-cased text, this re-matches each hit.
+    anycase: re.Pattern[str] | None = None
+
+
+def _keyword_rule(triggers: tuple[str, ...], source: str, replace: Any) -> _Rule:
+    return _Rule(triggers, re.compile(source), replace, re.compile(source, re.IGNORECASE))
+
+
+# Token rules start with their literal prefix and check the boundary in a lookbehind
+# *after* it, which lets SRE jump between occurrences of the prefix (~25x faster than a
+# leading lookbehind) while still refusing `task-…`, `mask-…` and other words.
+_SECRET_RULES: tuple[_Rule, ...] = (
+    _Rule(
+        ("private key-----",),
+        re.compile(
+            r"-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----|\Z)",
+            re.DOTALL,
+        ),
+        "[REDACTED PRIVATE KEY]",
+    ),
+    # Anthropic (sk-ant-…), OpenAI (sk-…, sk-proj-…) and look-alikes.
+    _Rule(("sk-",), re.compile(r"(sk-)(?<![A-Za-z0-9]sk-)[A-Za-z0-9_\-]{16,}"), _keep_prefix),
+    # GitHub classic and fine-grained tokens.
+    _Rule(
+        ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"),
+        re.compile(
+            r"(gh[pousr]_(?<![A-Za-z0-9]gh[pousr]_)|github_pat_(?<![A-Za-z0-9]github_pat_))"
+            r"[A-Za-z0-9_]{20,}"
+        ),
+        _keep_prefix,
+    ),
+    # AWS access key ids, long-lived (AKIA) and temporary (ASIA).
+    _Rule(
+        ("akia", "asia"),
+        re.compile(r"(A[KS]IA)(?<![A-Z0-9]A[KS]IA)[0-9A-Z]{16}(?![0-9A-Z])"),
+        _keep_prefix,
+    ),
+    # Slack tokens.
+    _Rule(("xox",), re.compile(r"(xox[abprs]-)(?<![A-Za-z0-9]xox[abprs]-)[A-Za-z0-9-]{10,}"), _keep_prefix),
+    # Google API keys.
+    _Rule(("aiza",), re.compile(r"(AIza)(?<![A-Za-z0-9]AIza)[0-9A-Za-z_\-]{30,}"), _keep_prefix),
+    # `Authorization: Bearer <token>`, any casing.
+    _keyword_rule(("bearer",), r"\b(bearer[ \t]+)[A-Za-z0-9._~+/=\-]{8,}", _keep_prefix),
+    # Credentials in a URL: https://user:password@host/… (bounded runs: never quadratic).
+    _Rule(("://",), re.compile(r"(://[^/\s:@\"']{1,256}:)[^/\s@\"']{1,256}(?=@)"), _keep_prefix),
+    _keyword_rule(
+        ("password", "passwd", "passphrase", "secret", "token", "key"), _KV_SECRET, _kv_replacement
+    ),
+    _keyword_rule(("password", "passwd", "passphrase"), _PROSE_PASSWORD, _prose_replacement),
+)
+
+
+def _scrubbable(token: str) -> bool:
+    """Whether a removed value is distinctive enough to scrub wherever else it appears."""
+    if len(token) < 6 or "-----" in token:
+        return False
+    return not token.isalpha() or not (token.islower() or token.isupper())
+
+
+def _recording(replace: Any, found: set[str]) -> Any:
+    """Wrap a replacement so the values it removes are collected into ``found``."""
+
+    def wrapped(match: re.Match[str]) -> str:
+        old = match.group(0)
+        new = replace(match) if callable(replace) else replace
+        if new != old:
+            keep = 0
+            while keep < min(len(old), len(new)) and old[keep] == new[keep]:
+                keep += 1
+            found.update(token for token in old[keep:].split() if _scrubbable(token))
+        return new
+
+    return wrapped
+
+
+def _apply(rule: _Rule, text: str, found: set[str] | None = None) -> str:
+    replace = rule.replace if found is None else _recording(rule.replace, found)
+    if rule.anycase is None:
+        return rule.pattern.sub(replace, text)
+    lowered = text.lower()
+    if len(lowered) != len(text):  # a few non-ASCII letters change length when lowered
+        return rule.anycase.sub(replace, text)
+    parts: list[str] = []
+    last = 0
+    for hit in rule.pattern.finditer(lowered):
+        if hit.start() < last:
+            continue
+        match = rule.anycase.match(text, hit.start())
+        if match is None:
+            continue
+        parts += (text[last : match.start()], replace(match))
+        last = match.end()
+    if not parts:
+        return text
+    parts.append(text[last:])
+    return "".join(parts)
+
+
+def redact_secrets(text: str, found: set[str] | None = None) -> str:
+    """Replace credential-shaped substrings with ``[REDACTED]``. Linear in ``len(text)``.
+
+    ``found``, if given, collects the removed values, so text *derived* from this one —
+    a task spec's extracted targets, which hold a token without the ``Bearer`` that made
+    it recognisable — can be scrubbed of them too (`_redact_tree(scrub=...)`).
+    """
+    if not text:
+        return text
+    lowered = text.lower()
+    for rule in _SECRET_RULES:
+        if any(trigger in lowered for trigger in rule.triggers):
+            text = _apply(rule, text, found)
+    return text
+
+
+def _redact_bounded(text: str, limit: int) -> str:
+    """Redact, then cut to ``limit``: what every text column stores."""
+    if not isinstance(text, str):
+        text = str(text)
+    return redact_secrets(text[: limit + _REDACT_MARGIN])[:limit]
+
+
+def _redact_tree(value: Any, limit: int = MAX_ARGUMENT_BYTES, scrub: frozenset[str] = frozenset()) -> Any:
+    """Redact every string in a JSON-shaped value (before `json.dumps`, so it stays valid).
+
+    ``scrub``: values already known to be secret (see `redact_secrets(found=...)`),
+    removed wherever they occur, with or without the context that identified them.
+    """
+    if isinstance(value, str):
+        text = _redact_bounded(value, limit)
+        for secret in scrub:
+            if secret in text:
+                text = text.replace(secret, REDACTED)
+        return text
+    if isinstance(value, dict):
+        return {k: _redact_tree(v, limit, scrub) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_redact_tree(v, limit, scrub) for v in value]
+    return value
+
+
 # -- bounded serialisation --------------------------------------------------------
 
 
 def summarize_value(value: Any) -> Any:
-    """Per §6: keep the shape, drop the bulk."""
+    """Per §6: keep the shape, drop the bulk — and never the credentials (R17)."""
     if isinstance(value, str):
         if len(value) <= 200:
-            return value
-        return f"{value[:200]}… <{len(value)} chars>"
+            return redact_secrets(value)
+        return f"{_redact_bounded(value, 200)}… <{len(value)} chars>"
     if isinstance(value, dict):
         return {k: summarize_value(v) for k, v in list(value.items())[:40]}
     if isinstance(value, list):
@@ -1152,9 +1358,10 @@ class ProjectStore:
     ) -> None:
         if not session_id:
             return
+        meta_text = json.dumps(_redact_tree(meta or {}))[:MAX_TEXT_BYTES]
         self.db.write(
             "INSERT OR IGNORE INTO sessions(id, project_id, agent, started_at, meta) VALUES(?,?,?,?,?)",
-            (session_id, self.project_id, agent, time.time(), json.dumps(meta or {})[:MAX_TEXT_BYTES]),
+            (session_id, self.project_id, agent, time.time(), meta_text),
         )
 
     @_safe()
@@ -1194,6 +1401,12 @@ class ProjectStore:
         if not session_id:
             return ""
         task_id = uuid.uuid4().hex
+        # The spec is derived from the prompt: intent extraction lifts tokens out of it
+        # (a bearer token becomes a "target") without the context that marks them as
+        # secret. Collect what redacting the prompt removed and scrub it from the spec.
+        found: set[str] = set()
+        stored_prompt = redact_secrets(str(prompt or "")[:_PROMPT_SCAN_LIMIT], found)[:MAX_TEXT_BYTES]
+        spec_text = json.dumps(_redact_tree(spec or {}, scrub=frozenset(found)), default=str)
         self.db.write(
             "INSERT INTO tasks(id, project_id, session_id, prompt, spec, complexity, depth, created_at) "
             "VALUES(?,?,?,?,?,?,?,?)",
@@ -1201,8 +1414,8 @@ class ProjectStore:
                 task_id,
                 self.project_id,
                 session_id,
-                prompt[:MAX_TEXT_BYTES],
-                json.dumps(spec or {}, default=str)[:MAX_ARGUMENT_BYTES],
+                stored_prompt,
+                spec_text[:MAX_ARGUMENT_BYTES],
                 complexity,
                 depth,
                 time.time(),
@@ -1267,7 +1480,7 @@ class ProjectStore:
             event.tool,
             str(decision.action),
             str(decision.would_have or ""),
-            decision.reason[:MAX_TEXT_BYTES],
+            _redact_bounded(decision.reason, MAX_TEXT_BYTES),
             int(decision.level),
             decision.latency_ms,
             now,
@@ -1285,10 +1498,12 @@ class ProjectStore:
                 str(f.verdict),
                 str(f.failure_mode),
                 str(f.severity),
-                f.subject[:200],
-                f.summary[:500],
-                f.detail[:MAX_TEXT_BYTES],
-                json.dumps([e.model_dump() for e in f.evidence], default=str)[:MAX_ARGUMENT_BYTES],
+                _redact_bounded(f.subject, 200),
+                _redact_bounded(f.summary, 500),
+                _redact_bounded(f.detail, MAX_TEXT_BYTES),
+                json.dumps(_redact_tree([e.model_dump() for e in f.evidence]), default=str)[
+                    :MAX_ARGUMENT_BYTES
+                ],
                 f.fingerprint(),
                 now,
             )
@@ -1461,7 +1676,7 @@ class ProjectStore:
             "VALUES(?,?,?,?,1,?,?) "
             "ON CONFLICT(project_id, task_id, fingerprint) "
             "DO UPDATE SET times=times+1, last_ts=excluded.last_ts",
-            (self.project_id, task_id, fingerprint, subject[:200], now, now),
+            (self.project_id, task_id, fingerprint, _redact_bounded(subject, 200), now, now),
         )
 
     @_safe()
@@ -1512,7 +1727,7 @@ class ProjectStore:
     def record_metric(self, name: str, value: float, labels: dict | None = None) -> None:
         self.db.write(
             "INSERT INTO metrics(project_id, name, value, labels, ts) VALUES(?,?,?,?,?)",
-            (self.project_id, name, float(value), json.dumps(labels or {})[:500], time.time()),
+            (self.project_id, name, float(value), json.dumps(_redact_tree(labels or {}))[:500], time.time()),
         )
 
     @_safe(default=list)
@@ -1565,9 +1780,9 @@ class ProjectStore:
                 memory_id,
                 self.project_id,
                 memory_type,
-                content[:MAX_TEXT_BYTES],
-                source[:500],
-                json.dumps(source_files or [])[:MAX_TEXT_BYTES],
+                _redact_bounded(content, MAX_TEXT_BYTES),
+                _redact_bounded(source, 500),
+                json.dumps(_redact_tree(source_files or []))[:MAX_TEXT_BYTES],
                 float(confidence),
                 validation_status,
                 session_id,
