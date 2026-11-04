@@ -1,0 +1,96 @@
+# Lint and test on every push to master and every pull request (IMPROVEMENTS.md M6).
+#
+# Blocking: Linux and macOS x Python 3.12 and 3.13 x {base install, all extras}. The base
+# install has no tree-sitter, so the TS/JS symbol tests skip there and run in all-extras.
+#
+# Informational: Windows. It is not a supported platform this release, so it never blocks a
+# merge (continue-on-error); it runs the same suite, including the fail-open tests, to show
+# whether AgentGuard at least stays out of the way there.
+#
+# Every job points AGENTGUARD_HOME at the runner's temp directory: nothing may read or write
+# a real ~/.agentguard (the test suite isolates each test as well).
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }} / ${{ matrix.extras }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.12", "3.13"]
+        extras: [base, all-extras]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and Python ${{ matrix.python }}
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+
+      - name: Use a temporary AGENTGUARD_HOME
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/agentguard-home"
+          echo "AGENTGUARD_HOME=$RUNNER_TEMP/agentguard-home" >> "$GITHUB_ENV"
+
+      - name: Install (base)
+        if: matrix.extras == 'base'
+        run: uv sync
+
+      - name: Install (all extras)
+        if: matrix.extras == 'all-extras'
+        run: uv sync --all-extras
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Test
+        run: uv run pytest -q
+
+  windows:
+    name: windows-latest / Python 3.13 / all-extras (informational)
+    runs-on: windows-latest
+    # Windows is unsupported this release (IMPROVEMENTS.md R2): report, never block.
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv and Python 3.13
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Use a temporary AGENTGUARD_HOME
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/agentguard-home"
+          echo "AGENTGUARD_HOME=$RUNNER_TEMP/agentguard-home" >> "$GITHUB_ENV"
+
+      - name: Install (all extras)
+        run: uv sync --all-extras
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Test
+        run: uv run pytest -q
