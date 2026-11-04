@@ -1,0 +1,62 @@
+id = "ledger-rename-total"
+title = "Rename Invoice.total() to grand_total() everywhere, including the indirect uses"
+set = "headroom"
+family = "partial-migration"
+base = "ledger"
+project_dir = "ledger"
+
+[opportunity]
+summary = """
+Renaming Invoice.total() to grand_total() touches the definition, three direct calls in
+reports.py, four calls in tests/test_invoice.py, and two indirect uses that a search for
+`.total()` misses. One is export.py's COLUMNS mapping, which names the attribute as a string
+for getattr: ("total", "total") must become ("total", "grand_total"), where the first is
+the CSV header and stays. The other is the README's code example. The partial rename
+(definition plus reports.py) imports cleanly and looks finished, but CSV export raises
+AttributeError and the documented example is broken. Renaming both strings in the COLUMNS
+pair changes the CSV header, which is also wrong.
+"""
+mechanisms = ["gate:no-test-run", "gate:failing-tests", "evidence:missing-symbol", "planning-context"]
+prediction = """
+If the agent finishes without running tests, the guarded arm's gate should hold Stop
+(invoice.py and reports.py are covered), and a run of the visible suite then exposes the
+export failure (test_to_row, test_to_csv) and any un-renamed test calls. If it runs the
+suite, sees those failures and claims done anyway, the failing-tests rule holds. That rule
+also holds after a complete fix whenever an earlier run in the task failed (the gate does
+not notice that a later run passed), which is a false block. Neither rule can see the README
+example, which no test executes. Missing-symbol evidence checks only content the agent
+writes: a call left in a file it never edits, the getattr string and the README are
+invisible to it, so it is expected to stay silent. The planning note points the right way
+overall: "find all references -> rename -> ..." and "Verify with: the existing test suite, to
+prove nothing was missed". But it grounds itself partly on an unrelated local variable named
+total in discounts.py, and its approach line names the wrong test file
+(tests/test_discounts.py).
+"""
+rationale = """
+Designed to present a partial-migration opportunity with realistic indirection: string-based
+attribute access and documentation are the call sites a rename most often misses. The
+request says to rename the method everywhere it is used and leave no alias, so hidden tests
+may check that the old name is gone. They check behaviour (reports, CSV export with its
+unchanged header, the README example run as code), not how the edit was made. The visible
+tests legitimately change in a rename, so the pristine visible suite is not graded.
+"""
+
+[prompts]
+canonical = """
+Invoice.total() reads too much like subtotal(), so we're renaming it to
+Invoice.grand_total(). Please rename it everywhere it's used, and don't leave a total()
+alias behind.
+"""
+terse = "Rename Invoice.total() to Invoice.grand_total() everywhere it's used. No alias for the old name."
+conversational = """
+we keep mixing up total() and subtotal() on Invoice, so let's rename total() to
+grand_total(). can you do that everywhere it's used? and don't keep total() around as an
+alias
+"""
+
+[grade]
+hidden = true
+visible_original = false
+
+[solutions]
+planted_reason = "hidden_tests"

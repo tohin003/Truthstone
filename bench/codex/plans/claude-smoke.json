@@ -1,0 +1,71 @@
+{
+  "digest": "e3eba1071ab6c244017ac2b8c8857c21c7c03eb12ff0f234a64dc4e27008ee2a",
+  "plan": {
+    "accounts": [
+      "work",
+      "personal"
+    ],
+    "allowed_tools": [
+      "Bash",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "NotebookEdit",
+      "Read",
+      "Glob",
+      "Grep",
+      "TodoWrite",
+      "Task",
+      "Agent"
+    ],
+    "arms": [
+      "on",
+      "observe"
+    ],
+    "budget": {
+      "max_wait_s": 21600,
+      "per_cell_session": 0.0,
+      "per_cell_week": 0.0,
+      "reserve_session": {
+        "personal": 70.0
+      },
+      "reset_slack_s": 120,
+      "start_max_session": 98.0,
+      "usage_refresh_s": 1800,
+      "week_stop": {
+        "personal": 85.0,
+        "work": 95.0
+      }
+    },
+    "cell_timeout_s": 1200,
+    "codex_version": "2.1.318",
+    "effort": "medium",
+    "host": "claude",
+    "max_attempts": 1,
+    "model": "claude-opus-5-5",
+    "name": "claude-smoke",
+    "network": true,
+    "notes": "Calibration smoke: at most 2 live cells (1 pair); excluded from every analysis.",
+    "permission_mode": "dontAsk",
+    "phrasings": [
+      "canonical"
+    ],
+    "pytest_version": "9.1.1",
+    "reasoning_summary": "n/a",
+    "recorder": true,
+    "replicates": [
+      0
+    ],
+    "sandbox": "none",
+    "seed": 20261105,
+    "service_tier": "n/a",
+    "stage": "smoke",
+    "suite_digest": "8215c3a9de852a33b0aa99ce3f7de74f296768ab0fd68d8fc045617f8102385f",
+    "task_python": "3.12",
+    "tasks": [
+      "ledger-tax-rounding"
+    ],
+    "trust": "session-plugin-dir",
+    "truthstone_ref": "HEAD"
+  }
+}

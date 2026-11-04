@@ -1,0 +1,4 @@
+# Run outputs hold transcripts, rollouts and account metadata: private by default.
+results/
+__pycache__/
+.pytest_cache/
