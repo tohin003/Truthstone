@@ -431,7 +431,12 @@ class Guard:
             # file would pollute scope/completion state even though no file was indexed.
             if not path:
                 return Decision.allow()
-            if state is not None:
+            if state is not None and event.is_delete:
+                # Snapshot the tests that reached the file *before* refresh_path drops it
+                # from the index; afterwards nothing would say which tests to run (G5).
+                covering = set(runners.affected_tests(ws.index, {path})) if ws.index.is_built else set()
+                state.delete(path, covering)
+            elif state is not None:
                 if event.is_mutating and ws.index.is_built and path not in ws.index.files:
                     state.created_files.add(path)  # new to the repository: this task wrote it
                 state.touch(path)

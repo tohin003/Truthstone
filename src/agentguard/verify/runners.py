@@ -412,13 +412,24 @@ def assess_timeline(
     return Timeline(stale=stale, latest_pass=latest_pass)
 
 
-def affected_tests(index: RepoIndex, changed: set[str], limit: int = 20) -> list[str]:
-    """Tests covering the changed files, plus tests of their direct dependents."""
+def affected_tests(
+    index: RepoIndex,
+    changed: set[str],
+    limit: int = 20,
+    deleted_coverage: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """Tests covering the changed files, plus tests of their direct dependents.
+
+    A deleted file is gone from the index, so ``deleted_coverage`` supplies the tests
+    that reached it when it was deleted (G5) — those that still exist.
+    """
     tests: set[str] = set()
     for path in changed:
         tests.update(index.tests_for(path))
         for dependent in index.dependents_of(path):
             tests.update(index.tests_for(dependent))
+        if deleted_coverage and path in deleted_coverage:
+            tests.update(test for test in deleted_coverage[path] if test in index.files)
     return sorted(tests)[:limit]
 
 

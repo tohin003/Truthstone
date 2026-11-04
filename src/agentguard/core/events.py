@@ -26,6 +26,13 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset(
 # Tools that write to the workspace. These get the full pipeline.
 MUTATING_TOOLS: frozenset[str] = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 
+# A file removal (`arguments["file_path"]`). Not one of Claude Code's tools — Claude
+# deletes through Bash — but the core's vocabulary for one: the Codex adapter maps a
+# patch's `*** Delete File` to it, and a move to a Write of the destination plus a
+# Delete of the source. A deletion is a change: it is validated, and the Completion Gate
+# still asks for the tests that covered the deleted file (G5).
+DELETE_TOOLS: frozenset[str] = frozenset({"Delete"})
+
 # Tools that run a shell command (`arguments["command"]`): where test runs come from.
 # PowerShell is Claude Code's primary shell on Windows, and its failing runs reach the
 # core through the same PostToolUseFailure contract as Bash's.
@@ -70,7 +77,11 @@ class AgentEvent(BaseModel):
 
     @property
     def is_mutating(self) -> bool:
-        return self.tool in MUTATING_TOOLS
+        return self.tool in MUTATING_TOOLS or self.tool in DELETE_TOOLS
+
+    @property
+    def is_delete(self) -> bool:
+        return self.tool in DELETE_TOOLS
 
     def arg(self, name: str, default: Any = None) -> Any:
         return self.arguments.get(name, default)

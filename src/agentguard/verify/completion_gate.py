@@ -153,7 +153,7 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
     #    each suite decides; a failure it fixed is history, and a pass the agent edited
     #    past is stale.
     verification = state.verification
-    rerun = {path for path in changed if _needs_rerun(path, index)}
+    rerun = {path for path in changed if _needs_rerun(path, index, state)}
     timeline = runners.assess_timeline(verification, state.last_change_seq, rerun)
     if timeline.failing is not None:
         return _failing(timeline, observations)
@@ -185,7 +185,7 @@ def _assess(state: TaskState, index: RepoIndex) -> GateVerdict:
     if not available:
         return GateVerdict(GateResult.PASS, "no test runner in this project", findings=observations)
 
-    covering = runners.affected_tests(index, changed)
+    covering = runners.affected_tests(index, changed, deleted_coverage=state.deleted_coverage)
     if not covering:
         # Changed code that nothing covers. Worth saying once, but it is a gap in the
         # project, not a failure by the agent — so it does not hold the turn open. The
@@ -397,7 +397,7 @@ def _requested_tests_missing(observations: list[Finding]) -> GateVerdict:
 def _wrote_tests(state: TaskState, index: RepoIndex) -> bool:
     """A test file was added or changed during the task: through an edit tool, or by a
     command (a test file in the index modified since the task began)."""
-    if any(_looks_like_test(path, index) for path in state.changed_files):
+    if any(_looks_like_test(path, index) for path in state.touched_files - state.deleted_files):
         return True
     since = int(state.started_at * 1_000_000_000)
     return any(record.is_test and record.mtime_ns >= since for record in index.files.values())
@@ -408,11 +408,11 @@ def _listing(paths: list[str]) -> str:
     return f"{len(paths)} file(s) ({shown})" if len(paths) > 1 else shown
 
 
-def _needs_rerun(path: str, index: RepoIndex) -> bool:
+def _needs_rerun(path: str, index: RepoIndex, state: TaskState) -> bool:
     """A change a test run would check: a test itself, or code some test reaches. A new
     module nothing tests is not made "stale" by an earlier run; re-running would not
     check it either."""
-    return _looks_like_test(path, index) or _has_any_coverage(path, index)
+    return _looks_like_test(path, index) or _has_any_coverage(path, index, state.deleted_coverage)
 
 
 # -- §3.15 "write insufficient tests" ---------------------------------------------
@@ -440,10 +440,12 @@ def _insufficient_tests(state: TaskState, index: RepoIndex, changed: set[str]) -
         return []
     if not runners.detect_runners(index):
         return []
-    if any(_looks_like_test(path, index) for path in state.touched_files):
+    if any(_looks_like_test(path, index) for path in state.touched_files - state.deleted_files):
         return []
 
-    uncovered = sorted(path for path in changed if not _has_any_coverage(path, index))
+    uncovered = sorted(
+        path for path in changed if not _has_any_coverage(path, index, state.deleted_coverage)
+    )
     if not uncovered:
         return []
 
@@ -470,9 +472,13 @@ def _looks_like_test(path: str, index: RepoIndex) -> bool:
     return scanner.is_test_path(index.normalize(path))
 
 
-def _has_any_coverage(path: str, index: RepoIndex) -> bool:
+def _has_any_coverage(
+    path: str, index: RepoIndex, deleted_coverage: dict[str, set[str]] | None = None
+) -> bool:
     if index.tests_for(path):
         return True
+    if deleted_coverage and any(test in index.files for test in deleted_coverage.get(path, ())):
+        return True  # deleted, and a test that reached it still exists (G5)
     return any(index.tests_for(dependent) for dependent in index.dependents_of(path))
 
 
