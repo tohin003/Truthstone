@@ -61,7 +61,7 @@ from agentguard.repo.gitinfo import repository_root
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4  # 4: the `signoffs` table (A1b), created in place on an older database
 
 # Per §6: cap what a single row can hold. A tool argument blob is evidence that an action
 # happened, not a place to archive file contents.
@@ -207,6 +207,25 @@ CREATE TABLE IF NOT EXISTS challenges (
     UNIQUE(project_id, task_id, fingerprint)
 );
 CREATE INDEX IF NOT EXISTS idx_challenges_last_ts ON challenges(project_id, last_ts);
+
+-- Developer sign-offs (IMPROVEMENTS.md A1b): one row per held action per session. The
+-- request, then at most one live grant, which the single run it allows consumes. `action`
+-- is a digest of the normalised action, never the command itself; `summary` is the
+-- redacted, bounded text shown to the developer. A table of its own, so creating it is
+-- the whole migration: `CREATE TABLE IF NOT EXISTS` adds it to an existing database.
+CREATE TABLE IF NOT EXISTS signoffs (
+    project_id   TEXT NOT NULL,
+    session_id   TEXT NOT NULL DEFAULT '',
+    code         TEXT NOT NULL,
+    action       TEXT NOT NULL DEFAULT '',
+    summary      TEXT NOT NULL DEFAULT '',
+    requested_at REAL NOT NULL,
+    granted_at   REAL,
+    granted_via  TEXT NOT NULL DEFAULT '',
+    consumed_at  REAL,
+    PRIMARY KEY (project_id, session_id, code)
+);
+CREATE INDEX IF NOT EXISTS idx_signoffs_code ON signoffs(project_id, code, requested_at);
 
 CREATE TABLE IF NOT EXISTS verifications (
     id          TEXT PRIMARY KEY,
@@ -1251,6 +1270,8 @@ class Database:
             ("decisions", self.retention.decisions_days, "ts"),
             ("verifications", self.retention.verifications_days, "started_at"),
             ("metrics", self.retention.metrics_days, "ts"),
+            # A sign-off is part of the decision log it was asked in (A1b).
+            ("signoffs", self.retention.decisions_days, "requested_at"),
         ]
         removed: dict[str, int] = {}
         now = time.time()
@@ -1346,7 +1367,7 @@ class Database:
     def stats(self) -> dict[str, Any]:
         tables = (
             "projects", "sessions", "tasks", "events", "decisions",
-            "findings", "challenges", "verifications", "metrics", "memories",
+            "findings", "challenges", "verifications", "metrics", "memories", "signoffs",
         )
         counts: dict[str, int] = {}
         for table in tables:
@@ -1845,6 +1866,133 @@ class ProjectStore:
             "UPDATE challenges SET resolved=1 WHERE project_id=? AND task_id=? AND fingerprint=?",
             (self.project_id, task_id, fingerprint),
         )
+
+    # -- developer sign-off (IMPROVEMENTS.md A1b) ---------------------------------
+    #
+    # The one place storage decides an outcome: a grant that cannot be read was never
+    # given. Each method returns a status rather than a bare value, so a caller can tell
+    # "nothing outstanding" from "storage unavailable" — and both mean no grant.
+
+    @_safe(default=lambda: ("unavailable", None))
+    def signoff_settle(
+        self,
+        session_id: str,
+        code: str,
+        action: str,
+        summary: str,
+        ttl_s: float,
+        now: float | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """At a sign-off decision: use the developer's grant for this exact action, or ask.
+
+        One transaction, so a grant is consumed by exactly one run:
+
+        * ``("granted", {"code", "granted_via", "granted_at"})`` — a grant for this code
+          and action, unconsumed and no older than ``ttl_s``, was consumed just now;
+        * ``("requested", None)`` — none: the request is recorded (an expired, consumed or
+          mismatched grant is cleared), so the developer can grant it;
+        * ``("unavailable", None)`` — nothing could be read or written. No grant.
+        """
+        now = time.time() if now is None else now
+        if not self.db.writes_enabled:
+            return ("unavailable", None)
+        key = (self.project_id, session_id, code)
+        result: tuple[str, dict[str, Any] | None] = ("unavailable", None)
+        with self.db.transaction("signoff_settle") as tx:
+            cursor = tx.execute(
+                "SELECT action, granted_at, granted_via, consumed_at FROM signoffs "
+                "WHERE project_id=? AND session_id=? AND code=?",
+                key,
+            )
+            row = cursor.fetchone() if cursor is not None else None
+            live = (
+                row is not None
+                and row["action"] == action
+                and row["granted_at"] is not None
+                and row["consumed_at"] is None
+                and row["granted_at"] >= now - ttl_s
+            )
+            if live:
+                tx.execute(
+                    "UPDATE signoffs SET consumed_at=? "
+                    "WHERE project_id=? AND session_id=? AND code=? AND consumed_at IS NULL",
+                    (now, *key),
+                )
+                grant = {"code": code, "granted_via": row["granted_via"], "granted_at": row["granted_at"]}
+                result = ("granted", grant)
+            else:
+                tx.execute(
+                    "INSERT INTO signoffs(project_id, session_id, code, action, summary, requested_at) "
+                    "VALUES(?,?,?,?,?,?) "
+                    "ON CONFLICT(project_id, session_id, code) DO UPDATE SET "
+                    "action=excluded.action, summary=excluded.summary, "
+                    "requested_at=excluded.requested_at, granted_at=NULL, granted_via='', "
+                    "consumed_at=NULL",
+                    (*key, action, _redact_bounded(summary, 500), now),
+                )
+                result = ("requested", None)
+        return result if tx.committed else ("unavailable", None)
+
+    @_safe(default=lambda: ("unavailable", None))
+    def signoff_grant(
+        self, code: str, via: str, session_id: str | None = None, now: float | None = None
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Record the developer's yes for an outstanding request with this code.
+
+        ``session_id`` confines it to one session (a reply in that session); ``None``
+        takes the newest outstanding request in this project (``agentguard approve``).
+        Outstanding means requested and not yet consumed: a code whose single run already
+        happened grants nothing until it is asked for again.
+
+        ``("granted", {"code", "session_id", "summary", "requested_at"})``, ``("unknown",
+        None)`` when nothing outstanding has this code, or ``("unavailable", None)``.
+        """
+        now = time.time() if now is None else now
+        if not self.db.writes_enabled:
+            return ("unavailable", None)
+        result: tuple[str, dict[str, Any] | None] = ("unknown", None)
+        with self.db.transaction("signoff_grant") as tx:
+            if session_id is None:
+                cursor = tx.execute(
+                    "SELECT session_id, summary, requested_at FROM signoffs "
+                    "WHERE project_id=? AND code=? AND consumed_at IS NULL "
+                    "ORDER BY requested_at DESC LIMIT 1",
+                    (self.project_id, code),
+                )
+            else:
+                cursor = tx.execute(
+                    "SELECT session_id, summary, requested_at FROM signoffs "
+                    "WHERE project_id=? AND session_id=? AND code=? AND consumed_at IS NULL",
+                    (self.project_id, session_id, code),
+                )
+            row = cursor.fetchone() if cursor is not None else None
+            if row is not None:
+                tx.execute(
+                    "UPDATE signoffs SET granted_at=?, granted_via=? "
+                    "WHERE project_id=? AND session_id=? AND code=?",
+                    (now, via, self.project_id, row["session_id"], code),
+                )
+                result = (
+                    "granted",
+                    {
+                        "code": code,
+                        "session_id": row["session_id"],
+                        "summary": row["summary"],
+                        "requested_at": row["requested_at"],
+                    },
+                )
+        return result if tx.committed else ("unavailable", None)
+
+    @_safe(default=list)
+    def signoff_requests(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Sign-off requests not yet used, newest first: ``{"code", "session_id",
+        "summary", "requested_at", "granted_at", "granted_via"}``."""
+        rows = self.db.query(
+            "SELECT code, session_id, summary, requested_at, granted_at, granted_via FROM signoffs "
+            "WHERE project_id=? AND consumed_at IS NULL ORDER BY requested_at DESC LIMIT ?",
+            (self.project_id, limit),
+        )
+        return [dict(row) for row in rows]
 
     # -- verification -------------------------------------------------------------
 

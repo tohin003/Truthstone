@@ -34,7 +34,7 @@ from agentguard.core.models import Decision, Finding
 from agentguard.core.taskstate import TaskState
 from agentguard.evidence import extractors
 from agentguard.repo.index import RepoIndex
-from agentguard.validate import checks, modify, secrets
+from agentguard.validate import checks, modify, secrets, signoff
 
 log = logging.getLogger(__name__)
 
@@ -78,10 +78,13 @@ def validate(
 
     findings.extend(risky)
 
-    # A command needing human sign-off is decided here; nothing further is relevant.
+    # A command needing human sign-off is decided here; nothing further is relevant. The
+    # developer may already have signed off this exact action (A1b): `settle` uses that
+    # grant once, or records the request under its code. Fails closed: no store, no grant.
     human = [f for f in findings if f.verdict is Verdict.REQUIRES_HUMAN]
     if human:
-        return _review(findings, human, modify.safer_form(event, risky))
+        review = _review(findings, human, modify.safer_form(event, risky))
+        return signoff.settle(event, getattr(ledger, "store", None), review)
 
     # Concerns the agent should hear (once), which need no index: a command that switches
     # off the checks verifying the work (A8), and a credential newly written into a file
@@ -159,6 +162,9 @@ def _review(findings: list[Finding], human: list[Finding], safer: str | None = N
 
     `safer` is a guarded form of the command, offered when one is sound but could not be
     applied automatically (A5) — the developer, or the agent, can take it instead.
+
+    The one exception is the developer's own yes (A1b): `signoff.settle` lets exactly one
+    re-run of exactly this action through once the developer has signed off its code.
     """
     reason = render_challenge(human, audience=HUMAN)
     if safer:

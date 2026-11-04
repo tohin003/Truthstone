@@ -951,7 +951,22 @@ def verification_bypass(event: AgentEvent) -> list[Finding]:
 _SELF_OFF: tuple[tuple[str, ...], ...] = (("off",), ("uninstall",), ("observe", "on"), ("daemon", "stop"))
 _CLI_MODULES = frozenset({"agentguard", "agentguard.cli", "agentguard.cli.main"})
 _LAUNCH_VALUED = frozenset({"--from", "--with", "--python", "-p", "--spec", "--index-url"})
-_SELF_TEXT = re.compile(r"\bagentguard\s++(?:off|uninstall|observe\s++on|daemon\s++stop)\b")
+_SELF_TEXT = re.compile(r"\bagentguard\s++(?:off|uninstall|observe\s++on|daemon\s++stop|approve)\b")
+
+# The developer's sign-off (A1b) is theirs alone, so every shell route to one that can be
+# seen needs a sign-off of its own: `agentguard approve`, a command carrying a sign-off
+# reply (a nested `codex exec resume … "approve K7M2QX"`, a hook payload sent with curl),
+# and resuming an agent session from the shell, which sends a prompt into it.
+#
+# A sign-off code's shape: six letters and digits with at least one of each, so it never
+# reads as a word or a number. `signoff.py` issues codes of exactly this shape.
+SIGNOFF_CODE_SHAPE = r"(?=[0-9A-Za-z]{0,5}[0-9])(?=[0-9A-Za-z]{0,5}[A-Za-z])[0-9A-Za-z]{6}(?![0-9A-Za-z])"
+_REPLY_TEXT = re.compile(rf"\bapproved?\b[^\w\n]{{1,4}}{SIGNOFF_CODE_SHAPE}", re.IGNORECASE)
+_RESUMES: dict[str, frozenset[str]] = {
+    "codex": frozenset({"resume"}),
+    "claude": frozenset({"--resume", "-r", "--continue", "-c"}),
+}
+_SIGNOFF_ONLY = "Only the developer can give AgentGuard's sign-off."
 _PROTECTED_HINT = re.compile(
     r"\.agentguard|\.claude/settings[^/\s]*\.json|\.codex/(?:hooks\.json|config\.toml)"
 )
@@ -989,6 +1004,17 @@ def _switches_off(part: shell.Part) -> str:
                 return "agentguard " + " ".join(switch)
     if part.name in ("pkill", "killall") and any("agentguard" in arg.lower() for arg in part.argv[1:]):
         return f"{part.name} agentguard"
+    return ""
+
+
+def _signs_off(part: shell.Part) -> str:
+    """The developer-only sign-off route this part takes, or "" (A1b)."""
+    cli = _agentguard_command(part.argv)
+    if cli is not None and tuple(arg for arg in cli if not arg.startswith("-"))[:1] == ("approve",):
+        return "agentguard approve"
+    flags = _RESUMES.get(part.name)
+    if flags and any(arg.split("=", 1)[0] in flags for arg in part.argv[1:]):
+        return f"{part.name} resume"
     return ""
 
 
@@ -1047,7 +1073,13 @@ def protected_path(raw: str, cwd: str) -> str:
     return ""
 
 
-def _self_finding(subject: str, summary: str, detail: str, note: str) -> Finding:
+def _self_finding(
+    subject: str,
+    summary: str,
+    detail: str,
+    note: str,
+    suggestion: str = "Only the developer can turn AgentGuard off or change its hooks.",
+) -> Finding:
     return Finding(
         category=ChallengeCategory.RISK,
         verdict=Verdict.REQUIRES_HUMAN,
@@ -1059,13 +1091,14 @@ def _self_finding(subject: str, summary: str, detail: str, note: str) -> Finding
         summary=summary,
         detail=detail,
         evidence=[EvidenceRef(source="runtime", note=note[:200])],
-        suggestion="Only the developer can turn AgentGuard off or change its hooks.",
+        suggestion=suggestion,
         level=EscalationLevel.DETERMINISTIC,
     )
 
 
 def self_protection(event: AgentEvent) -> list[Finding]:
-    """Turning AgentGuard off, or writing its home or the host hook settings: a sign-off."""
+    """Turning AgentGuard off, writing its home or the host hook settings, or taking a
+    route to the developer's own sign-off (A1b): each needs a sign-off."""
     raw = _raw_target(event)
     if raw:
         why = protected_path(raw, event.workspace)
@@ -1087,6 +1120,19 @@ def self_protection(event: AgentEvent) -> list[Finding]:
 
     cwd = event.workspace
     found: list[Finding] = []
+    # A sign-off reply anywhere in the command, quoted or not: the text is the route (A1b).
+    reply = _REPLY_TEXT.search(command, 0, shell.MAX_SCAN)
+    if reply:
+        found.append(
+            _self_finding(
+                "a sign-off reply",
+                "Self-protection: this command carries a sign-off reply "
+                f"(`{reply.group(0)}`); only the developer can sign off",
+                f"`{command.strip()[:200]}`",
+                command.strip(),
+                _SIGNOFF_ONLY,
+            )
+        )
     parsed = shell.parse(command)
     # What cannot be read is judged together, as Pebble reads an opaque line whole: a loop
     # names the file in one piece (`for f in .claude/settings*.json`) and edits it in the
@@ -1097,7 +1143,8 @@ def self_protection(event: AgentEvent) -> list[Finding]:
         found.append(
             _self_finding(
                 "an unreadable command",
-                "Self-protection: this command may turn AgentGuard off or change its hooks",
+                "Self-protection: this command may turn AgentGuard off, change its hooks or "
+                "give a sign-off",
                 f"`{command.strip()[:200]}`",
                 command.strip(),
             )
@@ -1117,6 +1164,20 @@ def self_protection(event: AgentEvent) -> list[Finding]:
                     f"Self-protection: `{switch}` turns AgentGuard off",
                     f"`{command.strip()[:200]}`",
                     command.strip(),
+                )
+            )
+        route = _signs_off(part)
+        if route:
+            what = "gives the developer's sign-off" if route.startswith("agentguard") else (
+                "sends a prompt into an agent session, where a sign-off is given"
+            )
+            found.append(
+                _self_finding(
+                    route,
+                    f"Self-protection: `{route}` {what}",
+                    f"`{command.strip()[:200]}`",
+                    command.strip(),
+                    _SIGNOFF_ONLY,
                 )
             )
         if not cwd:

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -320,8 +321,14 @@ def test_a_command_glued_to_a_read_is_still_held_for_sign_off(guard, repo, comma
     assert spec["permissionDecision"] == "deny"
     alone = command.split(";", 1)[1]
     expected = handle(guard, codex_pre(alone, cwd=str(repo), session="sess-alone"))["hookSpecificOutput"]
-    lead = expected["permissionDecisionReason"].splitlines()[0]
-    assert spec["permissionDecisionReason"].splitlines()[0] == lead
+
+    def lead(reason: str) -> str:
+        # A sign-off names a code bound to (session, exact action) (A1b): the glued command
+        # and the part alone are held the same way, under different codes.
+        return re.sub(checks.SIGNOFF_CODE_SHAPE, "<code>", reason.splitlines()[0])
+
+    assert "<code>" in lead(expected["permissionDecisionReason"])
+    assert lead(spec["permissionDecisionReason"]) == lead(expected["permissionDecisionReason"])
 
 
 @pytest.mark.parametrize("command", ["mvn test -DskipTests", "SKIP_TESTS=1 npm test"])

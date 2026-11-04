@@ -348,7 +348,7 @@ continues the turn; `additionalContext` is supported; `systemMessage` is not sho
 | ALLOW | nothing (empty stdout) |
 | ALLOW + context (planning budget) | `hookSpecificOutput.additionalContext` on UserPromptSubmit / SessionStart / Pre-, PostToolUse |
 | CHALLENGE / BLOCK at PreToolUse | `deny` + the challenge text |
-| REQUEST_REVIEW for an **irreversible** action (a RISK finding that needs a human) | `deny` whose reason starts "needs developer sign-off: ask the user to confirm, then re-run.", plus a `systemMessage` ("AgentGuard is holding this for your sign-off: …"). Raised on every attempt, never rationed |
+| REQUEST_REVIEW for an **irreversible** action (a RISK finding that needs a human) | `deny` whose reason starts "needs developer sign-off: ask the user whether to go ahead. To allow it once, they reply \`approve K7M2QX\` or run \`agentguard approve K7M2QX\` …", plus a `systemMessage` with the same code ("AgentGuard is holding this for your sign-off: …"). Raised on every attempt, never rationed; one sign-off allows one run (below) |
 | REQUEST_REVIEW for anything else | non-blocking `additionalContext`; recorded only at Stop |
 | MODIFY | `deny` that shows the **guarded form** for the agent to re-issue, e.g. `[ -n "$BUILD_DIR" ] && rm -rf "$BUILD_DIR"` |
 | BLOCK at Stop (completion gate) | `{"decision":"block","reason":…}`, never with `hookSpecificOutput` |
@@ -356,12 +356,34 @@ continues the turn; `additionalContext` is supported; `systemMessage` is not sho
 
 **Policy calls flagged for the user:**
 
-- **No `ask` exists, so irreversible actions become a sign-off deny, and the hold is
-  persistent.** Irreversible asks are raised every time, never rationed, deduplicated or
-  dropped (`IMPROVEMENTS.md` A1): AgentGuard cannot see whether the developer confirmed,
-  so a plain re-run is denied again. To go ahead, the developer runs the command
-  themselves, or turns AgentGuard off for that session (`AGENTGUARD_DISABLE=1`). In run
+- **No `ask` exists, so irreversible actions become a sign-off deny, released by a
+  one-time code** (`IMPROVEMENTS.md` A1, A1b). Irreversible asks are raised every time,
+  never rationed, deduplicated or dropped. Each held action carries a six-character code
+  bound to the session and the exact action: the normalised command, or a file tool's
+  effect and target path. The agent is told the code and relays it; the developer also
+  sees it in the `systemMessage` (TUI and app). To let the action run **once**, the
+  developer either:
+  - replies in the session with a message whose **first line** is `approve K7M2QX`
+    (case-insensitive; "yes, approve K7M2QX" and several codes on one line also work).
+    A prompt that only mentions the code, or adds a condition ("approve K7M2QX but …"),
+    grants nothing;
+  - or runs `agentguard approve K7M2QX` in the project (`--cwd PATH` from elsewhere).
+    `codex exec` has no next prompt, so this is its only path. `agentguard approve` with
+    no code lists what is waiting.
+
+  The agent then re-runs the action unchanged within 15 minutes and it goes through; the
+  run after that is held again. A different command or target has a different code, and
+  a grant never transfers. Without usable storage no code is issued and the deny says the
+  developer has to carry the action out themselves. That remains an alternative at any
+  time, as does turning AgentGuard off for the session (`AGENTGUARD_DISABLE=1`). In run
   E2 (before A1) the agent stopped and asked.
+- **The agent cannot sign off for itself.** A prompt is typed by the developer. Every
+  shell route AgentGuard can see needs a sign-off of its own: `agentguard approve`, a
+  command carrying `approve <code>` (for example a nested `codex exec resume … "approve
+  K7M2QX"`, or a hook payload sent with curl), and resuming an agent session from the
+  shell. This is a tripwire, not a sandbox: the agent runs as the developer's user, so a
+  deliberate forgery (writing the database directly, or obfuscating the reply) is not
+  stopped.
 - **Automatic rewrites are off.** The core now proposes MODIFY only where the narrowing is
   provably safe: the risk check runs first, and a rewrite is offered only when the one
   serious problem is the one it fixes and the rewritten command checks clean
@@ -453,8 +475,10 @@ blocked `git reset --hard` because it can discard uncommitted work and requires 
 confirmation. I made no further tool calls."*
 
 This capture is historical and left as recorded: it predates H1, which changed the deny
-reason to start "needs developer sign-off: ask the user to confirm, then re-run.", and A1,
-which denies a re-run again (see the decision table above).
+reason to start "needs developer sign-off: ", A1, which holds every re-run, and A1b, which
+adds the one-time code that releases one (see the decision table above). The A1b flow was
+tested through the adapter with these captured payloads (`tests/test_asks_b_signoff.py`),
+not in a live Codex run.
 
 **E3: a false "done" is held until the tests run.** The prompt was: "Make this one edit
 with apply_patch, then reply exactly: Done — all tests pass."
@@ -478,10 +502,12 @@ found, "all 6 AgentGuard hooks are trusted in Codex".
 
 ## Limitations and open items
 
-- **A sign-off cannot be given from inside Codex.** Codex has no `ask`, and an irreversible
-  action is denied on every attempt (`IMPROVEMENTS.md` A1), so even after the developer
-  agrees the agent's re-run is denied; the developer runs the command, or disables
-  AgentGuard for the session. The deny's wording still says "then re-run".
+- **A sign-off needs the code.** Codex has no `ask`, so the developer signs off with the
+  held action's code: a reply whose first line is `approve <code>`, or `agentguard
+  approve <code>` (the only path under `codex exec`). It allows one run within 15 minutes.
+  A multi-file `apply_patch` is judged file by file, and each held file has its own code;
+  the combined deny shows the code(s) the adapter carries into it. Without usable storage
+  no code can be issued, and the developer carries the action out themselves.
 - **No task without a prompt event.** `codex exec` always sends UserPromptSubmit. A host
   path that does not send it leaves events without a task, and the core then stays silent
   (`IMPROVEMENTS.md` H2).

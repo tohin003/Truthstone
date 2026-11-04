@@ -22,7 +22,8 @@ decision                            rendering
 ==================================  ===================================================
 REQUEST_REVIEW, sign-off required   ``ask`` where the host's ask really asks; else a
                                     ``deny`` whose reason starts "needs developer
-                                    sign-off: ask the user to confirm, then re-run"
+                                    sign-off: " and names the code that allows it once
+                                    (``approve <code>``, A1b), or says there is none
 REQUEST_REVIEW, advisory            ``ask`` if native; else non-blocking ``context``
 MODIFY                              ``rewrite_ask`` where the developer reviews the
                                     rewritten input; else a CHALLENGE that shows the
@@ -56,7 +57,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 from agentguard.core.enums import ChallengeCategory, DecisionAction, EventType
 from agentguard.core.events import AgentEvent
-from agentguard.core.models import Decision
+from agentguard.core.models import SIGNOFF_TTL_S, Decision
 
 AskSupport = Literal["native", "fails_open", "none"]
 RewriteSupport = Literal["with_user_approval", "with_auto_approve", "none"]
@@ -76,9 +77,24 @@ PHASES: tuple[EventType, ...] = tuple(EventType)
 # -- wording shared by every host ---------------------------------------------------------
 
 FALLBACK_REASON = "AgentGuard objected to this action."
-SIGNOFF_LEAD = "needs developer sign-off: ask the user to confirm, then re-run."
-SIGNOFF_PREFIX = SIGNOFF_LEAD + "\n\n"
+# A sign-off deny always starts with SIGNOFF_PREFIX ("needs developer sign-off: "), then
+# says how the developer can allow it (A1b). With a code they can, once: a reply in the
+# session or `agentguard approve`, after which the re-run is allowed. Without one nothing
+# could grant it, so no re-run is promised: a promise the hold would break is worse than
+# none (it was false on Codex until A1b).
+SIGNOFF_LEAD = "needs developer sign-off"
+SIGNOFF_PREFIX = SIGNOFF_LEAD + ": "
+SIGNOFF_WITH_CODE = (
+    SIGNOFF_PREFIX + "ask the user whether to go ahead. To allow it once, they reply `approve {codes}` "
+    "or run `agentguard approve {codes}` in this project; then re-run it unchanged within "
+    "{minutes} minutes. Any run after that is held again."
+)
+SIGNOFF_WITHOUT_CODE = (
+    SIGNOFF_PREFIX + "ask the user to carry this out themselves. AgentGuard could not issue a "
+    "sign-off code for it, so a re-run will be held again."
+)
 SIGNOFF_NOTICE = "AgentGuard is holding this for your sign-off: {headline}"
+SIGNOFF_NOTICE_CODE = " To allow it once, reply `approve {codes}` or run `agentguard approve {codes}`."
 RISKY_LEAD = "AgentGuard: this command is risky as written."
 GUARDED_FORM = "If this is what you intend, re-issue it in this guarded form:\n\n    {command}\n"
 REWRITE_FALLBACK = "AgentGuard narrowed this command. Check the narrowed form before approving it."
@@ -353,11 +369,19 @@ def _pre_tool(decision: Decision, caps: HostCapabilities) -> Rendering:
             return Rendering("ask", reason=_reason(decision))
         if decision.signoff_required:
             # The developer must say yes, and this host's ask would not ask: refuse, and
-            # say who has to agree. The agent asks the user, then re-runs.
+            # say who has to agree and how (A1b). The code goes to the agent, which relays
+            # it, and to the developer directly where a system message reaches them.
+            codes = signoff_codes(decision)
             notice = None
             if caps.system_message_visible:
                 notice = SIGNOFF_NOTICE.format(headline=_headline(decision)[:200])
-            return _objection(caps, SIGNOFF_PREFIX + _reason(decision).strip(), notice)
+                if codes:
+                    notice = notice.rstrip(". ") + "." + SIGNOFF_NOTICE_CODE.format(codes=codes)
+            if codes:
+                lead = SIGNOFF_WITH_CODE.format(codes=codes, minutes=max(1, round(SIGNOFF_TTL_S / 60)))
+            else:
+                lead = SIGNOFF_WITHOUT_CODE
+            return _objection(caps, f"{lead}\n\n{_reason(decision).strip()}", notice)
         return _context_or_silent(caps, phase, _unsayable(decision))
     if action is DecisionAction.MODIFY:
         arguments = decision.updated_arguments
@@ -454,6 +478,19 @@ def _context_or_silent(
 def _text(value: Any) -> str | None:
     """The value itself if it has any content; blank text counts as absent."""
     return value if isinstance(value, str) and value.strip() else None
+
+
+def signoff_codes(decision: Decision) -> str:
+    """The decision's sign-off code(s), space-separated, or "" (A1b).
+
+    Read defensively: a merged decision may carry several codes joined by spaces or
+    commas, and anything that is not a code is dropped rather than shown as one.
+    """
+    raw = getattr(decision, "signoff_code", None)
+    if not isinstance(raw, str):
+        return ""
+    tokens = (token.upper() for token in raw.replace(",", " ").split())
+    return " ".join(dict.fromkeys(t for t in tokens if len(t) == 6 and t.isascii() and t.isalnum()))
 
 
 def _reason(decision: Decision) -> str:

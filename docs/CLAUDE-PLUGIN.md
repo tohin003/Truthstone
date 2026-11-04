@@ -231,6 +231,13 @@ risk check runs first, and a rewrite is offered only when the one serious proble
 one it fixes and the rewritten command checks clean (A5). The unguarded variable delete
 above is such a case.
 
+Developer sign-off codes (A1b) change nothing here. Claude Code's `ask` is the sign-off:
+the developer answers it in their own permission prompt, so no code is shown and the
+`ask` text is the core's reason as before. The code exists for hosts whose `ask` fails
+open, such as Codex (`docs/CODEX.md`). It is still recorded, so `agentguard approve` lists
+held Claude Code actions too. A developer who approves one there, or replies `approve
+<code>`, lets the next attempt at that exact action run once without the prompt.
+
 The marketplace flow was tested once: `claude plugin marketplace add <checkout>`, install
 of both `agentguard@agentguard` and `agentguard-practices@agentguard` (local scope), a
 session using the installed copy, uninstall, and marketplace remove. Afterwards the user's

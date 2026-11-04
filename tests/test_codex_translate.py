@@ -314,7 +314,9 @@ class TestOutputs:
         spec = out["hookSpecificOutput"]
         assert spec["permissionDecision"] == "deny"
         assert spec["permissionDecisionReason"].startswith(render.SIGN_OFF)
-        assert "ask the user to confirm, then re-run" in spec["permissionDecisionReason"].lower()
+        # No code on this decision, so nothing can grant it: no re-run is promised (A1b).
+        assert "ask the user to carry this out themselves" in spec["permissionDecisionReason"].lower()
+        assert "re-run will be held again" in spec["permissionDecisionReason"].lower()
         assert "force push" in out["systemMessage"]
 
     def test_any_other_review_is_context_not_a_block(self):

@@ -959,6 +959,73 @@ def why_cmd(
             _echo(f"    evidence: {ev.get('path') or ev.get('symbol') or ev.get('source')}")
 
 
+@app.command("approve")
+def approve_cmd(
+    codes: list[str] | None = typer.Argument(
+        None, help="The sign-off code(s) AgentGuard showed for the held action, e.g. K7M2QX."
+    ),
+    cwd: Path | None = typer.Option(
+        None, "--cwd", help="The project the action is held in (default: the current directory)."
+    ),
+) -> None:
+    """Sign off a held action, once (IMPROVEMENTS.md A1b).
+
+    Where the host cannot ask you itself (Codex), AgentGuard holds an irreversible action
+    and shows a code. This lets that exact action run one more time, within the sign-off
+    window. Replying `approve <CODE>` in the session does the same. With no code, lists
+    the requests waiting in this project.
+    """
+    from agentguard.core.models import SIGNOFF_TTL_S
+    from agentguard.core.store import Store
+    from agentguard.validate import signoff
+
+    root = (cwd or Path.cwd()).expanduser().resolve()
+    store = Store.for_workspace(root)
+    if store.degraded_reason:
+        _bad(f"storage is unavailable, so nothing can be signed off: {store.degraded_reason}")
+        raise typer.Exit(1)
+    minutes = max(1, round(SIGNOFF_TTL_S / 60))
+    if not codes:
+        _list_signoffs(store, minutes)
+        return
+
+    failed = False
+    for raw in codes:
+        found = signoff.codes_in(raw)
+        if not found:
+            _bad(f"'{raw}' is not a sign-off code (six letters and digits, e.g. K7M2QX)")
+            failed = True
+        for code in found:
+            status, row = signoff.grant_from_terminal(store, code)
+            if status == "granted" and row is not None:
+                _ok(f"{code} approved: {row['summary']}")
+                _echo(f"  the agent may run it once, unchanged, within {minutes} minutes")
+            elif status == "unknown":
+                _bad(f"no sign-off request with code {code} is waiting in {store.identity.root}")
+                _echo("  a code is used up by the run it allowed; `agentguard approve` lists what is waiting")
+                failed = True
+            else:
+                _bad(f"could not record the approval of {code}: storage is busy or read-only; try again")
+                failed = True
+    if failed:
+        raise typer.Exit(1)
+
+
+def _list_signoffs(store, minutes: int) -> None:
+    pending = store.signoff_requests()
+    if not pending:
+        _echo(f"no sign-off requests waiting in {store.identity.root}")
+        return
+    now = time.time()
+    _echo(f"sign-off requests waiting in {store.identity.root}:")
+    for row in pending:
+        age = max(0, int(now - float(row["requested_at"])) // 60)
+        granted = row["granted_at"] is not None and now - float(row["granted_at"]) < minutes * 60
+        note = "  (approved, not yet used)" if granted else ""
+        _echo(f"  {row['code']}  {age:>4} min ago  {str(row['summary'])[:90]}{note}")
+    _echo("allow one once with:  agentguard approve <CODE>")
+
+
 # ---------------------------------------------------------------- repository
 
 

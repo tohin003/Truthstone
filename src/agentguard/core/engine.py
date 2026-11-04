@@ -550,6 +550,7 @@ class Guard:
         sees — so this shapes the agent's approach without adding anything to the UI
         (SPEC §39).
         """
+        validate.signoff.note_prompt(ws.store, event)  # a sign-off reply grants first (A1b)
         self._open_session(event, ws)
         self._refresh_at_boundary(ws)  # the spec is grounded in the tree as it is now
 

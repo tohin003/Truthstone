@@ -138,10 +138,26 @@ def test_codex_signoff_is_a_deny_that_says_who_must_agree():
     )
     r = hosts.render(decision, hosts.CODEX, E.PRE_TOOL_USE)
     assert r.kind == "deny"
-    assert r.reason.startswith("needs developer sign-off: ask the user to confirm, then re-run")
+    # A1b: with no code nothing can grant it, so no re-run is promised (it used to be).
+    assert r.reason.startswith("needs developer sign-off: ask the user to carry this out themselves")
+    assert "re-run will be held again" in r.reason
     assert r.reason.endswith(decision.reason), "followed by the original reason"
     assert r.system_message == (
         "AgentGuard is holding this for your sign-off: Irreversible command: force push"
+    )
+
+    # With a code (A1b) the developer can allow it once, and both are told how.
+    coded = hosts.render(decision.model_copy(update={"signoff_code": "K7M2QX"}), hosts.CODEX, E.PRE_TOOL_USE)
+    assert coded.kind == "deny"
+    assert coded.reason.startswith(
+        "needs developer sign-off: ask the user whether to go ahead. To allow it once, they reply "
+        "`approve K7M2QX` or run `agentguard approve K7M2QX` in this project; then re-run it "
+        "unchanged within 15 minutes."
+    )
+    assert coded.reason.endswith(decision.reason)
+    assert coded.system_message == (
+        "AgentGuard is holding this for your sign-off: Irreversible command: force push. "
+        "To allow it once, reply `approve K7M2QX` or run `agentguard approve K7M2QX`."
     )
 
 
@@ -154,10 +170,14 @@ def test_codex_advisory_review_is_non_blocking_context():
 
 
 @pytest.mark.parametrize("signoff", [False, True])
-def test_claude_review_is_a_native_ask(signoff):
-    decision = Decision(action=A.REQUEST_REVIEW, reason="Force push.", signoff_required=signoff)
+@pytest.mark.parametrize("code", [None, "K7M2QX"])
+def test_claude_review_is_a_native_ask(signoff, code):
+    """The native ask is the sign-off: a code (A1b) is never shown there."""
+    decision = Decision(
+        action=A.REQUEST_REVIEW, reason="Force push.", signoff_required=signoff, signoff_code=code
+    )
     r = hosts.render(decision, hosts.CLAUDE_CODE, E.PRE_TOOL_USE)
-    assert (r.kind, r.reason) == ("ask", "Force push.")
+    assert (r.kind, r.reason, r.system_message) == ("ask", "Force push.", None)
 
 
 def test_claude_modify_asks_with_the_updated_arguments():
@@ -382,6 +402,14 @@ CASES = {
         findings=[RISK],
         signoff_required=True,
     ),
+    # A1b: what the validator now emits — a sign-off with the code that allows it once.
+    "review-signoff-code": Decision(
+        action=A.REQUEST_REVIEW,
+        reason="AgentGuard — needs your sign-off\n\nIrreversible command: force push",
+        findings=[RISK],
+        signoff_required=True,
+        signoff_code="K7M2QX",
+    ),
     "modify": Decision(
         action=A.MODIFY,
         reason=GUARD.summary,
@@ -403,19 +431,27 @@ CODEX_HOOKS = [
 
 # Every output H1 changed, relative to the adapters' own rendering at e087bf5, and the
 # ladder rule that required it. Nothing a current core decision produces changed, except
-# Codex's sign-off wording (the binding text).
+# Codex's sign-off wording (the binding text). A1b changed that wording again: a sign-off
+# with a code says how to allow it once; one without promises no re-run.
 SIGNOFF_WORDING = "the sign-off deny now starts with the binding text"
+SIGNOFF_CODE = "the sign-off deny names the code that allows it once, to the agent and the developer"
 REVIEW_IS_CONTEXT = "an advisory review that cannot ask is non-blocking context: its reason, not nothing"
 REASON_REQUIRED = "a deny or block always carries a reason (Codex already did; an empty one fails open)"
 MODIFY_IS_A_CHALLENGE = "MODIFY with no reviewable rewrite is a CHALLENGE (Claude said nothing)"
 BLANK_IS_ABSENT = "blank context is no context (Codex already did)"
+_CODEX_PRE = (
+    "codex|PreToolUse",
+    "codex|PreToolUse:Write",
+    "codex+rewrites|PreToolUse",
+    "codex+rewrites|PreToolUse:Write",
+)
 LADDER_CHANGES = {
     **{
         f"{variant}|{case}": SIGNOFF_WORDING
-        for variant in ("codex|PreToolUse", "codex|PreToolUse:Write", "codex+rewrites|PreToolUse",
-                        "codex+rewrites|PreToolUse:Write")
+        for variant in _CODEX_PRE
         for case in ("review-risk-legacy", "review-signoff")
     },
+    **{f"{variant}|review-signoff-code": SIGNOFF_CODE for variant in _CODEX_PRE},
     **{
         f"claude-code|{hook}|{case}": REVIEW_IS_CONTEXT
         for hook in ("PostToolUse", "PostToolUseFailure", "UserPromptSubmit")
@@ -500,7 +536,12 @@ def test_each_change_h1_made_follows_its_ladder_rule(key):
     rule = LADDER_CHANGES[key]
     if rule == SIGNOFF_WORDING:
         assert spec["permissionDecision"] == "deny"
-        assert spec["permissionDecisionReason"] == hosts.SIGNOFF_PREFIX + case.reason
+        assert spec["permissionDecisionReason"] == f"{hosts.SIGNOFF_WITHOUT_CODE}\n\n{case.reason}"
+    elif rule == SIGNOFF_CODE:
+        lead = hosts.SIGNOFF_WITH_CODE.format(codes=case.signoff_code, minutes=15)
+        assert spec["permissionDecision"] == "deny"
+        assert spec["permissionDecisionReason"] == f"{lead}\n\n{case.reason}"
+        assert out["systemMessage"].endswith(hosts.SIGNOFF_NOTICE_CODE.format(codes=case.signoff_code))
     elif rule == REVIEW_IS_CONTEXT:
         assert spec["additionalContext"] == case.reason and "decision" not in out
     elif rule == REASON_REQUIRED:

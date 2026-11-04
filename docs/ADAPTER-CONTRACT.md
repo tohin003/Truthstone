@@ -136,7 +136,7 @@ reason ("AgentGuard objected to this action." when the decision had none).
 |---|---|---|---|---|---|---|---|
 | ALLOW (+ context) | context | context | context | context | context | context (+ the unverified-finish notice) | silent |
 | CHALLENGE, BLOCK | **deny**; else context¹; else record-only | **block** (+ context) | context: reason, then context | BLOCK: **block**; CHALLENGE: context only | context only | **block**²; else a notice to the developer | silent |
-| REQUEST_REVIEW, sign-off required | **ask** where native; else **deny**: "needs developer sign-off: ask the user to confirm, then re-run." + the reason, and a system message to the developer | context: reason | context: reason | context: reason | context only | context: reason | silent |
+| REQUEST_REVIEW, sign-off required | **ask** where native (no code shown); else **deny**: "needs developer sign-off: " + how to allow it once with its code³ + the reason, and a system message to the developer | context: reason | context: reason | context: reason | context only | context: reason | silent |
 | REQUEST_REVIEW, advisory | **ask** where native; else context: reason | context: reason | context: reason | context: reason | context only | context: reason | silent |
 | MODIFY | **rewrite_ask** where `rewrite = with_user_approval` and there are rewritten arguments; else **deny** showing the guarded form to re-issue | context only | context only | context only | context only | context only | silent |
 
@@ -149,10 +149,27 @@ the decision's `additional_context`; "context: reason" means the decision's reas
 2. Where the profile's `stop_continue` is `new_prompt`, `expects_continuation` is set:
    the continuation arrives as a prompt that belongs to the current task. Where the host
    cannot continue at all, the developer is told the turn ended unverified.
+3. With `Decision.signoff_code` (A1b): "needs developer sign-off: ask the user whether to
+   go ahead. To allow it once, they reply \`approve K7M2QX\` or run \`agentguard approve
+   K7M2QX\` in this project; then re-run it unchanged within 15 minutes. Any run after
+   that is held again." Without a code nothing could grant it, so no re-run is promised:
+   "needs developer sign-off: ask the user to carry this out themselves. AgentGuard could
+   not issue a sign-off code for it, so a re-run will be held again." Both start with
+   `hosts.SIGNOFF_PREFIX`.
 
 The developer-facing `system_message` appears only where `system_message_visible`: on a
-sign-off deny ("AgentGuard is holding this for your sign-off: …"), and at Stop for an
-unverified finish ("AgentGuard: this turn ended unverified — …").
+sign-off deny ("AgentGuard is holding this for your sign-off: …", followed by the code's
+two ways to allow it once when there is a code), and at Stop for an unverified finish
+("AgentGuard: this turn ended unverified — …").
+
+**Developer sign-off (A1b).** A sign-off decision carries a code bound to the session and
+the exact action. The developer grants it once: a prompt in the same session whose first
+non-empty line is `approve <code>`, or `agentguard approve <code>`. The next attempt at
+exactly that action within `SIGNOFF_TTL_S` (15 minutes) is then an ALLOW whose reason
+records the grant; the attempt after it asks again. No usable store means no code and no
+grant: the action stays held. An adapter needs to do two things: deliver the host's prompt
+event with `prompt_text` (every host with a prompt event then supports the reply), and,
+when it merges several decisions into one, carry every `signoff_code`, joined by spaces.
 
 ### How each adapter spells a rendering
 
@@ -186,6 +203,7 @@ the core declares them. The core reads each one only if it is present.
 | `AgentEvent.host_hints` | `{"read_only": bool, "tests_waived": bool}` | adapters that know (a host's own read-only flag; an explicit waiver) | `read_only` skips the write-path checks; `tests_waived` stops the gate demanding a test run |
 | Delete vocabulary | tool `"Delete"` with `file_path`; a move is a `Write` at the destination plus a `Delete` of the source | Codex `apply_patch` (`Delete File`, `Move to`) | a deletion is a change to the workspace, recorded as one |
 | `Decision.unverified_finish` | `str` or `None` | the completion gate, when it stops holding a turn open with a problem unresolved | adapters show it to the developer: Claude Code via `systemMessage`, Codex via `systemMessage` where it is visible (the ladder renders it as `Rendering.system_message` at Stop) |
+| `Decision.signoff_code` | `str` or `None`: six characters of `0-9A-Z` without I, L, O, U, always one digit and one letter; several joined by spaces after a merge | the validator, on every sign-off decision whose request it could record (A1b); on the ALLOW that used a grant, the code used | the ladder names it in the sign-off deny and the developer notice where the host's ask fails open, and never where the ask is native. Adapters do not render it themselves; one that merges decisions keeps every code |
 
 ## (d) The adapter protocol and registry
 

@@ -76,6 +76,12 @@ class Finding(BaseModel):
         return hashlib.sha256(raw).hexdigest()[:16]
 
 
+# How long a developer's sign-off stays usable once given (IMPROVEMENTS.md A1b): one run of
+# the action it names, within this window. Policy, not wording: the validator that consumes
+# a grant and the ladder that tells the agent how long it has both read this one number.
+SIGNOFF_TTL_S = 15 * 60
+
+
 class Decision(BaseModel):
     """What AgentGuard decided about one proposed action (SPEC §18)."""
 
@@ -100,6 +106,14 @@ class Decision(BaseModel):
     # with "needs developer sign-off" where the host's `ask` would silently fail open.
     # Advisory review requests (False) degrade to non-blocking context instead.
     signoff_required: bool = False
+    # The sign-off code of the held action (A1b): six characters bound to the session and
+    # the exact action (`validate/signoff.py`). The developer allows that action once by
+    # replying `approve <code>` in the session or running `agentguard approve <code>`. Where
+    # the host's ask fails open the ladder shows it; a native ask *is* the sign-off, so it
+    # is never shown there. On an ALLOW it names the grant that was used. `None` when no
+    # code could be issued (no usable store): the action is then simply held. An adapter
+    # that merges several decisions joins their codes with a space.
+    signoff_code: str | None = None
     # Stop only: the Completion Gate had a problem to raise (named here) but rationing
     # muted it — its per-task budget is spent, or a stop hook is already holding the turn
     # — so the turn ends unverified. Adapters tell the *developer* (G10); the agent has
