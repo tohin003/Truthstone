@@ -175,11 +175,17 @@ class EditOutcome:
         self.applied = applied
 
 
+def _edit_target(event: AgentEvent) -> str | None:
+    """The path argument an editing action names, or None."""
+    raw_path = event.arg("file_path") or event.arg("notebook_path")
+    return raw_path if isinstance(raw_path, str) and raw_path else None
+
+
 def read_before(event: AgentEvent, root: Path) -> tuple[str, str] | None:
     """``(path, text)``: the file an edit targets, as it is now (``""`` if it does not exist
     yet), or None when the action edits no file inside ``root``."""
-    raw_path = event.arg("file_path") or event.arg("notebook_path")
-    if not isinstance(raw_path, str) or not raw_path:
+    raw_path = _edit_target(event)
+    if raw_path is None:
         return None
     path = relative_path(root, raw_path)
     if path is None:
@@ -209,8 +215,8 @@ def resolve_edit(event: AgentEvent, root: Path) -> EditOutcome | None:
     """
     tool = event.tool
     if event._before is not None:
-        raw_path = event.arg("file_path") or event.arg("notebook_path")
-        path = relative_path(root, raw_path) if isinstance(raw_path, str) and raw_path else None
+        raw_path = _edit_target(event)
+        path = relative_path(root, raw_path) if raw_path is not None else None
         if path is None:
             return None
         before = event._before
