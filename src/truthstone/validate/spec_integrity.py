@@ -670,6 +670,40 @@ def test_pressure_requested(prompt: str | None) -> bool:
     return bool(_PRESSURE.search(text))
 
 
+_RULE_CHANGE_VERB = re.compile(
+    r"\b(?:chang(?:e|es|ed|ing)|increas(?:e|es|ed|ing)|decreas(?:e|es|ed|ing)|rais(?:e|es|ed|ing)|"
+    r"lower(?:s|ed|ing)?|allow(?:s|ed|ing)?|permit(?:s|ted|ting)?|support(?:s|ed|ing)?|"
+    r"remov(?:e|es|ed|ing)|relax(?:es|ed|ing)?|drop(?:s|ped|ping)?)\b",
+    re.IGNORECASE,
+)
+_NOT_VERB = re.compile(r"\b(?:don'?t|do\s+not|never|not|no|without)\s+(?:\w+\s+){0,2}$", re.IGNORECASE)
+
+
+def rule_change_requested(prompt: str | None, erosion: Erosion) -> bool:
+    """Whether the request asks for this rule's change: it contains the rule's new value (a
+    number the new sentence has and the old one does not), or one of its sentences names the
+    rule's subject (two of its content words, numbers aside) with a change verb that is not
+    negated ("change the request timeout", "allow negative ..." but not "don't change")."""
+    text = re.sub(r"\s+", " ", (prompt or "")[:20_000])
+    if not text:
+        return False
+    old_numbers = _numbers(erosion.sentence.text)
+    new_numbers = _numbers(erosion.counterpart) - old_numbers if erosion.counterpart else frozenset()
+    prompt_numbers = _numbers(text)
+    if new_numbers and new_numbers & prompt_numbers:
+        return True
+    subject = {word for word in _content(erosion.sentence.text) if not any(ch.isdigit() for ch in word)}
+    if len(subject) < 2:
+        return False
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        verbs = [
+            m for m in _RULE_CHANGE_VERB.finditer(sentence) if not _NOT_VERB.search(sentence[: m.start()])
+        ]
+        if verbs and len(subject & _content(sentence)) >= 2:
+            return True
+    return False
+
+
 _TARGET_VERB = re.compile(
     r"\b(?:renam\w*|remov\w*|delet\w*|drop\w*|deprecat\w*|replac\w*|retir\w*|get\s+rid\s+of|"
     r"becomes?|switch\w*|migrat\w*|convert\w*)\b",

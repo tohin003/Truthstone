@@ -8,12 +8,16 @@ condition is task-independent and has its own reason:
 * **The request did not ask for it.** No doc or rule change was asked for (a change verb
   with a doc noun: "update the README", "the docs are outdated", "relax the rule"), and the
   rule names nothing the request renames or removes.
-* **Test pressure.** A test run failed before the rule was last edited, or the request is
-  about failing tests ("X is failing", "get the suite green"). This is the class: a test
-  contradicts a documented rule, and the rule gives way so the test can pass. A rule the
-  agent rewrites while building a requested behaviour, with its tests failing only *after*
-  the edit, is a behaviour change the request may well have asked for, and Truthstone
-  cannot judge that.
+* **Test pressure.** A test run failed *before the session's first production-code edit*
+  (the request was about an already-failing test), or the request is about failing tests
+  ("X is failing", "get the suite green"). This is the class: a test contradicts a
+  documented rule, and the rule gives way so the test can pass. A red run the agent's own
+  code change caused is a behaviour change's normal path (change the code, an old test that
+  pinned the old behaviour fails, update it and the docs), never pressure.
+* **The request did not ask for this rule's change.** Besides a doc or rule request, a rule
+  counts as asked for when the request contains the rule's new value (a number that differs
+  between the old and the new sentence: "from 30 to 60 seconds"), or names the rule's subject
+  together with a change verb ("change / raise / allow ... the timeout").
 * **The message did not already say so.** A final message that names the changed rule
   ("the documented rule that totals are never negative no longer holds") has done what
   the challenge would ask for.
@@ -73,11 +77,20 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
     if not erosions:
         return []
     requested = spec_integrity.doc_change_requested(prompt)
-    last_edit = max(state.last_change_seq.get(e.path, 0) for e in erosions)
-    pressure = spec_integrity.test_pressure_requested(prompt) or any(
-        run.passed is False and run.seq is not None and run.seq < last_edit
-        for run in state.verification.outcomes
+    if not requested:
+        erosions = [e for e in erosions if not spec_integrity.rule_change_requested(prompt, e)]
+        if not erosions:
+            requested = True  # every rule the change touched is one the request asked to change
+    first_code_edit = _first_production_edit(state)
+    pressure = spec_integrity.test_pressure_requested(prompt) or (
+        first_code_edit is not None
+        and any(
+            run.passed is False and run.seq is not None and run.seq <= first_code_edit
+            for run in state.verification.outcomes
+        )
     )
+    if not erosions:
+        return []
     quoted = erosions[:MAX_QUOTED]
     listing = "\n".join(f'  - {e.where}: "{_clip(e.sentence.text)}"' for e in quoted)
     more = f"\n  - and {len(erosions) - len(quoted)} more" if len(erosions) > len(quoted) else ""
@@ -107,6 +120,21 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         "the rule; if the rule really should change, say so explicitly."
     )
     return [arbiter.Concern(ReasonCategory.SPEC_EROSION, text, finding, can_speak=speaks)]
+
+
+def _first_production_edit(state: TaskState) -> int | None:
+    """The task's timeline position just before its first change to production code: a run
+    at or before it saw the code as the task found it. None when no production file changed."""
+    positions = []
+    for path in state.changed_files:
+        if not _is_production(path):
+            continue
+        base = state.file_baselines.get(path)
+        if base is not None and not base.changed_before:
+            positions.append(base.seq)
+        elif path in state.last_change_seq:
+            positions.append(state.last_change_seq[path] - 1)  # no baseline: its last change bounds it
+    return min(positions) if positions else None
 
 
 def acknowledged(message: str | None, erosions_text: list[str]) -> bool:

@@ -26,12 +26,12 @@ The rules, in order
    Everything that does not speak is recorded, and the developer gets the gap through
    ``unverified_finish``.
 3. **Failing tests speak only with evidence (b), under the minimal profile.** The latest
-   run must have failed tests that exercise the change (a failing test file the task
-   changed, or one that covers a changed file). The failure must not already have been red
-   before the task's first edit. And the message must not disclose it. Any disclosure
-   counts: a failure word, an honest partial count ("34 passed" from a run of 36), or
-   naming the failing test. With no link between the failing tests and the change, the
-   arbiter stays silent.
+   run, after the last edit, must have failed tests that exercise the change (a failing test
+   file the task changed, or one that covers a changed file), in every case, even when the
+   message says all tests pass. The failure must not already have been red before the
+   task's first edit. And the message must not disclose it. Any disclosure counts: a
+   failure word, an honest partial count ("34 passed" from a run of 36), or naming the
+   failing test. With no link between the failing tests and the change, it stays silent.
 4. **Integrity checks speak only on a completion claim,** and only when the request did
    not ask for that change (each check owns its own exemptions).
 5. **Budget.** At most ``max_blocks`` Stop challenges per task, and none while a stop hook
@@ -356,8 +356,8 @@ def _failure_accepted(
         return _STALE_FAILURE, False
     if disclosed_failure(message, failure):
         return "disclosed", False
-    if claims_all_green(message, failure):
-        return "", True  # the message's own claim, contradicted by the agent's own run
+    # A link to the change is required in every case: a true challenge about a failure the
+    # change did not cause still costs an honest agent a turn.
     failing = _failing_paths(failure, index)
     if not failing:
         return "no failing test named", False
@@ -365,7 +365,7 @@ def _failure_accepted(
         return "already failing before the first edit", False
     if not _related(failing, state, index):
         return "the failing tests do not exercise the change", False
-    return "", False
+    return "", claims_all_green(message, failure)
 
 
 _ALL_GREEN = re.compile(
