@@ -56,6 +56,16 @@ def is_guard_context(text: str) -> bool:
     return not stripped.startswith("<") and bool(naming.MODEL_VISIBLE_MARKER.search(stripped[:400]))
 
 
+def _note_visible_product(t: Transcript, where: str, text: str) -> None:
+    if len(t.visible_product) >= 10:
+        return
+    for match in naming.VISIBLE_PRODUCT.finditer(text or ""):
+        snippet = text[max(0, match.start() - 50) : match.end() + 50].replace("\n", " ")
+        t.visible_product.append(f"{where}: {snippet}")
+        if len(t.visible_product) >= 10:
+            return
+
+
 def unwrap_command(command: str) -> str:
     """``/bin/zsh -lc 'pytest -q'`` -> ``pytest -q``. Anything else is returned as is."""
     try:
@@ -115,6 +125,9 @@ class Transcript:
     # Claude Code: a PostToolUse objection the model reads after a tool ran.
     post_tool_feedback: list[str] = field(default_factory=list)
     hook_events_reported: dict[str, int] = field(default_factory=dict)
+    # Where the product's name reached what the model is given (session context, not tool
+    # output): void in an observe-only cell (amendment G1).
+    visible_product: list[str] = field(default_factory=list)
 
     # -- derived process facts ---------------------------------------------------------
 
@@ -413,6 +426,8 @@ def read_rollout(path: Path | None, transcript: Transcript | None = None) -> Tra
                     t.stop_continuations.append(text[:2000])
                 elif role == "developer" and is_guard_context(text):
                     t.guard_context_messages += 1
+                if role in ("developer", "user", "system"):
+                    _note_visible_product(t, f"{role} message", text)
         elif rtype == "response_item" and ptype in ("custom_tool_call_output", "function_call_output"):
             for text in _texts(payload.get("output")):
                 match = _HOOK_DENIAL.search(text)
@@ -470,6 +485,9 @@ def read_claude_stream(path: Path, transcript: Transcript | None = None) -> Tran
             t.cli_version = str(event.get("claude_code_version", ""))
             t.model = str(event.get("model", ""))
             t.approval_policy = str(event.get("permissionMode", ""))
+            # What Claude Code lists to the model: skills, slash commands, agents, tools.
+            for key in ("skills", "slash_commands", "agents", "tools", "mcp_servers"):
+                _note_visible_product(t, f"init {key}", json.dumps(event.get(key) or []))
         elif kind == "assistant":
             message = event.get("message") or {}
             request = str(message.get("id") or event.get("request_id") or "")

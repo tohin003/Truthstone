@@ -36,7 +36,11 @@ _LATER_FIELDS: dict[str, Any] = {
     "suite": "codex_bench",
     "node_version": "",
     "sandbox_profile": "",
+    "observe_plugin": "",
 }
+# The observe arm's plugin. "" (plans registered before amendment G1): the full plugin, whose
+# skill listing names the guard to the model. "hooks-only": no skills, nothing model-visible.
+OBSERVE_PLUGINS = ("", "full", "hooks-only")
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +91,8 @@ class Plan:
     suite: str = "codex_bench"  # the named suite the tasks (and suite_digest) come from
     node_version: str = ""  # pinned Node for TypeScript tasks ("" = no Node on PATH)
     sandbox_profile: str = ""  # Claude: the versioned Bash-sandbox settings every cell runs under
+    # Amendment G1: what the observe arm installs ("" = the full plugin, as before G1).
+    observe_plugin: str = ""
 
     def __post_init__(self) -> None:
         if self.stage not in STAGES:
@@ -101,6 +107,18 @@ class Plan:
             raise ValueError(f"host must be one of {HOSTS}")
         if self.host == "claude" and not self.accounts:
             raise ValueError("a Claude plan names the accounts it may use")
+        if self.observe_plugin not in OBSERVE_PLUGINS:
+            raise ValueError(f"observe_plugin must be one of {OBSERVE_PLUGINS}")
+
+    @property
+    def observe_variant(self) -> str:
+        """The plugin variant the observe arm installs: "full" or "hooks-only"."""
+        return self.observe_plugin or "full"
+
+    @property
+    def skill_free_observe(self) -> bool:
+        """Amendment G1: an observe-arm cell that names the product to its model is void."""
+        return self.observe_plugin == "hooks-only"
 
     def budget_policy(self) -> BudgetPolicy:
         if self.host != "codex":

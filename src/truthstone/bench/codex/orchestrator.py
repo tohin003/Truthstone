@@ -189,6 +189,12 @@ class Runner:
             raise Halt(
                 f"the task suite changed since registration ({digest[:12]} != {self.plan.suite_digest[:12]})"
             )
+        variant = getattr(self.guard, "observe_variant", None)  # None: the dry run's fake guard
+        if variant is not None and variant != self.plan.observe_variant:
+            raise Halt(
+                f"the observe arm would install the {variant} plugin; the plan registers "
+                f"{self.plan.observe_variant!r}"
+            )
 
     # -- arms -------------------------------------------------------------------------
 
@@ -564,7 +570,7 @@ class Runner:
                 env,
                 cell_dir,
                 tmpdir,
-                self.guard.exec_args(),
+                self.guard.exec_args(ctx),
                 task=task,
                 phrasing=pair.phrasing,
                 replicate=pair.replicate,
@@ -605,6 +611,10 @@ class Runner:
                 record["hook_events_reported"] = t.hook_events_reported
                 record["post_tool_feedback"] = len(t.post_tool_feedback)
             record.update(self._facts(t, evidence))
+            # The instrument check (amendment G1): what the observe arm's model was given must
+            # not name the product. Recorded for every observe cell; void under a G1 plan.
+            if ctx.arm.observe_only and t.visible_product:
+                record["visible_product"] = t.visible_product[:5]
 
             infra = limits.classify_infra(
                 run.exit_code,
@@ -645,7 +655,16 @@ class Runner:
             (cell_dir / "grade.json").write_text(json.dumps(graded.to_dict(), default=str, indent=1))
             _write_diff(made.pristine, made.repo, cell_dir / "final.diff")
 
-            if infra:
+            if record.get("visible_product") and self.plan.skill_free_observe:
+                # Systematic (the arm's install, not the agent): stop before it costs more.
+                record.update(
+                    status="halt",
+                    void_reason="visible_product",
+                    problems=[
+                        f"the observe arm's model was shown the product: {record['visible_product'][0]}"
+                    ],
+                )
+            elif infra:
                 record.update(void_reason=infra, problems=[p.text for p in problems])
             elif settings:
                 record.update(void_reason="settings_drift", problems=settings)

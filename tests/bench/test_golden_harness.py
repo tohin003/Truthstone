@@ -21,6 +21,7 @@ from truthstone.bench.codex import (
     claude_sandbox,
     cli,
     grader,
+    homes,
     naming,
     orchestrator,
     report,
@@ -349,23 +350,40 @@ def test_plans_never_allow_file_editing_tools_bare():
     assert claude_sandbox.bare_file_tools(["Bash", "Edit"]) == ["Edit"]
 
 
-def test_study_paths_hide_the_checkout_run_and_work_root_but_reopen_the_interpreter(tmp_path):
+def test_sandbox_paths_hide_the_checkout_run_and_work_root_under_neutral_names(tmp_path):
     home = tmp_path / "home"
-    for rel in (".ssh", ".config/git", ".config/gh"):
+    for rel in (".ssh", ".config/git", ".config/gh", f".{naming.PRODUCT}", ".agentguard"):
         (home / rel).mkdir(parents=True)
     taskenv = tmp_path / "work" / "state" / "taskenv"
+    run_dir = tmp_path / "k" / "bench" / "codex" / "results" / "golden-plan"
     paths = claude_sandbox.SandboxPaths.for_study(
-        suite.REPO_ROOT, tmp_path / "run", tmp_path / "work", [taskenv], home=home
+        suite.REPO_ROOT, run_dir, tmp_path / "work", [taskenv], home=home
     )
-    assert str(suite.REPO_ROOT.resolve()) in paths.deny_read
+    listed = [Path(p) for p in (*paths.deny_read, *paths.allow_read)]
+    # Claude Code lists every one of these to the model (profile v2): none may name the
+    # product or the study, so the checkout and the run directory hide behind an ancestor
+    repo = suite.REPO_ROOT.resolve()
+    assert any(p == repo or p in repo.parents for p in map(Path, paths.deny_read))
+    assert str((tmp_path / "k").resolve()) in paths.deny_read
+    assert not [p for p in listed if claude_sandbox.names_study(p)]
     assert str((tmp_path / "work").resolve()) in paths.deny_read
     assert str((home / ".ssh").resolve()) in paths.deny_read
-    # tokens under ~/.config are hidden, but git's own directory stays readable (or git
-    # warns on every command) and so does ~/.config itself
-    assert str((home / ".config" / "gh").resolve()) in paths.deny_read
-    assert str((home / ".config" / "git").resolve()) not in paths.deny_read
-    assert str((home / ".config").resolve()) not in paths.deny_read
-    assert paths.allow_read == (str(taskenv.resolve()),)
+    # ~/.config is hidden whole (its entries' names stay unlisted) and git's own directory
+    # re-opened (or git warns on every command)
+    assert str((home / ".config").resolve()) in paths.deny_read
+    assert str((home / ".config" / "gh").resolve()) not in paths.deny_read
+    assert paths.allow_read == (str(taskenv.resolve()), str((home / ".config" / "git").resolve()))
+    # the product's own homes would name it: left out (no task material in them)
+    assert not [p for p in paths.deny_read if naming.VISIBLE_PRODUCT.search(p)]
+
+
+def test_a_path_only_home_could_hide_is_refused(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    with pytest.raises(homes.IsolationError, match="naming it to the model"):
+        claude_sandbox.neutral_ancestor(home / "golden-results", home)
+    assert claude_sandbox.neutral_ancestor(home / "k" / "bench", home) == (home / "k").resolve()
+    assert claude_sandbox.neutral_ancestor(home / "k" / "w", home) == (home / "k" / "w").resolve()
 
 
 def test_claude_cells_get_per_cell_settings_and_their_own_tmpdir(tmp_path):
@@ -389,9 +407,12 @@ def test_claude_cells_get_per_cell_settings_and_their_own_tmpdir(tmp_path):
     assert run.exit_code == 0
     called = json.loads(log.read_text())
     settings_path = called["argv"][called["argv"].index("--settings") + 1]
-    assert Path(settings_path) == cell_dir / "claude-settings.json"
+    # Claude Code lists the settings file to the model: it lives beside the cell's temp
+    # directory (a neutral path), never under the run directory; the record keeps a copy
+    assert Path(settings_path) == claude_sandbox.settings_path(tmp) == tmp_path / "s.json"
     written = json.loads(Path(settings_path).read_text())
     assert written["sandbox"]["filesystem"]["denyRead"] == ["/secret"]
+    assert json.loads((cell_dir / "claude-settings.json").read_text()) == written
     assert called["tmp"] == str(tmp.resolve())
 
 

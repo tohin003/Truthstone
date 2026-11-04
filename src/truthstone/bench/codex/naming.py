@@ -20,6 +20,7 @@ PRODUCT_DISPLAY = _names.DISPLAY
 # Environment variables the product reads. Imported, never re-spelled.
 ENV_HOME = _core_config.ENV_HOME  # per-arm state directory
 ENV_OBSERVE = _core_config.ENV_OBSERVE  # not used by the harness: see guards.py
+ENV_DISABLE = _core_config.ENV_DISABLE  # only the no-model visibility probe sets it
 
 # The product's on-disk layout inside its home.
 CONFIG_FILENAME = "config.toml"
@@ -38,6 +39,14 @@ PLUGIN_MANIFEST_RELATIVE = ".codex-plugin/plugin.json"
 # reconcile model-visible interventions against the product's own decision log, never to
 # score an outcome.
 MODEL_VISIBLE_MARKER = re.compile(re.escape(PRODUCT_DISPLAY), re.IGNORECASE)
+
+# Any spelling of the product's name, current or former. In an observe-only cell, none of
+# them may appear in what the model is given (a skill listing names the guard and its
+# completion gate: a cue). Used by the per-cell instrument check and the preflight.
+VISIBLE_PRODUCT = re.compile(
+    "|".join(re.escape(name) for name in (_names.SLUG, *(former[1] for former in _names.FORMER))),
+    re.IGNORECASE,
+)
 
 # The harness's own environment variable for its logging hook (not the product's). Bland
 # on purpose: the agent can read its environment, and this must not announce a benchmark.

@@ -24,6 +24,19 @@ What every cell gets (``cell_settings``, passed with ``--settings``; profile ``P
 * **Hooks** are not sandboxed (verified): Truthstone's hooks and the harness's logging
   hook still reach their daemon on loopback and write their trace.
 
+**Everything the sandbox names is shown to the model.** Claude Code describes the session's
+sandbox to the model in its first message: every denied and re-opened path, and every file
+it protects from writes (the ``--settings`` file and the ``--plugin-dir`` directories among
+them). Profile v1 listed the checkout (the product's former name), the run directory (the
+plan's name) and each cell's settings file under ``results/<plan>/cells/<task>...<arm>``,
+which would have told the model the study, the task and its arm. From v2 (amendment G1)
+every listed path is neutral: a hidden path that would name the product or the study is
+hidden by its nearest neutral ancestor instead (``neutral_ancestor``); ``~/.config`` is
+hidden whole with only git's directory re-opened; the settings file and the plugin copies
+live under neutral names. ``visible_context`` proves it with the real binary and no model.
+The user's own product homes (``~/.truthstone``, ``~/.agentguard``) are left out: hiding
+them would name them, and they hold no task material (both arms alike).
+
 The proof is ``check``: the *real* pinned Claude Code binary, the *real* cell flags and
 settings, and a scripted stand-in for the Anthropic API on loopback that replays tool
 calls (Bash probes, a Write outside the cell, a Write inside it, a Read of a hidden
@@ -35,6 +48,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -48,15 +62,17 @@ from typing import Any
 from truthstone.bench.codex import homes, naming
 
 # Bump on any change to cell_settings(); plans pin it, and the check proves the version.
-PROFILE = "claude-bash-sandbox/v1"
+PROFILE = "claude-bash-sandbox/v2"
 # Tools a Claude plan may allow bare. The file-editing tools are allowed per cell, by path.
 FILE_EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
-# Credentials and the user's other agent homes: never readable from a cell.
+# Credentials and the user's other agent homes: never readable from a cell. (Not the
+# product's own homes: the sandbox lists what it hides to the model, and these would name it.)
 SENSITIVE_HOME_PATHS = (
     ".ssh", ".aws", ".gnupg", ".docker", ".kube", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
-    ".codex", ".claude", ".claude.json", ".claude-work", ".claude-personal",
-    f".{naming.PRODUCT}", ".agentguard", "Library/Keychains",
+    ".codex", ".claude", ".claude.json", ".claude-work", ".claude-personal", "Library/Keychains",
 )  # fmt: skip
+# A path component that names the product or the study; never listed to a cell's model.
+STUDY_WORDS = re.compile(r"bench|result|golden|held.?out|pilot|screen|observe|guard|study|trial", re.I)
 # ~/.config holds tokens (gh, vendor CLIs), but git reads ~/.config/git on every command and
 # warns on each one when it is unreadable (verified): hide every entry except git's.
 CONFIG_KEEP = frozenset({"git"})
@@ -86,12 +102,42 @@ class SandboxPaths:
         cls, repo_root: Path, run_dir: Path, work_root: Path, readable: list[Path], home: Path | None = None
     ) -> SandboxPaths:
         home = home or Path.home()
-        deny = [repo_root, run_dir, work_root, *_main_checkout(repo_root)]
+        study = [repo_root, run_dir, work_root, *_main_checkout(repo_root)]
+        deny = [neutral_ancestor(path, home) for path in study]
         deny += [home / rel for rel in SENSITIVE_HOME_PATHS if os.path.lexists(home / rel)]
+        allow = list(readable)
         config = home / ".config"
         if config.is_dir():
-            deny += sorted(p for p in config.iterdir() if p.name not in CONFIG_KEEP)
-        return cls(deny_read=_unique(deny), allow_read=_unique(readable))
+            deny.append(config)
+            allow += [config / name for name in sorted(CONFIG_KEEP) if (config / name).exists()]
+        paths = cls(deny_read=_unique(deny), allow_read=_unique(allow))
+        named = [p for p in (*paths.deny_read, *paths.allow_read) if names_study(Path(p))]
+        if named:
+            raise homes.IsolationError(f"the sandbox would show the model these paths: {named}")
+        return paths
+
+
+def names_study(path: Path) -> bool:
+    return any(naming.VISIBLE_PRODUCT.search(part) or STUDY_WORDS.search(part) for part in path.parts)
+
+
+def neutral_ancestor(path: Path, home: Path) -> Path:
+    """``path``, or its nearest ancestor whose path names neither the product nor the study.
+
+    Hiding the ancestor hides the path too, and what the sandbox lists stays neutral (the
+    checkout at ``~/Projects/<product>`` is hidden as ``~/Projects``). Never ``home`` or
+    above: that would hide the cell's own interpreter.
+    """
+    resolved = Path(path).resolve()
+    home = Path(home).resolve()
+    candidate = resolved
+    while names_study(candidate):
+        candidate = candidate.parent
+    if candidate == home or candidate in home.parents or candidate == candidate.parent:
+        raise homes.IsolationError(
+            f"{path} can only be hidden by naming it to the model: move it under a neutral directory"
+        )
+    return candidate
 
 
 def _unique(paths: list[Path]) -> tuple[str, ...]:
@@ -163,6 +209,14 @@ def write_cell_settings(path: Path, repo: Path, tmpdir: Path, paths: SandboxPath
     return path
 
 
+def settings_path(tmpdir: Path) -> Path:
+    """Where a cell's ``--settings`` file lives: beside its temp directory, under the cell's
+    neutral work directory. Claude Code lists this path to the model (it protects it from
+    writes), so it must not sit under the run directory, whose path names the plan, the task
+    and the arm. The orchestrator archives a copy in the cell's record."""
+    return Path(tmpdir).parent / "s.json"
+
+
 def cell_env(tmpdir: Path) -> dict[str, str]:
     """Sandboxed Bash gets ``$TMPDIR`` under this directory (Claude Code appends a per-user part)."""
     return {"CLAUDE_CODE_TMPDIR": str(Path(tmpdir).resolve())}
@@ -185,6 +239,7 @@ class ScriptedAPI:
         self.results: list[dict] = []
         self.hooks: list[str] = []
         self.requests = 0
+        self.bodies: list[dict] = []  # every request body: what the model would be given
         self.lock = threading.Lock()
         api = self
 
@@ -245,6 +300,7 @@ class ScriptedAPI:
         ]
         with self.lock:
             self.requests += 1
+            self.bodies.append(body)
             if results:
                 self.results = results
         if "Bash" not in tools:
@@ -404,12 +460,22 @@ def check(
     readable = homes.private_dir(hidden / "readable")
     (readable / "ok.txt").write_text("readable\n", encoding="utf-8")
     scratch_home = homes.private_dir(root / "home")
+    # As in a real cell (profile v2): ~/.config hidden whole, git's own directory re-opened.
+    home_config = homes.private_dir(scratch_home / ".config")
+    homes.private_dir(home_config / "git")
+    (home_config / "git" / "config").write_text("[user]\n\tname = Probe\n", encoding="utf-8")
+    homes.private_dir(home_config / "vendor")
+    (home_config / "vendor" / "token.txt").write_text("not-a-token\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=30)
     config = homes.private_dir(root / "config")
     markers = homes.private_dir(root / "markers")
     slash_tmp = Path("/tmp") / f"{cell_parent.name}-slash"
     # As in a real cell, the account's config directory is among the hidden paths: Claude
     # Code itself (not sandboxed) must keep working when its Bash cannot read it.
-    paths = SandboxPaths(deny_read=_unique([hidden, config]), allow_read=_unique([readable]))
+    paths = SandboxPaths(
+        deny_read=_unique([hidden, config, home_config]),
+        allow_read=_unique([readable, home_config / "git"]),
+    )
     secret_env = naming.ENV_HOME
     try:
         api = ScriptedAPI([])
@@ -421,6 +487,11 @@ def check(
             f'touch "{slash_tmp}" && echo "PROBE slash-tmp WROTE"\n'
             f'cat "{hidden}/config.toml" && echo "PROBE hidden READ"\n'
             f'cat "{readable}/ok.txt" && echo "PROBE readable ok"\n'
+            'cat "$HOME/.config/vendor/token.txt" && echo "PROBE config READ"\n'
+            'git config --global --get user.name 2>"$TMPDIR/gc.err" | grep -q Probe && '
+            '[ ! -s "$TMPDIR/gc.err" ] && echo "PROBE git-config ok"\n'
+            'git status --porcelain >/dev/null 2>"$TMPDIR/gs.err" && [ ! -s "$TMPDIR/gs.err" ] && '
+            'echo "PROBE git-status quiet"\n'
             f'[ -n "${secret_env}" ] && echo "PROBE env VISIBLE" || echo "PROBE env hidden"\n'
             'curl -sS -m 5 -o /dev/null https://example.com && echo "PROBE proxy NET"\n'
             "curl --noproxy '*' -sS -m 5 -o /dev/null https://example.com && echo \"PROBE direct NET\"\n"
@@ -523,6 +594,7 @@ def check(
                 ("Bash wrote to a sibling under /private/tmp", files["bash_sibling"]),
                 ("Bash wrote to /tmp", files["bash_slash_tmp"]),
                 ("Bash read a hidden path", "PROBE hidden READ" in probes),
+                ("Bash read a hidden ~/.config entry", "PROBE config READ" in probes),
                 ("Bash saw the arm's environment", "PROBE env VISIBLE" in probes),
                 ("Bash reached the network through the proxy", "PROBE proxy NET" in probes),
                 ("Bash reached the network directly", "PROBE direct NET" in probes),
@@ -539,6 +611,8 @@ def check(
                 ("Bash could not write inside the cell", files["bash_inside"]),
                 ("Bash could not write to its TMPDIR", "PROBE tmpdir ok" in probes),
                 ("Bash could not read the task interpreter's re-opened path", "PROBE readable ok" in probes),
+                ("git could not read its re-opened config, quietly", "PROBE git-config ok" in probes),
+                ("git status was not quiet in the cell", "PROBE git-status quiet" in probes),
                 ("the Write tool could not write inside the cell", files["write_inside"]),
                 ("the Write tool could not write to the cell's temp directory", files["write_tmp"]),
             )
@@ -555,6 +629,7 @@ def check(
             needed = {
                 "Bash wrote outside the cell",
                 "Bash read a hidden path",
+                "Bash read a hidden ~/.config entry",
                 "Bash saw the arm's environment",
                 "Bash reached a loopback server",
                 "the Write tool wrote outside the cell",
@@ -568,3 +643,133 @@ def check(
         for path in (cell_parent, sibling, root):
             shutil.rmtree(path, ignore_errors=True)
         slash_tmp.unlink(missing_ok=True)
+
+
+# -- what a cell's model is given: the no-model visibility probe ----------------------
+
+# Written into the probe's scratch config directory: if it reached the request, the
+# account's own CLAUDE.md would reach every real cell's model.
+USER_MEMORY_SENTINEL = "zq-user-memory-sentinel-7c1f"
+
+
+@dataclass(slots=True)
+class VisibleContext:
+    claude_version: str
+    requests: int = 0
+    chars: int = 0
+    mentions: list[str] = field(default_factory=list)  # product names in what the model is sent
+    init_mentions: list[str] = field(default_factory=list)  # ...in the stream's init lists
+    cue_mentions: list[str] = field(default_factory=list)  # the study's own names (any arm)
+    user_memory_visible: bool = False
+    problems: list[str] = field(default_factory=list)
+
+    @property
+    def clean(self) -> bool:
+        return not (
+            self.problems
+            or self.mentions
+            or self.init_mentions
+            or self.cue_mentions
+            or self.user_memory_visible
+        )
+
+
+def visible_context(
+    claude_bin: str,
+    work_root: Path,
+    extra_args: list[str],
+    paths: SandboxPaths | None,
+    prompt: str,
+    model: str = "claude-opus-5-5",
+    effort: str = "medium",
+    permission_mode: str = "dontAsk",
+    allowed_tools: tuple[str, ...] = (),
+    repo: Path | None = None,
+    cues: tuple[str, ...] = (),
+    timeout_s: int = 240,
+) -> VisibleContext:
+    """Everything a cell's model would be given, captured without a model.
+
+    The real binary runs with a cell's argv (its plugins, flags and ``--settings``, so the
+    Bash tool describes the study's real sandbox) against the scripted API, which records
+    every request body: the system prompt, the tool descriptions (the skill listing among
+    them) and the messages. Each body is scanned for the product's names, and for ``cues``
+    (the study's own names: plan, run directory, task; never allowed in any arm). The hooks
+    are switched off (nothing installs, nothing reaches a daemon); they put nothing in the
+    model's context in the observe arm anyway (the manipulation check proves that). No
+    credential: a scratch config directory and a dummy key aimed at loopback.
+    """
+    from truthstone.bench.codex import transcript  # no import cycle
+    from truthstone.bench.codex.claude import ClaudeExecAgent, ClaudeSettings, claude_version
+    from truthstone.bench.codex.guards import cue_mentions
+
+    result = VisibleContext(claude_version(claude_bin))
+    root = homes.private_dir(work_root / homes.neutral_name("visible", time.time()))
+    cell_parent = Path(tempfile.mkdtemp(prefix="k", dir="/private/tmp")).resolve()
+    tmpdir = homes.private_dir(cell_parent / "t")
+    if repo is None:
+        repo = homes.private_dir(cell_parent / "w")
+        (repo / "README.md").write_text("# notes\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True, timeout=30)
+    config = homes.private_dir(root / "config")
+    (config / "CLAUDE.md").write_text(f"{USER_MEMORY_SENTINEL}\n", encoding="utf-8")
+    trace = homes.private_dir(root / "trace")
+    try:
+        api = ScriptedAPI([])
+        with api:
+            cell_settings_file = None
+            if paths is not None:
+                cell_settings_file = write_cell_settings(settings_path(tmpdir), repo, tmpdir, paths)
+            agent = ClaudeExecAgent(
+                claude_bin,
+                ClaudeSettings(
+                    model=model, effort=effort, permission_mode=permission_mode, allowed_tools=allowed_tools
+                ),
+            )
+            env = {
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "HOME": str(homes.private_dir(root / "home")),
+                "SHELL": "/bin/zsh",
+                "USER": os.environ.get("USER", "dev"),
+                "LANG": "en_US.UTF-8",
+                "TMPDIR": str(tmpdir),
+                "CLAUDE_CONFIG_DIR": str(config),
+                "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{api.port}",
+                "ANTHROPIC_API_KEY": "sk-ant-scripted-visibility-probe-not-a-key",
+                "DISABLE_AUTOUPDATER": "1",
+                "DISABLE_TELEMETRY": "1",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+                naming.ENV_DISABLE: "1",
+                naming.ENV_RECORD_DIR: str(trace),
+                **cell_env(tmpdir),
+            }
+            proc = subprocess.run(
+                agent.argv(prompt, list(extra_args), cell_settings_file),
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+            )
+            bodies = list(api.bodies)
+        stream = root / "stream.jsonl"
+        stream.write_text(proc.stdout, encoding="utf-8")
+        result.init_mentions = transcript.read_claude_stream(stream).visible_product
+        result.requests = len(bodies)
+        if not bodies:
+            result.problems.append(
+                f"no request reached the scripted API (exit {proc.returncode}): {proc.stderr[-300:]}"
+            )
+            return result
+        for body in bodies:
+            text = json.dumps({k: body.get(k) for k in ("system", "tools", "messages")}, ensure_ascii=False)
+            result.chars += len(text)
+            result.user_memory_visible |= USER_MEMORY_SENTINEL in text
+            for match in naming.VISIBLE_PRODUCT.finditer(text):
+                if len(result.mentions) < 20:
+                    result.mentions.append(text[max(0, match.start() - 80) : match.end() + 80])
+            result.cue_mentions += cue_mentions(text, cues)
+        return result
+    finally:
+        for path in (cell_parent, root):
+            shutil.rmtree(path, ignore_errors=True)

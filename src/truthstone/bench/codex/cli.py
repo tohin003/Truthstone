@@ -150,6 +150,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         suite_digest=suite.suite_digest(tasks),
         notes=args.notes or "",
         arms=ARM_CHOICES[args.arms],
+        observe_plugin=args.observe_plugin,
         **common,
         **host_fields,
     )
@@ -163,7 +164,8 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     unit = "observe-only screening cells" if plan.screening else "cells"
     print(
         f"plan {plan.name}: {len(plan.pairs())} pairs = {len(plan.arms) * len(plan.pairs())} {unit}; "
-        f"suite {plan.suite} {plan.suite_digest[:16]}; digest {plan.digest()[:16]}"
+        f"suite {plan.suite} {plan.suite_digest[:16]}; observe arm: {plan.observe_variant} plugin; "
+        f"digest {plan.digest()[:16]}"
     )
     return 0
 
@@ -267,7 +269,13 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
     if plan.codex_version and version != plan.codex_version:
         raise orchestrator.Halt(f"Claude Code {version} != pinned {plan.codex_version}")
     guard = claude.TruthstoneClaudePlugin.from_build(
-        build, state, claude_bin, args.uv, recorder, permission_mode=plan.permission_mode
+        build,
+        state,
+        claude_bin,
+        args.uv,
+        recorder,
+        permission_mode=plan.permission_mode,
+        observe_plugin=plan.observe_variant,
     )
     unknown = sorted(set(plan.accounts) - set(guard.accounts))
     if unknown:
@@ -332,7 +340,9 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
         script = state / "hook_recorder.py"
         shutil.copyfile(Path(guards.__file__).with_name("hook_recorder.py"), script)
         recorder = (task_python, script)
-    guard = guards.TruthstonePlugin(build, args.codex, trust=plan.trust, recorder=recorder)
+    guard = guards.TruthstonePlugin(
+        build, args.codex, trust=plan.trust, recorder=recorder, observe_plugin=plan.observe_variant
+    )
     settings = agents.CodexSettings(
         model=plan.model,
         effort=plan.effort,
@@ -379,6 +389,38 @@ def _real_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchest
     return runner
 
 
+def _study_cues(plan: Plan, run_dir: Path, task: suite.Task) -> tuple[str, ...]:
+    """The study's own names: never in what any arm's model is given (paths that carry them
+    would tell the model it is being studied, and which task it is)."""
+    return (plan.name, run_dir.name, str(suite.REPO_ROOT), "bench/codex", "/cells/", task.id)
+
+
+def _visible_problems(
+    plan: Plan, ctx: guards.ArmContext, mentions: list[str], cues: list[str] | None = None
+) -> list[str]:
+    """Amendment G1: under a skill-free plan the observe arm's model is never shown the product.
+    The guarded arm is (its skill is part of the treatment); plans before G1 show it in both.
+    The study's own names are never shown to either arm."""
+    problems = []
+    if ctx.arm.observe_only and mentions and plan.skill_free_observe:
+        problems.append(
+            f"the observe arm's model would be shown the product ({len(mentions)} mention(s)): "
+            f"{mentions[0][:200]}"
+        )
+    if cues:
+        problems.append(f"the {ctx.arm.name} arm's model would be shown the study's names: {cues[0][:200]}")
+    return problems
+
+
+def _visible_line(plan: Plan, ctx: guards.ArmContext, count: int) -> str:
+    line = f"model-visible context {ctx.arm.name:<8} {count} product mention(s)"
+    if not ctx.arm.observe_only:
+        return f"{line} (the guarded arm's own plugin)"
+    if count and not plan.skill_free_observe:
+        return f"{line}: WARNING, a plan from before amendment G1 (the full plugin in the observe arm)"
+    return line
+
+
 def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> int:
     """Provision the build's runtime per account, read /usage, and run the manipulation
     checks (synthetic payloads through the plugin's own hooks). No prompt reaches a model."""
@@ -406,11 +448,45 @@ def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> in
         data["usage"] = runner.account_readings
         data["account_choice"] = dataclasses.asdict(runner._choose_account())
         data["manipulation_checks"] = runner.manipulation_checks()
+        task = next(iter(runner.tasks.values()))
         for name, ctx in runner.contexts.items():
             health = runner.guard.health(ctx)
             data[f"daemon_{name}"] = health
             if not health or bool(health.get("observing")) != ctx.arm.observe_only:
                 print(f"{name}: daemon health {health}")
+                return 1
+            # Amendment G1: what this arm's model would be given (system prompt, tool and
+            # skill listings, first message), captured from the real binary with no model.
+            where = homes.private_dir(
+                (runner.cell_root or runner.work_root) / homes.neutral_name("visible", name, time.time())
+            )
+            made = suite.materialize(
+                task, where / "w", where / "p", python=runner.task_python, instructions=runner.instructions
+            )
+            try:
+                seen = claude_sandbox.visible_context(
+                    agent.claude_bin,
+                    runner.work_root,
+                    runner.guard.exec_args(ctx),
+                    agent.settings.sandbox,
+                    task.prompt(plan.phrasings[0]),
+                    model=plan.model,
+                    effort=plan.effort,
+                    permission_mode=plan.permission_mode,
+                    allowed_tools=tuple(plan.allowed_tools),
+                    repo=made.repo,
+                    cues=_study_cues(plan, run_dir, task),
+                )
+            finally:
+                shutil.rmtree(where, ignore_errors=True)
+            data[f"visible_context_{name}"] = dataclasses.asdict(seen)
+            mentions = seen.mentions + seen.init_mentions
+            problems = seen.problems + _visible_problems(plan, ctx, mentions, seen.cue_mentions)
+            if seen.user_memory_visible:
+                problems.append("the account's own CLAUDE.md would reach the model: user memory is loaded")
+            print(_visible_line(plan, ctx, len(mentions)))
+            if problems:
+                print(f"{name}: {problems}")
                 return 1
     finally:
         runner.teardown_arms()
@@ -525,12 +601,33 @@ def _cmd_preflight(args: argparse.Namespace) -> int:
         task = next(iter(runner.tasks.values()))
         for name, ctx in runner.contexts.items():
             made = suite.materialize(
-                task, ctx.root / "pre" / "w", ctx.root / "pre" / "p", python=runner.task_python
+                task,
+                ctx.root / "pre" / "w",
+                ctx.root / "pre" / "p",
+                python=runner.task_python,
+                instructions=runner.instructions,
             )
             home = homes.clone_codex_home(ctx.codex_template, ctx.root / "pre" / "c")
-            problems, hooks = runner.guard.verify_cell(ctx, home, made.repo)
-            homes.unlink_auth(home)
+            try:
+                problems, hooks = runner.guard.verify_cell(ctx, home, made.repo)
+                # Amendment G1: what this arm's model would be given, rendered with no model call.
+                mentions, cues = runner.guard.visible_context(
+                    ctx,
+                    home,
+                    made.repo,
+                    task.prompt(plan.phrasings[0]),
+                    cues=_study_cues(plan, run_dir, task),
+                )
+            finally:
+                homes.unlink_auth(home)
+            problems += _visible_problems(plan, ctx, mentions, cues)
             report_data[f"cell_check_{name}"] = {"problems": problems, "hooks": hooks.get("hooks")}
+            report_data[f"visible_context_{name}"] = {
+                "mentions": len(mentions),
+                "examples": mentions[:3],
+                "study_cues": cues,
+            }
+            print(_visible_line(plan, ctx, len(mentions)))
             shutil.rmtree(ctx.root / "pre", ignore_errors=True)
             if problems:
                 print(f"{name}: {problems}")
@@ -915,6 +1012,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--codex", default=DEFAULT_CODEX)
     p.add_argument("--notes")
     _arms_option(p)
+    p.add_argument(
+        "--observe-plugin",
+        default="hooks-only",
+        choices=["hooks-only", "full"],
+        help="What the observe arm installs (amendment G1): the plugin without its skills (default), "
+        "or the full plugin, whose skill listing names the guard to the model.",
+    )
     p.add_argument("--out", required=True)
     p.set_defaults(func=_cmd_plan)
 
