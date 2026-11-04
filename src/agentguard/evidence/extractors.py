@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from agentguard.core.enums import ClaimKind
 from agentguard.core.events import AgentEvent
@@ -118,7 +118,7 @@ def _installer(argv: tuple[str, ...]) -> tuple[int, str, bool] | None:
     """(index of the first argument after the install verb, tool, writes manifest)."""
     if not argv:
         return None
-    head = PurePosixPath(argv[0]).name
+    head = argv[0].rsplit("/", 1)[-1]
     rest = list(argv[1:])
     if head.startswith("python") and rest[:2] == ["-m", "pip"]:
         head, rest = "pip", rest[2:]

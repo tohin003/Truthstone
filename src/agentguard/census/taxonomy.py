@@ -173,10 +173,16 @@ EXTENDED_TAXONOMY: tuple[ModeSpec, ...] = (
     ModeSpec(
         FailureMode.DESTRUCTIVE_ACTION,
         "propose an irreversible action without sign-off (beyond §3)",
-        "action validator — irreversible-command patterns (REQUEST_REVIEW)",
+        "action validator — effect classifiers on parsed commands: root/home deletes, force "
+        "pushes, hard resets, git clean, download-and-execute, recursive world-writable chmod, "
+        "block devices, and writes to the developer's own configuration outside the workspace "
+        "(REQUEST_REVIEW); git discards, find/xargs deletes, infrastructure, database and "
+        "publish commands, and other writes outside the workspace (recorded at INFO only)",
         "the agent proposed a command AgentGuard classifies as irreversible and escalated "
         "for the developer's sign-off. It does NOT prove the command was wrong — a force "
-        "push may be exactly right — only that it needed a human's yes",
+        "push may be exactly right — only that it needed a human's yes. INFO observations "
+        "(the newer families) prove only that such a command was proposed; their precision "
+        "is not yet measured, so they are counted, never raised",
     ),
     ModeSpec(
         FailureMode.VERIFICATION_TAMPERING,

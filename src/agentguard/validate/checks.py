@@ -19,7 +19,7 @@ import os
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from agentguard.core.config import agentguard_home
 from agentguard.core.enums import (
@@ -35,7 +35,7 @@ from agentguard.core.models import EvidenceRef, Finding
 from agentguard.core.taskstate import DEFAULT_UNRELATED_LIMIT, TaskState
 from agentguard.repo import manifests, scanner
 from agentguard.repo.index import RepoIndex
-from agentguard.validate import shell
+from agentguard.validate import effects, shell
 
 log = logging.getLogger(__name__)
 
@@ -324,7 +324,7 @@ def _runs_tests(argv: tuple[str, ...], depth: int = 0) -> bool:
     """Whether argv runs a test suite, recognised by command position (not by mention)."""
     if not argv or depth > 2:
         return False
-    name = PurePosixPath(argv[0]).name
+    name = shell.basename(argv[0])
     args = argv[1:]
     if name in _TEST_RUNNERS:
         return True
@@ -374,7 +374,7 @@ def _runs_tests(argv: tuple[str, ...], depth: int = 0) -> bool:
 # severe that matched. Every family is reported — not only the first — because MODIFY
 # may only rewrite a command whose sole serious problem is the one the rewrite fixes
 # (IMPROVEMENTS.md A5), and that cannot be judged from the first match alone.
-VARIABLE_DELETE = "recursive delete of an unvalidated variable path — expands to `/` if it is unset"
+VARIABLE_DELETE = effects.VARIABLE_DELETE  # shared with effects and MODIFY
 
 _SEVERITY_RANK = {
     Severity.INFO: 0,
@@ -401,6 +401,7 @@ class _Rule:
     family: str
     then: tuple[re.Pattern[str], ...] = ()  # must each match after the anchor
     flags: str = ""  # letters (case-insensitive) the anchor's `flags` group must all contain
+    unless: str = ""  # letters that, in the `flags` group, cancel the rule (a dry run)
 
 
 _FORCE = re.compile(r"\s(?:--force|-f)\b(?![-\w])")
@@ -444,6 +445,15 @@ _RULES: tuple[_Rule, ...] = (
         "high",
         "clean",
         flags="f",
+        unless="ni",  # `git clean -nfd` is a dry run, `-i` asks first (A3)
+    ),
+    _Rule(
+        frozenset({"curl", "wget"}),
+        re.compile(r"\b(?:eval|source|sh|bash|zsh|dash|python3?|node|ruby|perl)\b"),
+        effects.DOWNLOAD_EXEC,
+        "high",
+        "download",
+        (re.compile(r"(?:\$\(|`|<\()\s*+(?:\S*/)?(?:curl|wget)\b"),),
     ),
     _Rule(
         frozenset({"drop"}),
@@ -507,8 +517,8 @@ _TEXT_OPTIONS: dict[str, frozenset[str]] = {
 _DECLARERS = frozenset({"export", "local", "declare", "typeset", "readonly"})
 _NAME_REF = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 _MKTEMP = re.compile(r"\$\(\s*mktemp\b[^()`]*\)|`\s*mktemp\b[^`]*`")
-_UNKNOWN = object()  # an assignment whose value cannot be known (an expansion)
-_SCRATCH = object()  # `$(mktemp ...)`: a fresh temporary path
+_UNKNOWN = effects.UNKNOWN  # an assignment whose value cannot be known (an expansion)
+_SCRATCH = effects.SCRATCH  # `$(mktemp ...)`: a fresh temporary path
 
 
 def is_variable_delete(finding: Finding) -> bool:
@@ -533,6 +543,8 @@ def _match(rule: _Rule, text: str, guarded: set[str]) -> str | None:
         if rule.flags:
             flags = match.group("flags").lower()
             if not all(letter in flags for letter in rule.flags):
+                continue
+            if any(letter in flags for letter in rule.unless):
                 continue
         if "var" in rule.anchor.groupindex and match.group("var") in guarded:
             continue  # this one is guarded; a later, unguarded one may not be
@@ -640,18 +652,14 @@ def _judged(part: shell.Part, values: dict[str, object], piped_to_runner: bool) 
     return " ".join(rendered)
 
 
-def _feeds_a_runner(parts: tuple[shell.Part, ...], at: int) -> shell.Part | None:
+def _feeds_a_runner(parts: tuple[shell.Part, ...], at: int, after: list[int]) -> shell.Part | None:
     """The part this one pipes into, when that part runs what it reads: a shell reading
-    its standard input, or a database client."""
-    part = parts[at]
-    if not part.piece.piped:
+    its standard input, or a database client. `after` is `effects.successors(parsed)`."""
+    if not parts[at].piece.piped or after[at] < 0:
         return None
-    for later in parts[at + 1 :]:
-        if later.scope != part.scope:
-            continue
-        reads = later.name in shell.STDIN_SHELLS and shell.shell_flag(later.argv) is None
-        return later if reads or later.name in shell.DB_CLIENTS else None
-    return None
+    later = parts[after[at]]
+    reads = later.name in shell.STDIN_SHELLS and shell.shell_flag(later.argv) is None
+    return later if reads or later.name in shell.DB_CLIENTS else None
 
 
 def risky_command(event: AgentEvent) -> list[Finding]:
@@ -663,7 +671,10 @@ def risky_command(event: AgentEvent) -> list[Finding]:
 
     Judged per simple command, on what runs (A2): a here-document body is data unless a
     shell or a database client reads it; a commit message, a grep pattern or an echo is
-    text; `sh -c`, `bash -c` and `eval` strings are read as commands of their own.
+    text; `sh -c`, `bash -c` and `eval` strings are read as commands of their own. A
+    readable command is judged by what it does to what it names (`effects`, A3); one that
+    cannot be read whole falls back to the linear rules over its text (R13), so recall
+    never drops. Effects of new families come back recorded (INFO), not asked.
     """
     if event.tool != "Bash":
         return []
@@ -674,20 +685,38 @@ def risky_command(event: AgentEvent) -> list[Finding]:
     parsed = shell.parse(command)
     texts: list[tuple[str, frozenset[str] | None]] = []  # (text, only these families)
     guarded = _guarded_names(parsed.line)
-    values_by_scope: dict[int, dict[str, object]] = {}
+    workspace = os.path.abspath(event.workspace or ".")
+    home = os.path.normpath(str(Path.home()))
+    contexts: dict[int, effects.Context] = {}
+    found: list[effects.Effect] = []
     downloads: list[str] = []
+    after = effects.successors(parsed)
     for at, part in enumerate(parsed.parts):
-        values = values_by_scope.setdefault(part.scope, {})
-        runner = _feeds_a_runner(parsed.parts, at)
-        texts.append((_judged(part, values, runner is not None), None))
-        _record_assignments(part, values, guarded)
-        if (
-            runner is not None
-            and runner.name in shell.STDIN_SHELLS
-            and (part.name in ("curl", "wget") or (part.opaque and _KEYWORD.search(part.text)))
-        ):
-            downloads.append(f"{part.name or 'download'} … | {runner.name}")
+        ctx = contexts.get(part.scope)
+        if ctx is None:
+            ctx = effects.Context(workspace, home, workspace, guarded=guarded, successors=after)
+            contexts[part.scope] = ctx
+        runner = _feeds_a_runner(parsed.parts, at, after)
+        if part.opaque:
+            texts.append((part.text, None))
+            if runner is not None and runner.name in shell.STDIN_SHELLS and _KEYWORD.search(part.text):
+                downloads.append(f"{part.text[:40]} … | {runner.name}")
+        else:
+            # Text a data command pipes into a shell is commands after all
+            # (`echo "rm -rf /" | sh`): every rule reads it, as A2 did.
+            shell_reads = (
+                runner is not None and runner.name in shell.STDIN_SHELLS and part.name in _DATA_COMMANDS
+            )
+            families = None if shell_reads else _SQL_FAMILIES
+            texts.append((_judged(part, ctx.values, runner is not None), families))
+            found += effects.classify(parsed, at, ctx)
+            if part.name == "cd" and part.scope == 0:
+                target = part.words[1] if len(part.words) > 1 else None
+                kind, value = effects.resolve(target, ctx) if target is not None else ("path", home)
+                ctx.cwd = value if kind == "path" else None
+        _record_assignments(part, ctx.values, guarded)
     texts.extend((body, _SQL_FAMILIES) for body in parsed.sql)
+    found += [effect for body in parsed.sql for effect in effects.sql_effects(body, body.strip()[:80])]
     if parsed.truncated:
         log.warning(
             "agentguard: a %d-character command was checked in its first %d and last %d characters",
@@ -699,15 +728,17 @@ def risky_command(event: AgentEvent) -> list[Finding]:
         guarded |= _guarded_names(tail)
         texts.extend((piece.text, None) for piece in shell.split(tail).pieces)
 
-    # One finding per family: the most severe rule that matched. Rules are tried in order,
-    # so on a tie the earlier (more specific) description wins.
-    chosen: dict[str, tuple[str, str, Severity]] = {}
+    # One finding per family: the most severe. Rules are tried in order, so on a tie the
+    # earlier (more specific) description wins.
+    chosen: dict[str, effects.Effect] = {}
 
-    def offer(family: str, matched: str, description: str, grade: Severity) -> None:
-        held = chosen.get(family)
-        if held is None or _SEVERITY_RANK[grade] > _SEVERITY_RANK[held[2]]:
-            chosen[family] = (matched, description, grade)
+    def offer(effect: effects.Effect) -> None:
+        held = chosen.get(effect.family)
+        if held is None or _SEVERITY_RANK[effect.severity] > _SEVERITY_RANK[held.severity]:
+            chosen[effect.family] = effect
 
+    for effect in found:
+        offer(effect)
     for text, families in texts:
         if not text:
             continue
@@ -719,17 +750,22 @@ def risky_command(event: AgentEvent) -> list[Finding]:
                 continue
             grade = Severity(rule.severity)
             held = chosen.get(rule.family)
-            if held is not None and _SEVERITY_RANK[held[2]] >= _SEVERITY_RANK[grade]:
+            if held is not None and _SEVERITY_RANK[held.severity] >= _SEVERITY_RANK[grade]:
                 continue
             matched = _match(rule, text, guarded)
             if matched is not None:
-                offer(rule.family, matched, rule.description, grade)
+                offer(effects.raised(rule.family, rule.description, grade, matched))
     if downloads:
-        offer("download", downloads[0], _DOWNLOAD_EXEC, Severity.HIGH)
+        offer(effects.raised("download", _DOWNLOAD_EXEC, Severity.HIGH, downloads[0]))
 
-    ordered = sorted(chosen.values(), key=lambda item: -_SEVERITY_RANK[item[2]])
-    return [
-        Finding(
+    ordered = sorted(chosen.values(), key=lambda effect: -_SEVERITY_RANK[effect.severity])
+    return [_effect_finding(effect, command) for effect in ordered]
+
+
+def _effect_finding(effect: effects.Effect, command: str) -> Finding:
+    shown = command.strip()[:200]
+    if effect.raised:
+        return Finding(
             category=ChallengeCategory.RISK,
             verdict=Verdict.REQUIRES_HUMAN,
             # A force push may be exactly right, and SPEC §3 has no bullet for it, so this
@@ -737,17 +773,53 @@ def risky_command(event: AgentEvent) -> list[Finding]:
             # (`EXTENDED_TAXONOMY`), whose `proves` text says exactly that: the command
             # needed a human's yes, not that it was wrong. Tagging it NOT_A_FAILURE made
             # the highest-harm behaviour uncountable (C1).
-            failure_mode=FailureMode.DESTRUCTIVE_ACTION,
-            severity=grade,
-            subject=matched[:80],
-            summary=f"Irreversible command: {description}",
-            detail=f"`{command.strip()[:200]}`",
-            evidence=[EvidenceRef(source="runtime", note=command.strip()[:200])],
+            failure_mode=effect.failure_mode,
+            severity=effect.severity,
+            subject=effect.subject,
+            summary=f"Irreversible command: {effect.description}",
+            detail=f"`{shown}`",
+            evidence=[EvidenceRef(source="runtime", note=shown)],
             suggestion="Confirm this is intended, or narrow it to the specific target.",
             level=EscalationLevel.DETERMINISTIC,
         )
-        for matched, description, grade in ordered
-    ]
+    return Finding(
+        category=ChallengeCategory.RISK,
+        verdict=Verdict.SUPPORTED_WITH_RISK,
+        # Recorded, never raised: a new family stays observe-only until the census has
+        # measured its precision (IMPROVEMENTS.md A3).
+        failure_mode=effect.failure_mode,
+        severity=Severity.INFO,
+        subject=effect.subject,
+        summary=f"Recorded: {effect.description}",
+        detail=f"`{shown}`",
+        evidence=[EvidenceRef(source="runtime", note=shown)],
+        level=EscalationLevel.DETERMINISTIC,
+    )
+
+
+def _raw_target(event: AgentEvent) -> str:
+    """The un-normalised target path of a file-writing or deleting action, or "".
+
+    The validator's normalised path is empty for a target outside the workspace, which is
+    exactly where A3 (outside writes) and A9 (self-protection) must look. One accessor, so
+    the core names the host's path arguments once (canonical actions, H6, will remove it).
+    """
+    if not event.is_mutating:
+        return ""
+    raw = event.arg("file_path") or event.arg("notebook_path")
+    return raw if isinstance(raw, str) else ""
+
+
+def outside_write(event: AgentEvent) -> list[Finding]:
+    """A file tool writing outside the workspace (A3): the developer's own configuration
+    is an ask; anywhere else is recorded. AgentGuard's own paths are A9's."""
+    raw = _raw_target(event)
+    if not raw or protected_path(raw, event.workspace):
+        return []
+    workspace = os.path.abspath(event.workspace or ".")
+    ctx = effects.Context(workspace, os.path.normpath(str(Path.home())), workspace)
+    found = effects.file_tool(event.tool, raw, ctx)
+    return [_effect_finding(effect, f"{event.tool} {raw}") for effect in found]
 
 
 # -- verification bypass (IMPROVEMENTS.md A8) -------------------------------------------
@@ -879,9 +951,6 @@ def verification_bypass(event: AgentEvent) -> list[Finding]:
 _SELF_OFF: tuple[tuple[str, ...], ...] = (("off",), ("uninstall",), ("observe", "on"), ("daemon", "stop"))
 _CLI_MODULES = frozenset({"agentguard", "agentguard.cli", "agentguard.cli.main"})
 _LAUNCH_VALUED = frozenset({"--from", "--with", "--python", "-p", "--spec", "--index-url"})
-_DELETERS = frozenset({"rm", "rmdir", "unlink", "srm", "trash", "shred"})
-_COPIERS = frozenset({"cp", "ln", "install", "rsync", "ditto", "gcp"})
-_IN_PLACE_EDITORS = frozenset({"sed", "gsed", "perl"})
 _SELF_TEXT = re.compile(r"\bagentguard\s++(?:off|uninstall|observe\s++on|daemon\s++stop)\b")
 _PROTECTED_HINT = re.compile(
     r"\.agentguard|\.claude/settings[^/\s]*\.json|\.codex/(?:hooks\.json|config\.toml)"
@@ -896,7 +965,7 @@ def _agentguard_command(argv: tuple[str, ...], depth: int = 0) -> tuple[str, ...
     """The arguments given to the AgentGuard CLI, however it is launched, or None."""
     if not argv or depth > 2:
         return None
-    name = PurePosixPath(argv[0]).name
+    name = shell.basename(argv[0])
     args = list(argv[1:])
     if name == "agentguard":
         return tuple(args)
@@ -978,24 +1047,6 @@ def protected_path(raw: str, cwd: str) -> str:
     return ""
 
 
-def _written_paths(part: shell.Part) -> list[str]:
-    """The paths a simple command visibly writes, moves or deletes."""
-    paths = [target for op, target in part.redirects if ">" in op and target and not target.startswith("&")]
-    name, args = part.name, part.argv[1:]
-    operands = [arg for arg in args if not arg.startswith("-")]
-    if name == "tee" or name in _DELETERS or name in ("mv", "truncate"):
-        paths += operands
-    elif name in _COPIERS and len(operands) > 1:
-        paths.append(operands[-1])
-    elif name in _IN_PLACE_EDITORS and any(
-        arg.startswith("--in-place") or re.fullmatch(r"-[A-Za-z]{0,3}i\S*", arg) for arg in args
-    ):
-        paths += operands[1:] if not any(a in ("-e", "--expression", "-f") for a in args) else operands
-    elif name == "dd":
-        paths += [arg[3:] for arg in args if arg.startswith("of=")]
-    return paths[:_MAX_PATHS]
-
-
 def _self_finding(subject: str, summary: str, detail: str, note: str) -> Finding:
     return Finding(
         category=ChallengeCategory.RISK,
@@ -1015,9 +1066,9 @@ def _self_finding(subject: str, summary: str, detail: str, note: str) -> Finding
 
 def self_protection(event: AgentEvent) -> list[Finding]:
     """Turning AgentGuard off, or writing its home or the host hook settings: a sign-off."""
-    if event.is_mutating:  # every file-writing or deleting tool, in the core's vocabulary
-        raw = event.arg("file_path") or event.arg("notebook_path")
-        why = protected_path(raw, event.workspace) if isinstance(raw, str) else ""
+    raw = _raw_target(event)
+    if raw:
+        why = protected_path(raw, event.workspace)
         if not why:
             return []
         return [
@@ -1070,7 +1121,8 @@ def self_protection(event: AgentEvent) -> list[Finding]:
             )
         if not cwd:
             continue
-        for path in _written_paths(part):
+        for item in effects.written_paths(part):
+            path = item.value if isinstance(item, shell.Token) else item
             why = protected_path(path, cwd)
             if why:
                 found.append(

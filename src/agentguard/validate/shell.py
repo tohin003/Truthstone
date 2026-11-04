@@ -30,7 +30,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import PurePosixPath
 
 # R13: a 900 KB command line once cost 203 s in backtracking regexes, wedging the daemon.
 # Nothing past this many characters is scanned; `Split.truncated` says so.
@@ -658,15 +657,11 @@ class Part:
     depth: int = 0  # 0 for the line itself; 1+ inside `sh -c`, `eval` or a shell's heredoc
     scope: int = 0  # parts that share a shell (assignments carry between them)
     reader: str = ""  # "" or the kind of the here-document whose body this part came from
+    name: str = ""  # the command's basename (`/usr/bin/git` -> `git`), or ""
 
     @property
     def text(self) -> str:
         return self.piece.text
-
-    @property
-    def name(self) -> str:
-        """The command's basename (`/usr/bin/git` -> `git`), or "" when there is none."""
-        return PurePosixPath(self.argv[0]).name if self.argv else ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -714,6 +709,11 @@ NEST_LIMIT = 3
 _SHELL_FLAG = re.compile(r"-[a-zA-Z]*c[a-zA-Z]*")
 # `git commit -F -`, `gh pr create --body-file -`: a message read from standard input.
 _MESSAGE_FROM_STDIN = re.compile(r"(?:^|\s)(?:-F|--file|--body-file)(?:\s+|=)-(?:\s|$)")
+
+
+def basename(word: str) -> str:
+    """`/usr/bin/git` -> `git`, cheaply: this runs once per word in command position."""
+    return word.rsplit("/", 1)[-1]
 
 
 def shell_flag(argv: tuple[str, ...]) -> int | None:
@@ -860,6 +860,7 @@ def _with_reason(part: Part, reason: str) -> Part:
         part.depth,
         part.scope,
         part.reader,
+        part.name,
     )
 
 
@@ -974,7 +975,7 @@ def _part(piece: Piece, depth: int = 0, scope: int = 0, reader: str = "") -> Par
     replace = ""
     while words:
         argv = [w.value for w in words]
-        head = PurePosixPath(argv[0]).name
+        head = basename(argv[0])
         if head in WRAPPERS:
             k = 1
             while k < len(argv) and (
@@ -1053,4 +1054,5 @@ def _part(piece: Piece, depth: int = 0, scope: int = 0, reader: str = "") -> Par
         depth=depth,
         scope=scope,
         reader=reader,
+        name=basename(argv_out[0]) if argv_out else "",
     )

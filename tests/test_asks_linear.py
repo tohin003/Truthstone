@@ -55,16 +55,28 @@ def test_risky_command_is_linear(shape):
     assert large < max(small, 0.0005) * 24, (shape, small, large)
 
 
-def test_a_900kb_line_through_the_guard_finishes_in_a_second(tmp_path):
+THROUGH_THE_GUARD = {
+    **ADVERSARIAL,
+    "pipes": lambda n: ("curl x | " * (n // 9 + 1))[:n],
+    "writes": lambda n: ("echo x > ~/.zshrc; " * (n // 19 + 1))[:n],
+    "rm targets": lambda n: "rm -rf " + "$a " * (n // 3),
+}
+
+
+@pytest.mark.parametrize("shape", ["push main", "pieces", "pipes", "guards", "writes", "rm targets"])
+def test_a_900kb_line_through_the_guard_finishes_in_a_second(tmp_path, shape):
+    """Every Level-0 check walks the parsed parts (risk, effects, self-protection, bypass
+    flags, installs), so the whole PreToolUse is timed, not the matcher alone."""
     repo = make_repo(tmp_path)
     guard = make_guard(repo)
     try:
         session = Session(guard, repo)
         session.prompt("Tidy up.")
+        shell.parse.cache_clear()
         began = time.perf_counter()
-        decision = session.pre("Bash", command=ADVERSARIAL["push main"](900_000))
-        assert time.perf_counter() - began < 1.0
-        assert decision.action in (DecisionAction.ALLOW, DecisionAction.REQUEST_REVIEW)
+        decision = session.pre("Bash", command=THROUGH_THE_GUARD[shape](900_000))
+        assert time.perf_counter() - began < 1.0, shape
+        assert decision.action is not DecisionAction.BLOCK
     finally:
         guard.close()
 

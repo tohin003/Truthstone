@@ -184,6 +184,7 @@ def _analyse(command: str) -> _Analysis | None:
     analysis = _Analysis()
     edits: list[tuple[int, int, str]] = []
     first_rm: int | None = None
+    seen: set[str] = set()
 
     for position, piece in enumerate(split.pieces):
         words = shell.words(piece.text)
@@ -215,28 +216,36 @@ def _analyse(command: str) -> _Analysis | None:
             analysis.blockers.append("where the delete sits in the command line")
         names = list(dict.fromkeys(names))
         for name in names:
-            if name not in analysis.variables:
+            if name not in seen:
+                seen.add(name)
                 analysis.variables.append(name)
-        text = piece.text
-        for word, refs in reversed(referenced):
-            text = text[: word.start] + _quoted(word.raw, refs) + text[word.end :]
         guard = " && ".join(f'[ -n "${name}" ]' for name in names)
+        text = _splice(piece.text, [(w.start, w.end, _quoted(w.raw, refs)) for w, refs in referenced])
         edits.append((piece.start, piece.end, f"{guard} && {text}" if guard else text))
 
     if first_rm is None:
         return None
+    split_names = _split_by_assignment(split.pieces[:first_rm])
     for name in analysis.variables:
         if name in ALWAYS_SET:
             analysis.blockers.append(f"`{name}` is always set, so a guard against it being empty is void")
-        elif _split_by_assignment(split.pieces[:first_rm], name):
+        elif name in split_names:
             analysis.blockers.append(f"`{name}` holds several words, which quoting would join")
     analysis.blockers = list(dict.fromkeys(analysis.blockers))
-
-    guarded = command
-    for start, end, replacement in reversed(edits):
-        guarded = guarded[:start] + replacement + guarded[end:]
-    analysis.guarded = guarded
+    analysis.guarded = _splice(command, edits)
     return analysis
+
+
+def _splice(text: str, edits: list[tuple[int, int, str]]) -> str:
+    """`text` with each (start, end, replacement) applied, in one pass (edits in order)."""
+    out: list[str] = []
+    last = 0
+    for start, end, replacement in edits:
+        out.append(text[last:start])
+        out.append(replacement)
+        last = end
+    out.append(text[last:])
+    return "".join(out)
 
 
 def _unquoted(word: str) -> str:
@@ -350,16 +359,17 @@ def _refs(raw: str) -> list[_Ref]:
 
 def _quoted(raw: str, refs: list[_Ref]) -> str:
     """The word with every unquoted simple reference wrapped in double quotes."""
-    for ref in reversed(refs):
-        if ref.kind == "simple" and not ref.quoted:
-            raw = raw[: ref.start] + '"' + raw[ref.start : ref.end] + '"' + raw[ref.end :]
-    return raw
+    return _splice(
+        raw,
+        [(r.start, r.end, f'"{raw[r.start : r.end]}"') for r in refs if r.kind == "simple" and not r.quoted],
+    )
 
 
-def _split_by_assignment(pieces: tuple[shell.Piece, ...], name: str) -> bool:
-    """Whether `name` was given a value earlier in the command that quoting would change:
-    whitespace or a glob in it, or an expansion whose words cannot be known (a `mktemp`
-    substitution is one path, so it is fine)."""
+def _split_by_assignment(pieces: tuple[shell.Piece, ...]) -> set[str]:
+    """Variables given a value earlier in the command that quoting would change: whitespace
+    or a glob in it, or an expansion whose words cannot be known (a `mktemp` substitution
+    is one path, so it is fine). One pass over the pieces."""
+    names: set[str] = set()
     for piece in pieces:
         words = shell.words(piece.text)
         if words and words[0].raw in _DECLARERS:
@@ -368,14 +378,12 @@ def _split_by_assignment(pieces: tuple[shell.Piece, ...], name: str) -> bool:
             match = _ASSIGNMENT.fullmatch(word.raw)
             if not match:
                 break  # assignments only stand at the start of a command
-            if match.group(1) != name:
-                continue
             inner = _unquoted(match.group(2))
             if _MKTEMP.fullmatch(inner):
                 continue
             if any(ch in inner for ch in " \t\n*?[") or "$" in inner or "`" in inner:
-                return True
-    return False
+                names.add(match.group(1))
+    return names
 
 
 # -- invariants -------------------------------------------------------------------------
