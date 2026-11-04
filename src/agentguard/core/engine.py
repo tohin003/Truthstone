@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 
@@ -41,6 +42,14 @@ from agentguard.repo.index import RepoIndex
 from agentguard.verify import completion_gate, runners, static
 
 log = logging.getLogger(__name__)
+
+# Events that act on the workspace, and so need a task to be judged against (H2).
+_TOOL_EVENTS = frozenset({EventType.PRE_TOOL_USE, EventType.POST_TOOL_USE, EventType.POST_TOOL_FAILURE})
+
+
+def memory_task_id() -> str:
+    """A task id minted without the store, for when it cannot record one (H2)."""
+    return f"mem-{uuid.uuid4().hex}"
 
 
 class Workspace:
@@ -109,6 +118,27 @@ class Workspace:
                     break
                 self._forget_task(stale)
         return state
+
+    def ensure_task(self, session_id: str) -> TaskState | None:
+        """The session's task, created on demand when no prompt ever opened one (H2).
+
+        Hosts without a prompt event — or a prompt whose task could not be stored — left
+        no task at all, so every challenge became "no task context" and scope, test
+        recording and the Completion Gate all switched off. An implicit task has an empty
+        scope and no planning depth (so proportionality cannot fire on work nobody
+        described); it is persisted when the store works (prompt "", tagged implicit for
+        the census) and lives in memory otherwise.
+        """
+        if not session_id:
+            return None
+        current = self._session_tasks.get(session_id)
+        if current is not None and current in self._tasks:
+            return self._tasks[current]
+        spec = TaskSpec.implicit()
+        task_id = self.store.create_task(
+            session_id, "", spec={**spec.model_dump(mode="json"), "implicit": True}, depth="implicit"
+        )
+        return self.begin_task(task_id or memory_task_id(), spec, session_id)
 
     def _forget_task(self, task_id: str) -> None:
         self._tasks.pop(task_id, None)
@@ -299,6 +329,13 @@ class Guard:
                                 event.task_id = None
                         else:
                             event.task_id = ws.resolve_task_id(event.session_id)
+                            if (
+                                event.task_id is None
+                                and event.event in _TOOL_EVENTS
+                                and not event.is_read_only
+                            ):
+                                implicit = ws.ensure_task(event.session_id)
+                                event.task_id = implicit.task_id if implicit else None
                         handler = self._handlers.get(event.event)
                         decision = handler(event, ws) if handler else Decision.allow()
                     except Exception:
@@ -390,9 +427,11 @@ class Guard:
                 complexity=spec.complexity.score,
                 depth=str(spec.complexity.depth),
             )
-            if task_id:
-                event.task_id = task_id
-                ws.begin_task(task_id, spec, event.session_id)
+            # A store that cannot record the task must not switch guarding off (H2): the
+            # task lives in memory, under an id minted here.
+            task_id = task_id or memory_task_id()
+            event.task_id = task_id
+            ws.begin_task(task_id, spec, event.session_id)
 
         budget = planning.render(spec, index)
         if not budget:

@@ -50,7 +50,9 @@ class ComplexitySignal(BaseModel):
 
 class ComplexityAssessment(BaseModel):
     score: float = 0.0
-    depth: PlanningDepth = PlanningDepth.DIRECT
+    # None: never assessed — an implicit task with no prompt to read (H2). Not DIRECT,
+    # so the DIRECT-band proportionality check cannot fire on work nobody described.
+    depth: PlanningDepth | None = PlanningDepth.DIRECT
     risk: RiskLevel = RiskLevel.LOW
     signals: list[ComplexitySignal] = Field(default_factory=list)
     applied_rules: list[str] = Field(default_factory=list)
@@ -164,7 +166,13 @@ class TaskSpec(BaseModel):
 
     def summary_line(self) -> str:
         domains = "/".join(d.value for d in self.domains if d is not Domain.UNKNOWN)
+        depth = self.complexity.depth.value if self.complexity.depth is not None else "not assessed"
         return (
             f"{self.primary_verb} · {domains or 'unknown domain'} · "
-            f"complexity {self.complexity.score:.0f}/100 ({self.complexity.depth.value})"
+            f"complexity {self.complexity.score:.0f}/100 ({depth})"
         )
+
+    @classmethod
+    def implicit(cls) -> TaskSpec:
+        """The spec of a task no prompt described (H2): no scope, no depth, no waiver."""
+        return cls(complexity=ComplexityAssessment(depth=None))
