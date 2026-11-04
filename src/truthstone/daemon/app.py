@@ -306,6 +306,8 @@ def create_app(token: str, settings: Settings | None = None, guard: Guard | None
             # and forgot to restart has no other way to find out which one is live — and
             # the two differ in whether anything is being guarded at all.
             "observing": app.state.guard.settings.observe_only,
+            # What may reach the agent (core/profile.py): "minimal" (the default) or "full".
+            "profile": getattr(app.state.guard.settings, "profile", "minimal"),
             # Which host routes this daemon serves. A daemon started by an older release
             # keeps running across upgrades; a hook for a host it cannot route would get
             # "no opinion" forever, so clients check this before trusting the silence.

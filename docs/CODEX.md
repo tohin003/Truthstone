@@ -253,7 +253,8 @@ measured numbers (see [Measured latency](#measured-latency)):
 
 | Candidate | Per tool call | Verdict |
 |---|---|---|
-| **command → plugin launcher (`sh`) → `truthstone-codex-hook` → loopback daemon** | **31 ms p50 / 34 ms p95** | **chosen** for the plugin |
+| **command → plugin launcher (`sh`) → lean forwarder (`python -I -S`, builtins only) → loopback daemon** | **25 ms p50 / 27–29 ms p95** | **chosen** for the plugin's tool calls, Stop and SessionEnd (WP9) |
+| command → plugin launcher (`sh`) → `truthstone-codex-hook` → loopback daemon | 27 ms p50 / 28–31 ms p95 (34 ms p95 before WP9's import diet) | the plugin's SessionStart and UserPromptSubmit, and every event when `TRUTHSTONE_CODEX_HOOK` is set |
 | **command → `python -m truthstone.adapters.codex.hook` → daemon** | **27 ms p50 / 29 ms p95** | **chosen** for `truthstone install codex` |
 | command → the Claude shim's code path (imports `http.client`) | +15–20 ms of imports (36 ms vs 16 ms bare start) | rejected; the forwarder writes its one HTTP request by hand |
 | command → `uvx --from git+…@<sha>` per call | 135–146 ms (warm) | rejected for the hot path; used once for bootstrap instead |
@@ -262,6 +263,14 @@ measured numbers (see [Measured latency](#measured-latency)):
 
 At ~34 ms p95, the chosen path sits well inside the 100 ms budget of SPEC §8. The Claude
 command shim measured 113.6 ms p95 (`docs/BENCH-latency.md`).
+
+**The hot path (WP9).** The runtime's own hot path (`hook.py` for PreToolUse, PostToolUse, Stop,
+SubagentStop and SessionEnd) is the lean forwarder, `adapters/codex/forward.py`: builtin `_json` and
+`_socket` only (`json` pulls in `re`, `socket` pulls in `enum`: about 6 ms). At SessionStart in a plugin
+session the runtime also copies that forwarder, a three-line runner and its own interpreter's path
+into `$PLUGIN_DATA/lean`; the launcher then runs those events as `<python> -I -S run.py` (no `site`,
+no working directory on `sys.path`, the forwarder's bytecode cached), and falls through to the
+runtime when anything is missing. An explicit `TRUTHSTONE_CODEX_HOOK` is honoured for every event.
 
 The forwarder (`adapters/codex/hook.py`) is stdlib-only, and on the hot path it imports only
 `json`, `os`, `socket` and `sys`. It reads the daemon handshake from `TRUTHSTONE_HOME`, so no
@@ -427,10 +436,16 @@ stdin) against a real daemon guarding a copy of `tests/fixtures/pyrepo`, N = 200
 
 | Path | Event | p50 | p95 | max |
 |---|---|---|---|---|
-| plugin (launcher → `truthstone-codex-hook`) | PreToolUse Bash, validated | 31.0 ms | 33.6 ms | 37.2 ms |
-| plugin | PreToolUse Bash, read (not validated) | 30.4 ms | 32.0 ms | 40.2 ms |
-| plugin | PostToolUse Bash | 30.8 ms | 34.4 ms | 52.2 ms |
-| plugin | PreToolUse apply_patch, 2 files | 32.5 ms | 33.8 ms | 35.7 ms |
+| plugin, lean path (WP9; load average 6–7) | PreToolUse Bash, validated | 24.7 ms | 26.6 ms | 30.2 ms |
+| plugin, lean path | PreToolUse Bash, read (not validated) | 24.7 ms | 26.8 ms | 71.9 ms |
+| plugin, lean path | PostToolUse Bash | 24.6 ms | 27.0 ms | 37.0 ms |
+| plugin, lean path | PreToolUse apply_patch, 2 files | 26.0 ms | 29.1 ms | 78.9 ms |
+| plugin before WP9, same run (launcher → `truthstone-codex-hook`) | PreToolUse Bash, validated | 33.6 ms | 36.2 ms | 41.4 ms |
+| plugin before WP9, same run | PostToolUse Bash | 33.5 ms | 37.1 ms | 77.4 ms |
+| plugin (launcher → `truthstone-codex-hook`), before WP9, idle machine | PreToolUse Bash, validated | 31.0 ms | 33.6 ms | 37.2 ms |
+| plugin, before WP9, idle machine | PreToolUse Bash, read (not validated) | 30.4 ms | 32.0 ms | 40.2 ms |
+| plugin, before WP9, idle machine | PostToolUse Bash | 30.8 ms | 34.4 ms | 52.2 ms |
+| plugin, before WP9, idle machine | PreToolUse apply_patch, 2 files | 32.5 ms | 33.8 ms | 35.7 ms |
 | `install codex` (`python -m …hook`) | PreToolUse Bash, validated | 27.0 ms | 28.7 ms | 33.2 ms |
 | `install codex` | PostToolUse Bash | 27.1 ms | 30.4 ms | 52.0 ms |
 | `install codex` | PreToolUse apply_patch, 2 files | 28.5 ms | 31.5 ms | 77.6 ms |

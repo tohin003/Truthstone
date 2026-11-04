@@ -8,7 +8,9 @@
 #
 # Lookup order: $TRUTHSTONE_CODEX_HOOK, then `truthstone-codex-hook` on PATH, then a private copy in
 # Codex's per-plugin data directory ($PLUGIN_DATA), which the session-start hook installs
-# with uv on first use (set TRUTHSTONE_NO_BOOTSTRAP=1 to prevent that).
+# with uv on first use (set TRUTHSTONE_NO_BOOTSTRAP=1 to prevent that). The events that only
+# forward (tool calls, Stop, SessionEnd) take a shorter way when the runtime has left one:
+# the lean forwarder in $PLUGIN_DATA/lean, under the runtime's own Python with -I -S.
 #
 # It does nothing at all outside a git work tree, and when TRUTHSTONE_DISABLE is set.
 # It always exits 0. Codex reads exit code 2 as "block this", and a launcher problem must
@@ -33,6 +35,24 @@ until [ -e "$d/.git" ]; do
   [ -n "$d" ] || exit 0
   d="${d%/*}"
 done
+
+# The hot path. The session-start hook puts the runtime's lean forwarder and its Python in
+# $PLUGIN_DATA/lean; they run with -I -S: no site, nothing from the working directory on
+# sys.path, builtin modules only. An explicit $TRUTHSTONE_CODEX_HOOK is always honoured
+# instead, and anything missing falls through to the runtime below.
+if [ -z "${TRUTHSTONE_CODEX_HOOK:-}" ] && [ -n "${PLUGIN_DATA:-}" ]; then
+  case "$event" in
+  pre-tool-use|post-tool-use|stop|subagent-stop|session-end)
+    lean="$PLUGIN_DATA/lean"
+    if [ -r "$lean/run.py" ] && [ -r "$lean/python" ] && read -r py <"$lean/python" && [ -x "$py" ]; then
+      budget=4
+      [ "$event" = "session-end" ] && budget=2
+      "$py" -I -S "$lean/run.py" --timeout "$budget"
+      exit 0
+    fi
+    ;;
+  esac
+fi
 
 runtime_source="${TRUTHSTONE_SOURCE:-git+https://github.com/tohin003/Truthstone@v0.1.0-dev.0}"
 private="${PLUGIN_DATA:-}/runtime"

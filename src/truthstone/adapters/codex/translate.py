@@ -427,9 +427,18 @@ def handle_payload(guard: Any, payload: dict[str, Any]) -> dict[str, Any]:
     once per file — so each file is checked, recorded and attributed on its own — and the
     answers are combined.
     """
+    return dispatch(guard, payload)[0]
+
+
+def dispatch(
+    guard: Any, payload: dict[str, Any]
+) -> tuple[dict[str, Any], list[tuple[AgentEvent, Decision]], Decision | None]:
+    """``handle_payload``, also returning what it decided: (the host output, each core
+    event with its decision, the combined decision or None). Offline replay
+    (``truthstone replay``) uses it to see the decisions behind exactly the daemon's path."""
     hook_name = payload.get("hook_event_name", "")
     if hook_name not in EVENT_MAP or not guard.settings.enabled:
-        return {}
+        return {}, [], None
     root: Path | None = None
     if hook_name == "PreToolUse" and payload.get("tool_name") == PATCH_TOOL:
         try:
@@ -438,7 +447,7 @@ def handle_payload(guard: Any, payload: dict[str, Any]) -> dict[str, Any]:
             root = None
     events = to_events(payload, root=root)
     if not events:
-        return {}
+        return {}, [], None
     results = [(event, guard.handle(event)) for event in events]
     event, decision = combine(results)
-    return from_decision(event, decision, hook_name)
+    return from_decision(event, decision, hook_name), results, decision

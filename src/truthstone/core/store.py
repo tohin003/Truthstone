@@ -57,6 +57,7 @@ from truthstone.core.config import (
 from truthstone.core.enums import EventType
 from truthstone.core.events import AgentEvent
 from truthstone.core.models import Decision
+from truthstone.daemon import degraded
 from truthstone.repo.gitinfo import repository_root
 
 log = logging.getLogger(__name__)
@@ -337,15 +338,39 @@ def sanitize_git_remote(remote: str) -> str:
     return raw
 
 
+def is_local_remote(remote: str) -> bool:
+    """Whether a git remote is a path on this machine (or a ``file:`` URL): the remote of a
+    clone made from a local checkout. That names a directory, not a project, so it is not
+    an identity: a scratch clone of a repository that has no hosted remote would otherwise
+    share its origin's id and take over its project row (``tests/test_project_root_clone.py``).
+
+    Git's own rule: a URL with a scheme, or ``host:path`` with the colon before any slash, is
+    remote; anything else (absolute, relative, ``~``, a Windows drive) is a path.
+    """
+    raw = remote.strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    if lowered.startswith("file:"):
+        return True
+    if re.match(r"^[a-z][a-z0-9+.-]*://", lowered):
+        return False
+    if re.match(r"^[a-z]:[\\/]", lowered):
+        return True
+    return ":" not in raw.split("/", 1)[0]
+
+
 def project_identity(root: str | Path) -> ProjectIdentity:
     """Stable identity for a repository.
 
     The git remote is preferred over the path: a project moved, re-cloned or checked out
     as a worktree is still the same project, and its accumulated memory should follow it.
-    Falls back to the canonical path outside git.
+    A remote that is a path on this machine is not an identity (``is_local_remote``). Falls
+    back to the canonical path outside git, and for such a clone.
     """
     resolved = repository_root(root)
-    remote = sanitize_git_remote(_git_remote(resolved))
+    raw_remote = _git_remote(resolved)
+    remote = "" if is_local_remote(raw_remote) else sanitize_git_remote(raw_remote)
     basis = remote or str(resolved)
     return ProjectIdentity(
         id=hashlib.sha256(basis.encode()).hexdigest()[:16],
@@ -1393,6 +1418,11 @@ class Database:
 # -- the project-scoped handle ----------------------------------------------------
 
 
+# Reported through the R9 registry when a project's recorded root moves (`_register`).
+PROJECT_ROOT_MOVED = "project_root_moved"
+PROJECT_ROOT_MOVED_TTL_S = 900.0
+
+
 class ProjectStore:
     """Everything the engine can do with storage, bound to one project.
 
@@ -1436,13 +1466,34 @@ class ProjectStore:
 
     @_safe()
     def _register(self) -> None:
+        """Record the project, keeping its first root while that still exists.
+
+        Two checkouts of one hosted project share an identity. Moving the recorded root to
+        whichever registered last made everything that finds a project by its checkout
+        (reports, the benchmark's evidence reader) lose it. The root moves only when the old
+        one is gone, the project having moved, and that move is reported (R9: ``/health``,
+        ``truthstone doctor`` and the hooks' notices).
+        """
         now = time.time()
+        root = self.identity.root
+        rows = self.db.query("SELECT root FROM projects WHERE id = ?", (self.project_id,))
+        previous = str(rows[0]["root"]) if rows else ""
+        if previous and previous != root and os.path.isdir(previous):
+            root = previous
         self.db.write(
             "INSERT INTO projects(id, root, name, git_remote, first_seen, last_seen) "
             "VALUES(?,?,?,?,?,?) "
             "ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen, root=excluded.root",
-            (self.project_id, self.identity.root, self.identity.name, self.identity.git_remote, now, now),
+            (self.project_id, root, self.identity.name, self.identity.git_remote, now, now),
         )
+        if previous and root != previous:
+            log.warning("truthstone store: project %s moved: %s -> %s", self.identity.name, previous, root)
+            degraded.report(
+                PROJECT_ROOT_MOVED,
+                f"a project's recorded root moved to {root}: its history is found from there now",
+                ttl_s=PROJECT_ROOT_MOVED_TTL_S,
+                detail={"project": self.identity.name, "previous": previous, "root": root},
+            )
 
     def close(self) -> None:
         """A project handle owns nothing; the database is shared and stays open."""

@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -520,6 +521,7 @@ def _doctor_config(report: _DoctorReport, settings: Settings) -> None:
     for note in names.migration_notes():  # data or settings still under a former product name
         _warn(note)
     _echo(f"  daemon: {settings.daemon.base_url}")
+    _echo(f"  intervention profile: {_profile_line(settings)}")
     for warning in settings.config_warnings:
         _warn(warning)
     if settings.config_warnings:
@@ -536,6 +538,25 @@ def _doctor_config(report: _DoctorReport, settings: Settings) -> None:
         # believes they are guarded and is not. Exactly the failure mode plan D9 exists
         # to prevent, arrived at from the other direction.
         _warn("OBSERVE-ONLY is on — findings are recorded but nothing is ever said")
+
+
+def _profile_line(settings: Settings) -> str:
+    """What may reach the agent, and where that came from (WP7)."""
+    from truthstone.core.config import ENV_PROFILE
+
+    name = getattr(settings, "profile", "minimal")
+    if names.env(ENV_PROFILE):
+        source = f"{ENV_PROFILE} is set"
+    elif "profile" in settings.model_fields_set:
+        source = "config.toml"
+    else:
+        source = "the default"
+    what = (
+        "only the sanctioned interventions reach the agent; everything else is recorded"
+        if name == "minimal"
+        else "every check may reach the agent"
+    )
+    return f"{name} ({source}): {what}"
 
 
 def _doctor_storage(report: _DoctorReport) -> None:
@@ -607,6 +628,13 @@ def _doctor_daemon(report: _DoctorReport, settings: Settings) -> None:
             )
         else:
             _warn("the running daemon is OBSERVE-ONLY: findings are recorded, nothing is said")
+    live = health.get("profile")
+    if isinstance(live, str):
+        configured = getattr(settings, "profile", "minimal")
+        if live != configured:
+            _warn(f"the running daemon's intervention profile is {live!r}, not {configured!r} — {restart}")
+        else:
+            _ok(f"the running daemon uses the {live!r} intervention profile")
     for line in _degraded_lines(health):
         _warn(line)
 
@@ -1457,6 +1485,79 @@ def version_cmd() -> None:
     from truthstone import __version__
 
     _echo(__version__)
+
+
+@app.command("replay")
+def replay_cmd(
+    cells: list[Path] = typer.Argument(None, help="Recorded cell directories to replay."),
+    corpus: list[Path] = typer.Option(
+        None, "--corpus", help="A benchmark run directory: replay its valid cells and join their outcomes."
+    ),
+    exclude: list[str] = typer.Option(None, "--exclude", help="Skip cells whose id matches (glob, prefix)."),
+    config: Path = typer.Option(None, "--config", help="A config.toml for the scratch home."),
+    out: Path = typer.Option(None, "--out", help="Write every cell's replay, and the summary, as JSON here."),
+    jobs: int = typer.Option(1, "--jobs", "-j", min=1, help="Cells replayed in parallel."),
+    adapter: str = typer.Option("codex", help="The host adapter the cells were recorded through."),
+    profile_name: str = typer.Option(
+        None, "--profile", help="Intervention profile to replay under: minimal (the default) or full."
+    ),
+) -> None:
+    """Replay recorded benchmark cells through this build, offline (WP1b).
+
+    Each cell runs in a scratch home and a scratch repository rebuilt per event from the
+    recorded trees: deterministic, no model. One cell prints its would-have decisions as
+    JSON; ``--corpus`` prints the would-have interventions by kind on control cells, honest
+    successes and false completions.
+    """
+    from truthstone import replay
+
+    if not cells and not corpus:
+        _bad("name a cell directory or --corpus <run-dir>")
+        raise typer.Exit(2)
+    if profile_name not in (None, "minimal", "full"):
+        _bad("--profile is minimal or full")
+        raise typer.Exit(2)
+    if cells:
+        replayed = [
+            replay.replay_cell(cell.resolve(), config=config, adapter=adapter, profile_name=profile_name)
+            for cell in cells
+        ]
+        data: Any = [r.to_json() for r in replayed]
+        text = json.dumps(data if len(data) > 1 else data[0], indent=1, default=str)
+        if out:
+            out.write_text(text, encoding="utf-8")
+        _echo(text)
+        return
+    rows = replay.replay_corpus(
+        [path.resolve() for path in corpus],
+        exclude=exclude or (),
+        config=config,
+        adapter=adapter,
+        jobs=jobs,
+        profile_name=profile_name,
+    )
+    summary = replay.summarize(rows)
+    _echo(replay.render(summary))
+    if out:
+        payload = {
+            "summary": summary,
+            "cells": [
+                {
+                    "cell": outcome.cell_id,
+                    "run": outcome.run,
+                    "family": outcome.family,
+                    "recipe": outcome.recipe,
+                    "outcome": outcome.outcome,
+                    "group": outcome.group,
+                    "problems": replayed.problems,
+                    "interventions": replayed.to_json()["interventions"],
+                    "withheld": replayed.to_json()["withheld"],
+                }
+                for outcome, replayed in rows
+            ],
+        }
+        out.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8")
+        _echo(f"\nfull replay: {out}")
 
 
 @app.command("bench")

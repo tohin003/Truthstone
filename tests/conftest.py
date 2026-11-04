@@ -47,6 +47,10 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home.joinpath("config.toml").write_text(f"[daemon]\nport = {free_port()}\n", encoding="utf-8")
     monkeypatch.setenv("TRUTHSTONE_HOME", str(home))
     monkeypatch.delenv("TRUTHSTONE_DISABLE", raising=False)
+    # The suite tests every check as it speaks: the full intervention profile. The product's
+    # default, the minimal profile, is tested where it is the subject (test_profile.py,
+    # test_premise.py, test_replay.py), which delete this.
+    monkeypatch.setenv("TRUTHSTONE_PROFILE", "full")
     Database.reset_shared()
     yield home
     Database.reset_shared()

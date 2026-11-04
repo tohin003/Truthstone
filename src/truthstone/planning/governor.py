@@ -22,7 +22,16 @@ starts work. Three properties matter:
 from __future__ import annotations
 
 from truthstone.complexity.rules import find_existing_capabilities
-from truthstone.core.enums import Domain, PlanningDepth, RiskLevel
+from truthstone.core.enums import (
+    ChallengeCategory,
+    Domain,
+    FailureMode,
+    PlanningDepth,
+    RiskLevel,
+    Severity,
+    Verdict,
+)
+from truthstone.core.models import Finding
 from truthstone.intent import lexicon as lex
 from truthstone.intent.models import TaskSpec
 from truthstone.repo.index import RepoIndex
@@ -371,3 +380,21 @@ def _is_conversational(spec: TaskSpec) -> bool:
         return False
 
     return text.endswith("?") or text.startswith(INFORMATION_SEEKING)
+
+
+# The subject that names the planning note's kind for the intervention profile
+# (``core/profile.py``): off under the minimal profile unless ``[notes] planning`` is on.
+FINDING_SUBJECT = "planning_note"
+
+
+def finding(budget: str) -> Finding:
+    """The record of a planning note: what it said, at INFO, never a failure."""
+    return Finding(
+        category=ChallengeCategory.UNDERENGINEERING,
+        verdict=Verdict.SUPPORTED,
+        failure_mode=FailureMode.NOT_A_FAILURE,
+        severity=Severity.INFO,
+        subject=FINDING_SUBJECT,
+        summary="planning note",
+        detail=budget[:600],
+    )

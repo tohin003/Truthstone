@@ -167,6 +167,23 @@ def _emit(rendering: hosts.Rendering, hook_name: str) -> dict[str, Any]:
     return out
 
 
+def perceived(output: dict[str, Any]) -> str | None:
+    """What the agent perceives of a hook output: ``deny``, ``ask``, ``block``, ``context``,
+    or None (nothing, or only a ``systemMessage``, which is the developer's). Claude Code's
+    hook output spells these the same way. Offline replay counts interventions with it."""
+    if not output:
+        return None
+    if output.get("decision") == "block":
+        return "block"
+    specific = output.get("hookSpecificOutput") or {}
+    permission = specific.get("permissionDecision")
+    if permission in ("deny", "ask"):
+        return str(permission)
+    if specific.get("additionalContext"):
+        return "context"
+    return None
+
+
 def _context(text: str | None, hook_name: str) -> dict[str, Any]:
     text = (text or "").strip()
     if not text or hook_name not in _CONTEXT_HOOKS:
