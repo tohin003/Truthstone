@@ -253,3 +253,72 @@ def test_routine_prompt_injects_nothing(tmp_path):
         assert bool(output.get("hookSpecificOutput", {}).get("additionalContext")) is expect_context, settings
         if not expect_context:
             assert output == {} and decision.additional_context is None
+
+
+# -- the shipped default, pinned (the rest of the suite runs the full profile) --------------------
+
+
+def test_the_shipped_default_is_minimal(isolated_home: Path):
+    assert Settings().profile == "minimal"
+    assert Settings.load().profile == "minimal"  # a config.toml that does not say
+    assert profile.active(Settings.load()).name == "minimal"
+
+
+def _session_ending_on_a_failing_run(guard: Guard, repo: Path) -> tuple[dict, Decision]:
+    """A source edit, then a red test run, then "done": the old gate's failing-tests Stop."""
+    translate.dispatch(guard, _payload(repo, "UserPromptSubmit", prompt="real_helper() should return 2."))
+    patch = (
+        "*** Begin Patch\n"
+        f"*** Update File: {repo / 'pkg' / 'core.py'}\n"
+        "@@\n"
+        "-    return 1\n"
+        "+    return 2\n"
+        "*** End Patch\n"
+    )
+    translate.dispatch(
+        guard, _payload(repo, "PreToolUse", tool_name="apply_patch", tool_input={"command": patch})
+    )
+    (repo / "pkg" / "core.py").write_text("def real_helper():\n    return 2\n")
+    translate.dispatch(
+        guard,
+        _payload(
+            repo, "PostToolUse", tool_name="apply_patch", tool_input={"command": patch}, tool_response="ok"
+        ),
+    )
+    red = "F" + " " * 71 + "[100%]\nFAILED tests/test_core.py::test_it - assert 2 == 1\n1 failed in 0.01s\n"
+    run = {"command": "python -m pytest -q"}
+    translate.dispatch(
+        guard, _payload(repo, "PostToolUse", tool_name="Bash", tool_input=run, tool_response=red)
+    )
+    output, _results, decision = translate.dispatch(
+        guard,
+        _payload(repo, "Stop", stop_hook_active=False, last_assistant_message="Done, all tests pass."),
+    )
+    return output, decision
+
+
+@pytest.mark.parametrize("name", ["default", "full"])
+def test_under_the_shipped_default_an_old_gate_stop_block_is_recorded_not_shown(tmp_path, name):
+    repo = _python_repo(tmp_path)
+    guard = Guard(Settings() if name == "default" else Settings(profile="full"))
+    try:
+        guard.workspace(repo).index.ready(timeout=30)
+        output, decision = _session_ending_on_a_failing_run(guard, repo)
+    finally:
+        guard.close()
+    if name == "full":
+        assert output["decision"] == "block"
+    else:
+        assert output == {}
+        assert decision.would_have is DecisionAction.BLOCK
+        assert profile.withheld_kind(decision) == "other:failing-tests-on-completion"
+
+
+def test_doctor_names_the_effective_profile(isolated_home: Path, monkeypatch):
+    from truthstone.cli import main as cli
+
+    assert cli._profile_line(Settings.load()).startswith("minimal (the default)")
+    (isolated_home / "config.toml").write_text('profile = "full"\n')
+    assert cli._profile_line(Settings.load()).startswith("full (config.toml)")
+    monkeypatch.setenv("TRUTHSTONE_PROFILE", "minimal")
+    assert cli._profile_line(Settings.load()).startswith("minimal (TRUTHSTONE_PROFILE is set)")

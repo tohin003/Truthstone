@@ -521,6 +521,7 @@ def _doctor_config(report: _DoctorReport, settings: Settings) -> None:
     for note in names.migration_notes():  # data or settings still under a former product name
         _warn(note)
     _echo(f"  daemon: {settings.daemon.base_url}")
+    _echo(f"  intervention profile: {_profile_line(settings)}")
     for warning in settings.config_warnings:
         _warn(warning)
     if settings.config_warnings:
@@ -537,6 +538,25 @@ def _doctor_config(report: _DoctorReport, settings: Settings) -> None:
         # believes they are guarded and is not. Exactly the failure mode plan D9 exists
         # to prevent, arrived at from the other direction.
         _warn("OBSERVE-ONLY is on — findings are recorded but nothing is ever said")
+
+
+def _profile_line(settings: Settings) -> str:
+    """What may reach the agent, and where that came from (WP7)."""
+    from truthstone.core.config import ENV_PROFILE
+
+    name = getattr(settings, "profile", "minimal")
+    if names.env(ENV_PROFILE):
+        source = f"{ENV_PROFILE} is set"
+    elif "profile" in settings.model_fields_set:
+        source = "config.toml"
+    else:
+        source = "the default"
+    what = (
+        "only the sanctioned interventions reach the agent; everything else is recorded"
+        if name == "minimal"
+        else "every check may reach the agent"
+    )
+    return f"{name} ({source}): {what}"
 
 
 def _doctor_storage(report: _DoctorReport) -> None:
@@ -608,6 +628,13 @@ def _doctor_daemon(report: _DoctorReport, settings: Settings) -> None:
             )
         else:
             _warn("the running daemon is OBSERVE-ONLY: findings are recorded, nothing is said")
+    live = health.get("profile")
+    if isinstance(live, str):
+        configured = getattr(settings, "profile", "minimal")
+        if live != configured:
+            _warn(f"the running daemon's intervention profile is {live!r}, not {configured!r} — {restart}")
+        else:
+            _ok(f"the running daemon uses the {live!r} intervention profile")
     for line in _degraded_lines(health):
         _warn(line)
 

@@ -177,7 +177,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:7e4b7dc8b328e23d6c7a7c097e080e0a094b465966fb66ae2f455b6b1339a346"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:eae7b0c655ec2893849f7498a2a7aafd9600366ae3d6ca1e9f7e71816f78de20"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
@@ -321,6 +321,60 @@ class TestLauncher:
         (tmp_path / "work" / ".git").write_text("gitdir: /elsewhere/worktrees/work\n")  # a linked worktree
         result = launch("stop", tmp_path, stdin="{}", cwd=nested)
         assert result.stdout == b"stop|{}"
+
+
+def _lean(tmp: Path, script: str = 'printf "lean:%s|" "$*"; cat\n') -> Path:
+    """What SessionStart leaves in $PLUGIN_DATA/lean: a forwarder and the Python to run it
+    (here a stand-in "python" that shows the arguments it was given)."""
+    lean = tmp / "data" / "lean"
+    python = write_exe(lean / "py", script)
+    (lean / "run.py").write_text("# the forwarder's runner\n")
+    (lean / "python").write_text(f"{python}\n")
+    return lean
+
+
+class TestLauncherHotPath:
+    """WP9: tool calls, Stop and SessionEnd go to the lean forwarder with -I -S, when there is one."""
+
+    @pytest.mark.parametrize("event", ["pre-tool-use", "post-tool-use", "stop", "session-end"])
+    def test_forwarding_events_run_the_lean_forwarder_isolated(self, tmp_path, event):
+        write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, FAKE_RUNTIME)
+        lean = _lean(tmp_path)
+        result = launch(event, tmp_path, stdin='{"x":1}')
+        budget = "2" if event == "session-end" else "4"
+        assert result.returncode == 0
+        assert result.stdout == f"lean:-I -S {lean / 'run.py'} --timeout {budget}|{{\"x\":1}}".encode()
+
+    @pytest.mark.parametrize("event", ["session-start", "user-prompt-submit"])
+    def test_lifecycle_events_still_run_the_runtime(self, tmp_path, event):
+        write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, FAKE_RUNTIME)
+        _lean(tmp_path)
+        assert launch(event, tmp_path, stdin="{}").stdout == f"{event}|{{}}".encode()
+
+    def test_an_explicit_runtime_is_honoured_for_every_event(self, tmp_path):
+        """The benchmark's hook timer, or a developer's own runner, sees every hook."""
+        _lean(tmp_path)
+        override = write_exe(tmp_path / "custom" / "runner", 'printf "override"\n')
+        assert launch("pre-tool-use", tmp_path, TRUTHSTONE_CODEX_HOOK=str(override)).stdout == b"override"
+
+    def test_anything_missing_falls_through_to_the_runtime(self, tmp_path):
+        write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, FAKE_RUNTIME)
+        lean = _lean(tmp_path)
+        (lean / "python").write_text(f"{tmp_path / 'gone' / 'python'}\n")  # the runtime was removed
+        assert launch("stop", tmp_path, stdin="{}").stdout == b"stop|{}"
+        (lean / "run.py").unlink()
+        assert launch("pre-tool-use", tmp_path, stdin="{}").stdout == b"pre-tool-use|{}"
+
+    def test_a_failing_forwarder_never_exits_2(self, tmp_path):
+        _lean(tmp_path, "exit 2\n")  # e.g. Python's own "can't open file" status
+        assert launch("pre-tool-use", tmp_path).returncode == 0
+
+    def test_outside_a_work_tree_the_hot_path_does_nothing_either(self, tmp_path):
+        _lean(tmp_path)
+        outside = tmp_path / "plain"
+        outside.mkdir()
+        result = launch("pre-tool-use", tmp_path, cwd=outside)
+        assert (result.returncode, result.stdout) == (0, b"")
 
 
 class TestDocuments:
