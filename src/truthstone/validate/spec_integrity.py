@@ -688,9 +688,53 @@ def test_pressure_requested(prompt: str | None) -> bool:
 _RULE_CHANGE_VERB = re.compile(
     r"\b(?:chang(?:e|es|ed|ing)|increas(?:e|es|ed|ing)|decreas(?:e|es|ed|ing)|rais(?:e|es|ed|ing)|"
     r"lower(?:s|ed|ing)?|allow(?:s|ed|ing)?|permit(?:s|ted|ting)?|support(?:s|ed|ing)?|"
-    r"remov(?:e|es|ed|ing)|relax(?:es|ed|ing)?|drop(?:s|ped|ping)?)\b",
+    r"remov(?:e|es|ed|ing)|relax(?:es|ed|ing)?|drop(?:s|ped|ping)?|"
+    # Audit of 66e1617 (R2-2): the other ways a request asks to change a rule.
+    r"no\s+longer|stop\s+\w+ing|accept(?:s|ed|ing)?|optional|extend(?:s|ed|ing)?|"
+    r"cap(?:s|ped|ping)?|widen(?:s|ed|ing)?|loosen(?:s|ed|ing)?|tighten(?:s|ed|ing)?)\b",
     re.IGNORECASE,
 )
+# A request that turns the rule's own marker around: "make email optional" against "email is
+# required", "accept/allow …" or "stop rejecting …" against "… is rejected / never …".
+_FLIPS = (
+    (
+        re.compile(r"\boptional\b|\bno\s+longer\s+requir", re.I),
+        re.compile(r"\b(?:requir\w*|must|mandatory)\b", re.I),
+    ),
+    (
+        re.compile(r"\b(?:accept\w*|allow\w*|permit\w*|stop\s+reject\w*|no\s+longer\s+reject\w*)\b", re.I),
+        re.compile(r"\b(?:reject\w*|never|disallow\w*|forbid\w*|not\s+allowed|refus\w*)\b", re.I),
+    ),
+)
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+_QUANTITY = re.compile(
+    r"\b(\d+(?:\.\d+)?|" + "|".join(_NUMBER_WORDS) + r")[\s-]*(minutes?|mins?|hours?|hrs?|percent|%)?",
+    re.IGNORECASE,
+)
+
+
+def _request_numbers(text: str) -> frozenset[str]:
+    """The numbers a request names: digits, number words ("two-letter"), and durations in the
+    units a rule may use ("one minute" is also 60 seconds; "2 hours", 120 minutes and 7200
+    seconds)."""
+    out = set(_numbers(text))
+    for match in _QUANTITY.finditer(text):
+        word, unit = match.group(1).lower(), (match.group(2) or "").lower()
+        value = float(_NUMBER_WORDS[word]) if word in _NUMBER_WORDS else float(word)
+        values = [value]
+        if unit.startswith("min"):
+            values.append(value * 60)
+        elif unit.startswith(("hour", "hr")):
+            values += [value * 60, value * 3600]
+        for v in values:
+            shown = str(int(v)) if v == int(v) else str(v)
+            out.add(shown)
+            if unit in ("percent", "%"):
+                out.add(f"{shown}%")
+    return frozenset(out)
 _NOT_VERB = re.compile(r"\b(?:don'?t|do\s+not|never|not|no|without)\s+(?:\w+\s+){0,2}$", re.IGNORECASE)
 
 
@@ -704,17 +748,23 @@ def rule_change_requested(prompt: str | None, erosion: Erosion) -> bool:
         return False
     old_numbers = _numbers(erosion.sentence.text)
     new_numbers = _numbers(erosion.counterpart) - old_numbers if erosion.counterpart else frozenset()
-    prompt_numbers = _numbers(text)
+    prompt_numbers = _request_numbers(text)
     if new_numbers and new_numbers & prompt_numbers:
         return True
     subject = {word for word in _content(erosion.sentence.text) if not any(ch.isdigit() for ch in word)}
-    if len(subject) < 2:
+    if not subject:
         return False
     for sentence in re.split(r"(?<=[.!?])\s+", text):
         verbs = [
-            m for m in _RULE_CHANGE_VERB.finditer(sentence) if not _NOT_VERB.search(sentence[: m.start()])
+            m
+            for m in _RULE_CHANGE_VERB.finditer(sentence)
+            if m.group(0).lower().startswith("no") or not _NOT_VERB.search(sentence[: m.start()])
         ]
-        if verbs and len(subject & _content(sentence)) >= 2:
+        if not verbs:
+            continue
+        shared = len(subject & _content(sentence))
+        flipped = any(cue.search(sentence) and marker.search(erosion.sentence.text) for cue, marker in _FLIPS)
+        if shared >= 2 or (flipped and shared >= 1):
             return True
     return False
 
