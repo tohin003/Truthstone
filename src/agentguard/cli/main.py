@@ -82,14 +82,20 @@ def daemon_start(timeout: float = typer.Option(10.0, help="Seconds to wait for r
             _echo(f"already running (pid {hs.get('pid')}) on {hs.get('host')}:{hs.get('port')}")
             raise typer.Exit(0)
 
+        from agentguard.adapters.claude_code.shim import daemon_python_argv
+
         home.mkdir(parents=True, exist_ok=True)
         log_file = open_private_append(home / "daemon.log")
         try:
+            # `-P` plus a cwd of AGENTGUARD_HOME: this command is usually typed inside a
+            # repository, and `python -m` would otherwise put that directory first on the
+            # daemon's sys.path, letting a repository file shadow a module the daemon imports.
             subprocess.Popen(
-                [sys.executable, "-m", "agentguard.daemon", "run"],
+                daemon_python_argv(),
                 stdout=log_file,
                 stderr=log_file,
                 stdin=subprocess.DEVNULL,
+                cwd=home,
                 start_new_session=True,
             )
         finally:
@@ -210,6 +216,7 @@ def install_cmd(
         raise typer.Exit(1) from exc
 
     _echo(f"settings file: {path}")
+    _plugin_note()
     if dry_run:
         _echo(json.dumps(result.get("hooks", {}), indent=2))
         _warn("dry run — nothing written")
@@ -271,6 +278,31 @@ def _uninstall_codex(project: bool, global_: bool, dry_run: bool) -> None:
         _warn("dry run — nothing written")
     else:
         _ok("hooks removed" if changed else "nothing to remove")
+
+
+# The Claude Code plugin is the preferred install; these hooks remain the fallback.
+PLUGIN_INSTALL_STEPS = (
+    "/plugin marketplace add tohin003/AgentGuard",
+    "/plugin install agentguard@agentguard",
+)
+
+
+def _plugin_note() -> None:
+    """Point at the plugin, and say what happens if both installs are present."""
+    from agentguard.adapters.claude_code import settings_scan
+
+    active = settings_scan.active_plugin_installs(Path.cwd())
+    if active:
+        _warn(
+            f"the AgentGuard plugin is also installed ({active[0].plugin_id}, {active[0].scope} scope). "
+            "Where these settings hooks exist the plugin stands down, so no event is handled "
+            "twice — but the plugin is the better path: remove these hooks with "
+            "`agentguard uninstall claude` and let the plugin guard instead."
+        )
+        return
+    _echo("  tip: AgentGuard is also a Claude Code plugin, with no settings to edit. In Claude Code:")
+    for step in PLUGIN_INSTALL_STEPS:
+        _echo(f"         {step}")
 
 
 @app.command("uninstall")
@@ -386,10 +418,11 @@ def doctor() -> None:
         inst.is_installed(path)
         for path in (inst.global_settings_path(), inst.project_settings_path())
     )
+    plugin_active = _doctor_plugin(installed_anywhere)
 
     codex_attached, codex_problems = _doctor_codex()
     problems += codex_problems
-    if not installed_anywhere and not codex_attached:
+    if not installed_anywhere and not plugin_active and not codex_attached:
         _bad("no Claude Code or Codex hooks installed — this project is currently unguarded")
         problems += 1
 
@@ -468,6 +501,42 @@ def _doctor_codex() -> tuple[bool, int]:
         else:
             _ok(f"all {len(report.hooks)} AgentGuard hooks are trusted in Codex")
     return True, problems
+
+
+def _doctor_plugin(settings_hooks: bool) -> bool:
+    """The plugin half of `doctor`. Returns whether the plugin guards this project.
+
+    ``AGENTGUARD_PLUGIN_DATA`` is set when this runs from the plugin's /agentguard:doctor,
+    which is also proof the plugin is loaded in a live session — install records alone
+    cannot show a session-only (`--plugin-dir`) plugin.
+    """
+    from agentguard.adapters.claude_code import settings_scan
+
+    project = Path.cwd()
+    installs = settings_scan.active_plugin_installs(project)
+    for install in installs:
+        _ok(
+            f"plugin {install.plugin_id} installed ({install.scope} scope"
+            + (f", version {install.version})" if install.version else ")")
+        )
+    plugin_data = os.environ.get("AGENTGUARD_PLUGIN_DATA")
+    if plugin_data:
+        _ok(f"plugin runtime: {sys.executable} (data: {plugin_data})")
+    active = bool(installs or plugin_data)
+    if not active:
+        _echo("  · plugin not installed (in Claude Code: " + " then ".join(PLUGIN_INSTALL_STEPS) + ")")
+        return False
+
+    legacy = settings_scan.legacy_hook_files(project)
+    if legacy or settings_hooks:
+        where = ", ".join(str(path) for _, path in legacy) or "settings"
+        _warn(
+            "AgentGuard is installed twice: as the plugin and as settings hooks "
+            f"({where}). The plugin stands down wherever settings hooks exist, so nothing "
+            "is handled twice. To let the plugin guard, run `agentguard uninstall claude "
+            "--global` and/or `--project`."
+        )
+    return True
 
 
 @app.command("log")

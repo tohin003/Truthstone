@@ -1,0 +1,11 @@
+# Local and generated files that must never ship in this plugin's bundle.
+.DS_Store
+Thumbs.db
+desktop.ini
+__MACOSX/
+*.log
+*.zip
+.env
+.env.*
+__pycache__/
+node_modules/

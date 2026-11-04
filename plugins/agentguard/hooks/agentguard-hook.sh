@@ -16,7 +16,7 @@
 event="${1:-}"
 case "${AGENTGUARD_DISABLE:-}" in 1|true|TRUE|True|yes|on) exit 0 ;; esac
 
-runtime_source="${AGENTGUARD_SOURCE:-git+https://github.com/tohin003/AgentGuard}"
+runtime_source="${AGENTGUARD_SOURCE:-git+https://github.com/tohin003/AgentGuard@v0.1.0-dev.0}"
 private="${PLUGIN_DATA:-}/runtime"
 runner=""
 if [ -n "${AGENTGUARD_CODEX_HOOK:-}" ] && [ -x "$AGENTGUARD_CODEX_HOOK" ]; then
@@ -42,7 +42,7 @@ fi
 
 if [ -z "$runner" ]; then
   if [ "$event" = "session-start" ]; then
-    printf '%s\n' '{"systemMessage": "AgentGuard is installed as a Codex plugin, but its runtime was not found, so this session is UNGUARDED. Install it with: uv tool install git+https://github.com/tohin003/AgentGuard  (or put agentguard-codex-hook on PATH), then start a new session."}'
+    printf '%s\n' '{"systemMessage": "AgentGuard is installed as a Codex plugin, but its runtime was not found, so this session is UNGUARDED. Install it with: uv tool install git+https://github.com/tohin003/AgentGuard@v0.1.0-dev.0  (or put agentguard-codex-hook on PATH), then start a new session."}'
   fi
   exit 0
 fi
