@@ -2,7 +2,7 @@
 
 Last updated: 4 November 2026
 
-These terms cover two pieces of software that {{PUBLISHER_NAME}} ("we") publishes at https://github.com/tohin003/Truthstone:
+These terms cover two pieces of software that Tohin Majumder ("we") publishes at https://github.com/tohin003/Truthstone:
 
 - **Truthstone Practices**, a skills plugin
 - **Truthstone (previously named AgentGuard)**, an open-source local runtime
@@ -54,4 +54,4 @@ You can stop using the software at any time by uninstalling it.
 
 ## 9. Contact
 
-{{PUBLISHER_NAME}}: {{SUPPORT_EMAIL}}
+Tohin Majumder: tohin1400@gmail.com

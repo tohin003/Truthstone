@@ -2,7 +2,7 @@
 
 This kit prepares the **skills-only companion plugin** for OpenAI's Plugin Directory, which ChatGPT and Codex share, and for free discovery lists. Nothing here has been submitted anywhere.
 
-`Truthstone Practices` and `truthstone-practices` are working names. The product will be renamed before release; see [§10](#10-renaming).
+`Truthstone Practices` and `truthstone-practices` are the final names, since the rename from AgentGuard on 2026-11-04 (`docs/RENAME.md`). A published name must not change again; [§10](#10-renaming) describes the tooling if it ever has to.
 
 Rules were verified on 2026-11-04 against the raw Markdown of the official pages listed in [§4](#4-compliance-checklist).
 
@@ -48,7 +48,7 @@ The validator enforces every one of these absences.
 
 ```bash
 python3 scripts/companion_package.py check            # validate the plugin directory
-python3 scripts/companion_package.py check --final    # also: no {{PLACEHOLDERS}} left in docs/legal
+python3 scripts/companion_package.py check --final    # also: no unfilled placeholders left in docs/legal
 python3 scripts/companion_package.py check --online   # also: every listing URL answers 200 (after you push)
 python3 scripts/companion_package.py build            # write dist/companion/<name>-<version>.zip, then validate the ZIP
 python3 scripts/companion_package.py validate-zip PATH.zip
@@ -57,7 +57,7 @@ python3 scripts/companion_package.py rules            # every rule ID with its s
 python3 scripts/companion_package.py selftest         # 85 cases: each rule shown rejecting a bad package
 ```
 
-The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,231 bytes, sha256 `b55613cfe8c7bb250d29aeb724aab2a6d1472c365b88a89adaa4158e98ded8c4`. The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
+The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,303 bytes, sha256 `91bcd12cba5abef1416e51dc360a533a0d2173ed29c264f83bf2ee43de58f7c9` (rebuilt 2026-11-04 after the publisher details were filled in). The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
 
 ---
 
@@ -73,7 +73,7 @@ The listing copy is final and within every limit. It comes from `.codex-plugin/p
 | `shortDescription` | Verify work before saying done | 30 / 30 |
 | `longDescription` | below | 2,727 / 4,000 |
 | `description` (package) | Six instruction-only skills that guide a coding agent to show evidence before saying a task is done: a requirement ledger, file:line grounding, scope checks, proportional planning, a pre-flight for irreversible shell commands, and a review of the diff against the request. | 272 / 1,024 |
-| `developerName` | Truthstone project. The portal replaces it with your verified identity's name (`developer_name_defaulted`) | 18 / 80 |
+| `developerName` | Tohin Majumder, the publisher. The portal replaces it with your verified identity's name if they differ (`developer_name_defaulted`) | 14 / 80 |
 | `category` | Developer Tools | allowed value |
 | `brandColor` | `#0F766E` | 5.47:1 against white (needs 2:1) |
 | `brandColorDark` | `#2DD4BF` | 8.65:1 against `#212121` (needs 2:1) |
@@ -223,7 +223,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 | Clause [G] | How we comply |
 |---|---|
 | "provide functionality or workflows that are not natively supported by the products' built-in capabilities and that meaningfully help satisfy common user intents expressed in conversation" | The six protocols are specific workflows the products do not run by default: a three-state requirement ledger that includes prohibitions and the evidence-after-last-edit rule, the complete-evidence rule for absence claims, scope and convention checks, plan sizing with override rules, the irreversible-command pre-flight and a full-diff audit. They trigger on ordinary requests to finish, fix, plan or review. This is a reviewer's judgement call; see §11 |
-| "Only use intellectual property that you own or have permission to use." | Original text and an original logo, under Apache-2.0. The name collides with other products called "Truthstone"; see §11 |
+| "Only use intellectual property that you own or have permission to use." | Original text and an original logo, under Apache-2.0. The former name, AgentGuard, collided with other products; the rename to Truthstone resolved that (see §11) |
 | "Do not engage in misleading or copycat designs, impersonation, spam, or static frames with no meaningful interaction." | Original protocols drawn from this repository's own design (Appendix); no imitation of other plugins |
 | "Plugins should not imply that they are made or endorsed by OpenAI." | No such wording; enforced by `LISTING-COPY` |
 | "Plugins must behave predictably and reliably… Errors… must be handled with clear messaging or fallback behaviors." | Each skill defines its fallback. When a check cannot run, the item is reported "not verified" with the exact command, never as passed |
@@ -239,7 +239,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 | Restricted data (payment-card data, PHI, government IDs, credentials) | None collected. The skills tell the agent to keep secrets out of the transcript |
 | "No ads… Every plugin must deliver clear, legitimate functionality that provides standalone value" | No ads; standalone |
 | "All plugin submissions must come from verified individuals or organizations." | Your step (§5) |
-| "You must provide customer support contact details" | `docs/legal/SUPPORT.md` gives GitHub issues and `{{SUPPORT_EMAIL}}` |
+| "You must provide customer support contact details" | `docs/legal/SUPPORT.md` gives GitHub issues and tohin1400@gmail.com |
 
 ### 4.5 Process
 
@@ -261,7 +261,7 @@ Only you can do these: they involve your identity, legal attestations and your a
 **Before uploading**
 
 1. **Settle the final name** and run the rename (§10). A published name must not change: OpenAI rejects updates whose name differs (`plugin_name_mismatch`), and Claude Code installs break on a rename.
-2. **Fill the placeholders** in `docs/legal/*.md`: `{{PUBLISHER_NAME}}` (the exact name you will verify as) and `{{SUPPORT_EMAIL}}` (an address you will monitor). Review the drafts, ideally with someone qualified. The one policy choice in them is a 12-month retention period for support email.
+2. **Review the legal pages** in `docs/legal/*.md`. They name the publisher, Tohin Majumder (verify under exactly this name), and the support address tohin1400@gmail.com (monitor it). Review them, ideally with someone qualified. One policy choice is yours: support emails are kept as long as a request needs and deleted on request, with no fixed schedule. The earlier draft promised deletion after 12 months, which nothing enforces; restore a fixed period only if you will keep to it.
 3. **Merge and push to `master`**, so that the four listing URLs resolve. On GitHub, also:
    - enable **Private vulnerability reporting** (Settings → Code security). It is currently off, and `SECURITY.md` points to it.
    - add the topics `codex-plugin`, `codex-skills`, `agent-plugins`, `claude-code-plugin` and `agent-skills`.
@@ -298,10 +298,11 @@ The drafts are `docs/legal/PRIVACY.md`, `docs/legal/TERMS.md` and `docs/legal/SU
 - loopback-only daemon: `core/config.py`, the `loopback_only` validator
 - no outbound HTTP client
 - the SQLite schema: `core/store.py`
-- default retention tiers: `core/config.py`, `RetentionSettings`
-- the `TRUTHSTONE_DISABLE` kill switch
+- default retention tiers: `core/config.py`, `RetentionSettings`; what pruning really deletes: `core/store.py`, `prune` (sessions that never ended are kept, so their task text is too)
+- the stored prompt text, at most 2,000 characters per task: `core/store.py`, `create_task`
+- the `TRUTHSTONE_DISABLE` kill switch, the `TRUTHSTONE_NO_BOOTSTRAP` opt-out and the git-work-tree gate: the plugins' hook scripts
 
-**Placeholders.** `{{PUBLISHER_NAME}}` and `{{SUPPORT_EMAIL}}` are deliberate. No personal email is filled in. `check --final` fails until both are filled.
+**Publisher details.** The pages name Tohin Majumder and tohin1400@gmail.com, which the publisher provided for listings. `check --final` verifies that no placeholder is left.
 
 **Hosting.** The guidelines require a "published" HTTPS policy and a support contact. The URLs must be at most 1,024 characters, without credentials, accessible, and identify the same publisher. No hosting provider is prescribed.
 
@@ -311,7 +312,7 @@ The drafts are `docs/legal/PRIVACY.md`, `docs/legal/TERMS.md` and `docs/legal/SU
 | **B. GitHub Pages** | `https://tohin003.github.io/Truthstone/legal/PRIVACY.html` | Settings → Pages → deploy from `master` `/docs`. GitHub Pages renders Markdown without front matter | Cleaner and clearly yours. It publishes all of `docs/`, so move the legal pages to a dedicated folder if that matters. After switching, update the four URLs in the Codex manifest and run `sync` |
 | C. `raw.githubusercontent.com` | plain text | — | Not recommended: it serves unformatted text |
 
-Whichever option you choose, the page text names `{{PUBLISHER_NAME}}`, which must match the identity the directory displays.
+Whichever option you choose, the page text names Tohin Majumder, which must match the identity the directory displays.
 
 ---
 
@@ -341,6 +342,8 @@ The scanner was installed from wheel `plugin_scanner-3.58.0`. Its sha256 `13bb0e
 |---|---|---|
 | `plugins/truthstone` (Codex, hooks) | 80/100 (B) | No `README.md`, `LICENSE` or `SECURITY.md` in the plugin directory. Version `0.1.0-dev.0` is valid semver, but the scanner rejects pre-release tags. Info: no `.codexignore`; no `license` in SKILL.md front matter |
 | `plugins/truthstone-claude` (Claude Code, hooks) | 75/100 (C) | Exactly at the threshold. SKILL.md files lack a `name` field (×6), and there is no `LICENSE` or `SECURITY.md` in the plugin directory |
+
+**Since these snapshots (2026-11-04, `readiness` branch):** the Codex plugin's generator now writes `README.md`, `LICENSE` and `SECURITY.md`, and the Claude plugin has a `README.md` next to its `LICENSE` and `SECURITY.md`, with a `name` in every SKILL.md. Neither plugin has been re-scanned. The Codex plugin's pre-release version goes away when `pyproject.toml` is set to the release version and the plugin is regenerated.
 
 Both hook plugins remain ineligible for OpenAI's directory, which bars hooks. These scores matter only for the HOL list.
 
@@ -415,7 +418,7 @@ Notes:
 | Display Name | Truthstone |
 | Category | Testing |
 | Link | https://github.com/tohin003/Truthstone |
-| Author Name | `{{PUBLISHER_NAME}}` |
+| Author Name | Tohin Majumder |
 | Author Link | https://github.com/tohin003 |
 | Description | Local, deterministic Claude Code hooks that check an agent's claims and edits against the repository, flag out-of-scope edits and risky shell commands, and check for test evidence before the agent stops. Ships with a skills-only companion plugin. |
 | Checklist | Only you can tick these attestations. One box is a deliberate trap: leave "Do not check the following box" unchecked |
@@ -477,7 +480,7 @@ After renaming:
    - the published precedent of similar skills-only plugins: `codex-engineering-guardrails`, `agent-shipproof`, `rumbo-coding-agent-reliability` and `master-change-guard` are all listed in the live catalog
 2. **"Skills-only plugins may be subject to additional eligibility requirements."** These are undisclosed and can't be designed against.
 3. **"Core value requires local execution or file access" → partner contact.** The plugin runs nothing itself, but its best use is in a repository-aware agent. Mitigations: the copy says the skills use the host's own tools and still apply to pasted code. If a reviewer disagrees, the remedy is a conversation with an OpenAI representative, not a package change.
-4. **Name and IP.** Several unrelated products are called "Truthstone". GoPlus ships a Claude plugin whose manifest name is `truthstone`. This risks the "IP you own" clause, Anthropic's "Name matches a known brand" hold, and user confusion. The pending rename is the fix; do it first.
+4. **Name and IP.** Several unrelated products were called "AgentGuard", and GoPlus ships a Claude plugin whose manifest name is `agentguard`. That risked the "IP you own" clause, Anthropic's "Name matches a known brand" hold, and user confusion, which is why the product was renamed Truthstone. (The automated rename had rewritten this sentence to say the conflict was with "Truthstone"; it was not.) On 2026-11-04, `truthstone` was free in both Anthropic marketplaces, and a web and GitHub search found no conflicting software brand; the closest use is "TruthStone PM", a 2026 landing page. That is not a trademark clearance.
 5. **Trial or demo perception.** The single mention of the separate runtime could be read as an upsell. It is phrased as a limitation, contains no link and no pricing word, and every skill is complete without it. Removing that sentence is a one-line edit if a reviewer objects.
 6. **Identity verification bug.** Reported between 2026-08-20 and 2026-10-07; no fix has been announced.
 7. **Unknown portal behaviour.** These rules were verified from documentation, not from an upload:

@@ -12,9 +12,9 @@ A security issue in this plugin is an instruction that could lead an agent to ca
 
 ## Reporting a vulnerability
 
-Report vulnerabilities privately, not in a public issue. Use GitHub's private vulnerability reporting for https://github.com/tohin003/Truthstone: open the **Security** tab and select **Report a vulnerability**.
+Report vulnerabilities privately, not in a public issue. Use GitHub's private vulnerability reporting for https://github.com/tohin003/Truthstone: open the **Security** tab and select **Report a vulnerability**. You can also email the publisher, Tohin Majumder, at tohin1400@gmail.com.
 
-You can also contact the maintainers through the channels listed at https://github.com/tohin003/Truthstone/blob/master/docs/legal/SUPPORT.md.
+Other ways to reach the maintainer are listed at https://github.com/tohin003/Truthstone/blob/master/docs/legal/SUPPORT.md.
 
 ## Supported versions
 
