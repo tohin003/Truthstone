@@ -127,6 +127,75 @@ class CodexExecAgent:
         )
 
 
+def codex_sandbox_probe(codex_bin: str, work_root: Path) -> dict[str, Any]:
+    """Codex's workspace sandbox, demonstrated with ``codex sandbox`` (no model, no login).
+
+    ``codex sandbox -P :workspace`` runs a command under Codex's built-in workspace
+    permission profile (Seatbelt on macOS). The probe must write inside its working
+    directory and nowhere else under the work root, and must reach no network (DNS, a raw
+    socket, loopback). ``/tmp`` stays writable: Codex's documented default (plan risk 8).
+
+    This demonstrates the mechanism; the cells' own settings (``-s workspace-write``,
+    ``sandbox_workspace_write.network_access=false``) are confirmed per cell from the
+    rollout's recorded ``sandbox_policy`` (a drift voids the cell).
+    """
+    import socket
+    import tempfile
+
+    root = Path(tempfile.mkdtemp(prefix="k", dir=str(work_root)))
+    repo = root / "w"
+    outside = root / "o"
+    home = root / "c"
+    for path in (repo, outside, home):
+        path.mkdir(parents=True)
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        closed = sock.getsockname()[1]
+    probe = (
+        'touch inside.txt && echo "PROBE inside ok"\n'
+        f'touch "{outside}/x.txt" && echo "PROBE outside WROTE"\n'
+        'curl -sS -m 5 -o /dev/null https://example.com && echo "PROBE curl NET"\n'
+        "/usr/bin/python3 -c \"import socket; socket.create_connection(('1.1.1.1', 443), timeout=3); "
+        "print('PROBE socket NET')\"\n"
+        '/usr/bin/python3 -c "import socket; '
+        f"socket.create_connection(('127.0.0.1', {closed}), timeout=3)\" "
+        '2>&1 | grep -q "not permitted" && echo "PROBE loopback blocked"\n'
+        "echo PROBE end\n"
+    )
+    env = {
+        "PATH": f"{Path(codex_bin).parent}:/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": str(root),
+        "CODEX_HOME": str(home),
+        "LANG": "en_US.UTF-8",
+    }
+    profile = ":workspace"
+    try:
+        proc = subprocess.run(
+            [codex_bin, "sandbox", "-P", profile, "-C", str(repo), "--", "/bin/sh", "-c", probe],
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        probes = sorted({line.strip() for line in proc.stdout.splitlines() if line.startswith("PROBE ")})
+        problems = []
+        if "PROBE end" not in probes:
+            problems.append(f"the probe did not run (exit {proc.returncode}): {proc.stderr[-300:]}")
+        if "PROBE inside ok" not in probes:
+            problems.append("could not write inside the workspace")
+        if (outside / "x.txt").exists():
+            problems.append("wrote outside the workspace")
+        for net in ("PROBE curl NET", "PROBE socket NET"):
+            if net in probes:
+                problems.append(f"network reachable ({net})")
+        if "PROBE loopback blocked" not in probes:
+            problems.append("loopback was not blocked")
+        return {"profile": profile, "ok": not problems, "probes": probes, "problems": problems}
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def _kill_group(proc: subprocess.Popen) -> None:
     for sig in (signal.SIGTERM, signal.SIGKILL):
         try:

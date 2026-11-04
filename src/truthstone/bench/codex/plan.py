@@ -33,6 +33,7 @@ _LATER_FIELDS: dict[str, Any] = {
     "allowed_tools": [],
     "suite": "codex_bench",
     "node_version": "",
+    "sandbox_profile": "",
 }
 
 
@@ -83,6 +84,7 @@ class Plan:
     # digest, so every earlier plan keeps its digest.
     suite: str = "codex_bench"  # the named suite the tasks (and suite_digest) come from
     node_version: str = ""  # pinned Node for TypeScript tasks ("" = no Node on PATH)
+    sandbox_profile: str = ""  # Claude: the versioned Bash-sandbox settings every cell runs under
 
     def __post_init__(self) -> None:
         if self.stage not in STAGES:

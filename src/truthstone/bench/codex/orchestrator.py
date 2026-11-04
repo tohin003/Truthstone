@@ -37,6 +37,9 @@ class Halt(RuntimeError):
     """The instrument is broken. Stop, fix, resume."""
 
 
+# Codex's sandbox modes as its rollout spells them (``sandbox_policy.type``).
+_CODEX_SANDBOX_MODES = frozenset({"read-only", "workspace-write", "danger-full-access", "external-sandbox"})
+
 
 @dataclass(slots=True)
 class PairState:
@@ -703,6 +706,14 @@ class Runner:
             and t.cli_version not in (self.plan.codex_version, "scripted")
         ):
             drift.append(f"{self.host} {t.cli_version!r} != pinned {self.plan.codex_version!r}")
+        if self.host == "codex":
+            # The sandbox as Codex applied it (the rollout's turn context), not as requested.
+            # Only a recognised, different mode counts: an unfamiliar spelling from a newer
+            # Codex must not void every cell.
+            if t.sandbox in _CODEX_SANDBOX_MODES and t.sandbox != self.plan.sandbox:
+                drift.append(f"sandbox {t.sandbox!r} != pinned {self.plan.sandbox!r}")
+            if t.sandbox_network is not None and t.sandbox_network != self.plan.network:
+                drift.append(f"sandbox network access {t.sandbox_network} != pinned {self.plan.network}")
         return drift
 
     @staticmethod

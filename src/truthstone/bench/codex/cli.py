@@ -21,6 +21,7 @@ from truthstone.bench.codex import (
     agents,
     appserver,
     claude,
+    claude_sandbox,
     guards,
     homes,
     limits,
@@ -122,8 +123,11 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             ],
             "codex_version": claude.claude_version(args.claude),  # the host CLI's version
             "trust": "session-plugin-dir",
-            "sandbox": "none",
-            "network": True,
+            # Every cell's Bash runs in Claude Code's own sandbox: writes confined to the
+            # cell, no network (claude_sandbox.py, proven by `sandbox-check`).
+            "sandbox": "claude-bash-sandbox",
+            "network": False,
+            "sandbox_profile": claude_sandbox.PROFILE,
             "reasoning_summary": "n/a",
             "service_tier": "n/a",
             "budget": dataclasses.asdict(policy),
@@ -223,7 +227,16 @@ def _toolchain(plan: Plan, state: Path, args: argparse.Namespace) -> tuple[str |
 
 
 def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orchestrator.Runner:
-    """Claude Code cells: ``claude -p`` in scratch repos outside the user's home."""
+    """Claude Code cells: ``claude -p`` in scratch repos outside the user's home, each one's
+    Bash in Claude Code's sandbox and its file tools confined to the cell."""
+    if plan.sandbox_profile != claude_sandbox.PROFILE:
+        raise orchestrator.Halt(
+            f"the plan's Claude sandbox profile {plan.sandbox_profile!r} is not this harness's "
+            f"{claude_sandbox.PROFILE!r}: re-make the plan (every Claude cell must run sandboxed)"
+        )
+    bare = claude_sandbox.bare_file_tools(plan.allowed_tools)
+    if bare:
+        raise orchestrator.Halt(f"the plan allows {bare} bare, which would let them write anywhere")
     tasks = _plan_tasks(plan, args)
     work_root = Path(args.work_root).expanduser() if args.work_root else homes.default_work_root(plan.name)
     homes.assert_outside_tmp(work_root)
@@ -253,12 +266,17 @@ def _claude_runner(plan: Plan, run_dir: Path, args: argparse.Namespace) -> orche
     unknown = sorted(set(plan.accounts) - set(guard.accounts))
     if unknown:
         raise orchestrator.Halt(f"unknown account(s) {unknown}")
+    # Hidden from every cell: the checkout (hidden tests), the run directory and the work
+    # root (both arms' homes), and credentials. Re-opened: the task interpreter and Node.
+    readable = [taskenv, *([toolchain_bin.parent] if toolchain_bin is not None else [])]
+    sandbox_paths = claude_sandbox.SandboxPaths.for_study(suite.REPO_ROOT, run_dir, work_root, readable)
     settings = claude.ClaudeSettings(
         model=plan.model,
         effort=plan.effort,
         permission_mode=plan.permission_mode,
         timeout_s=plan.cell_timeout_s,
         allowed_tools=tuple(plan.allowed_tools),
+        sandbox=sandbox_paths,
     )
     agent: object = claude.ClaudeExecAgent(claude_bin, settings)
     if getattr(args, "max_agent_runs", None):
@@ -350,6 +368,21 @@ def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> in
     runner = _real_runner(plan, run_dir, args)
     runner.bind()
     data: dict = {"plan": plan.digest(), "claude_version": plan.codex_version, "accounts": plan.accounts}
+    # The cells' sandbox, proven with the pinned binary and the plan's flags: no model call.
+    agent = runner.agent.inner if isinstance(runner.agent, CappedAgent) else runner.agent
+    sandbox = claude_sandbox.check(
+        agent.claude_bin,
+        runner.work_root,
+        model=plan.model,
+        permission_mode=plan.permission_mode,
+        allowed_tools=tuple(plan.allowed_tools),
+    )
+    data["sandbox_check"] = dataclasses.asdict(sandbox)
+    _print_sandbox(sandbox)
+    if not sandbox.ok:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "preflight.json").write_text(json.dumps(data, indent=2, default=str))
+        return 1
     runner.setup_arms()  # provisions each account's plugin runtime (``claude -p /usage``)
     try:
         runner._refresh_usage(force=True)
@@ -375,6 +408,55 @@ def _claude_preflight(plan: Plan, run_dir: Path, args: argparse.Namespace) -> in
     print(f"next pair would run on: {data['account_choice']['account']} ({data['account_choice']['reason']})")
     print(f"preflight passed; details in {run_dir / 'preflight.json'}")
     return 0
+
+
+def _print_sandbox(result: claude_sandbox.CheckResult) -> None:
+    label = "sandboxed" if result.sandboxed else "negative control (no sandbox)"
+    status = "ok" if result.ok else "FAILED"
+    print(
+        f"claude sandbox check [{label}] {status}: profile {result.profile}, "
+        f"Claude Code {result.claude_version}"
+    )
+    obs = result.observations
+    for probe in obs.get("probes", []):
+        print(f"  {probe}")
+    print(f"  files: {obs.get('files')}")
+    print(
+        f"  Read of a hidden path refused: {obs.get('read_hidden_refused')}; hooks reached loopback: "
+        f"{obs.get('hooks_seen')}"
+    )
+    for problem in result.problems:
+        print(f"  problem: {problem}")
+
+
+def _cmd_sandbox_check(args: argparse.Namespace) -> int:
+    """Prove the cells' sandbox with no model call (see claude_sandbox.check / codex_probe)."""
+    work_root = homes.private_dir(homes.default_work_root("sandbox-check"))
+    report_data: dict = {}
+    status = 0
+    if args.host in ("claude", "both"):
+        claude_bin = claude.pin_claude_bin(args.claude, work_root / "claude-bin")
+        result = claude_sandbox.check(claude_bin, work_root, model=args.model)
+        _print_sandbox(result)
+        report_data["claude"] = dataclasses.asdict(result)
+        status |= 0 if result.ok else 1
+        if args.control:
+            control = claude_sandbox.check(claude_bin, work_root, model=args.model, sandboxed=False)
+            _print_sandbox(control)
+            report_data["claude_control"] = dataclasses.asdict(control)
+            status |= 0 if control.ok else 1
+    if args.host in ("codex", "both"):
+        codex = agents.codex_sandbox_probe(args.codex, work_root)
+        print(
+            f"codex sandbox probe ({codex['profile']}) {'ok' if codex['ok'] else 'FAILED'}: {codex['probes']}"
+        )
+        for problem in codex["problems"]:
+            print(f"  problem: {problem}")
+        report_data["codex"] = codex
+        status |= 0 if codex["ok"] else 1
+    if args.json:
+        Path(args.json).write_text(json.dumps(report_data, indent=2, default=str), encoding="utf-8")
+    return status
 
 
 def _usage_line(reading: dict | None) -> str:
@@ -756,6 +838,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--quiet", action="store_true")
     p.add_argument("--host", default="codex", choices=["codex", "claude"])
     p.set_defaults(func=_cmd_dry_run)
+
+    p = sub.add_parser(
+        "sandbox-check",
+        help="Prove the cells' sandbox, no model (Claude: real binary + scripted local API; "
+        "Codex: codex sandbox).",
+    )
+    p.add_argument("--host", default="both", choices=["claude", "codex", "both"])
+    p.add_argument("--claude", default=DEFAULT_CLAUDE)
+    p.add_argument("--codex", default=DEFAULT_CODEX)
+    p.add_argument("--model", default="claude-opus-5-5", help="Model name the scripted API is asked for.")
+    p.add_argument("--control", action="store_true", help="Also run the unsandboxed negative control.")
+    p.add_argument("--json")
+    p.set_defaults(func=_cmd_sandbox_check)
 
     p = sub.add_parser("claude-usage", help="Both Claude accounts' usage windows via /usage (no model call).")
     p.add_argument("--claude", default=DEFAULT_CLAUDE)

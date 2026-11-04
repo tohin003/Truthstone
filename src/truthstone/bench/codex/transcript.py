@@ -101,6 +101,7 @@ class Transcript:
     model: str = ""
     effort: str = ""
     sandbox: str = ""
+    sandbox_network: bool | None = None  # the rollout's sandbox_policy.network_access
     approval_policy: str = ""
     service_tier: str = ""
     model_requests: int = 0
@@ -327,6 +328,8 @@ def read_rollout(path: Path | None, transcript: Transcript | None = None) -> Tra
             sandbox = payload.get("sandbox_policy")
             if isinstance(sandbox, dict):
                 t.sandbox = str(sandbox.get("type", ""))
+                if isinstance(sandbox.get("network_access"), bool):
+                    t.sandbox_network = sandbox["network_access"]
         elif rtype == "token_usage_record":
             t.model_requests += 1
             usage = payload.get("usage") or {}
