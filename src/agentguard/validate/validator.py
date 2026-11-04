@@ -61,8 +61,15 @@ def validate(
     # beats interrupting anyone, but only when the one serious problem is the one the
     # rewrite fixes; `modify.propose` enforces that and re-checks its own output.
     # Self-protection (A9) is a risk finding like any other: turning AgentGuard off, or
-    # writing its home or the host's hook settings, needs the developer's yes.
-    risky = checks.risky_command(event) + checks.self_protection(event) + checks.outside_write(event)
+    # writing its home or the host's hook settings, needs the developer's yes. Where those
+    # paths live is worked out once per validation (A9-perf): here for a file tool, which
+    # both checks below judge; at its first write target for a shell command.
+    roots = checks.ProtectedRoots.now() if checks._raw_target(event) else None
+    risky = (
+        checks.risky_command(event)
+        + checks.self_protection(event, roots=roots)
+        + checks.outside_write(event, roots=roots)
+    )
     rewrite = modify.propose(event, risky)
     if rewrite is not None:
         finding = modify.finding_for(rewrite, event)

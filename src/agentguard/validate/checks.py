@@ -810,11 +810,12 @@ def _raw_target(event: AgentEvent) -> str:
     return raw if isinstance(raw, str) else ""
 
 
-def outside_write(event: AgentEvent) -> list[Finding]:
+def outside_write(event: AgentEvent, *, roots: ProtectedRoots | None = None) -> list[Finding]:
     """A file tool writing outside the workspace (A3): the developer's own configuration
-    is an ask; anywhere else is recorded. AgentGuard's own paths are A9's."""
+    is an ask; anywhere else is recorded. AgentGuard's own paths are A9's (`roots`: the
+    validation's `ProtectedRoots`, when it has them)."""
     raw = _raw_target(event)
-    if not raw or protected_path(raw, event.workspace):
+    if not raw or protected_path(raw, event.workspace, roots=roots):
         return []
     workspace = os.path.abspath(event.workspace or ".")
     ctx = effects.Context(workspace, os.path.normpath(str(Path.home())), workspace)
@@ -1018,13 +1019,39 @@ def _signs_off(part: shell.Part) -> str:
     return ""
 
 
-def _protected_roots() -> tuple[str, ...]:
+def _protected_roots(agentguard: str | None = None, home: str | None = None) -> tuple[str, ...]:
     """AgentGuard's home, as configured and by default, lexically and resolved."""
-    return _spellings(str(agentguard_home()), str(Path.home() / ".agentguard"))
+    agentguard = str(agentguard_home()) if agentguard is None else agentguard
+    home = str(Path.home()) if home is None else home
+    return _spellings(agentguard, os.path.join(home, ".agentguard"))
 
 
-def _codex_homes() -> tuple[str, ...]:
-    return _spellings(os.environ.get("CODEX_HOME") or str(Path.home() / ".codex"))
+def _codex_homes(home: str | None = None) -> tuple[str, ...]:
+    home = str(Path.home()) if home is None else home
+    return _spellings(os.environ.get("CODEX_HOME") or os.path.join(home, ".codex"))
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectedRoots:
+    """Where AgentGuard's own switches live, worked out once per validation (A9-perf).
+
+    `agentguard_home()` walks every ancestor of the home, resolving trusted symlinks with
+    an `lstat` each. `protected_path` used to do that three times per write target: one
+    900 KB command naming a dotfile 3,449 times made 10,347 home walks and 82,793
+    `lstat`s, most of a one-second PreToolUse. A validation now computes these once, on
+    first need, and hands them to every `protected_path` call.
+    """
+
+    home: str  # the user's home: what `$HOME` stands for
+    agentguard: str  # AgentGuard's home, configured and resolved: `$AGENTGUARD_HOME`
+    roots: tuple[str, ...]  # AgentGuard's home, configured and default, every spelling
+    codex: tuple[str, ...]  # Codex's home, every spelling
+
+    @classmethod
+    def now(cls) -> ProtectedRoots:
+        home = str(Path.home())
+        agentguard = str(agentguard_home())
+        return cls(home, agentguard, _protected_roots(agentguard, home), _codex_homes(home))
 
 
 @lru_cache(maxsize=16)
@@ -1038,20 +1065,23 @@ def _spellings(*paths: str) -> tuple[str, ...]:
     return tuple(sorted(out))
 
 
-def protected_path(raw: str, cwd: str) -> str:
+def protected_path(raw: str, cwd: str, *, roots: ProtectedRoots | None = None) -> str:
     """Why writing `raw` would touch AgentGuard's own switches, or "".
 
     `raw` is the path as given (a tool's `file_path`, a shell word), so a path outside the
-    workspace — which the index never sees — is judged as well.
+    workspace — which the index never sees — is judged as well. A caller judging many
+    paths passes `roots` (`ProtectedRoots.now()`, once); without it they are worked out
+    here.
     """
     if not isinstance(raw, str) or not raw or "\x00" in raw:
         return ""
+    where = roots if roots is not None else ProtectedRoots.now()
     expanded = os.path.expanduser(raw)
     for variable, value in (
-        ("$HOME", str(Path.home())),
-        ("${HOME}", str(Path.home())),
-        ("$AGENTGUARD_HOME", str(agentguard_home())),
-        ("${AGENTGUARD_HOME}", str(agentguard_home())),
+        ("$HOME", where.home),
+        ("${HOME}", where.home),
+        ("$AGENTGUARD_HOME", where.agentguard),
+        ("${AGENTGUARD_HOME}", where.agentguard),
     ):
         if expanded.startswith(variable):
             expanded = value + expanded[len(variable) :]
@@ -1060,14 +1090,13 @@ def protected_path(raw: str, cwd: str) -> str:
         return ""  # an expansion that cannot be known here
     joined = expanded if os.path.isabs(expanded) else os.path.join(cwd or ".", expanded)
     candidates = {os.path.normpath(joined).casefold(), os.path.realpath(joined).casefold()}
-    roots, codex = _protected_roots(), _codex_homes()
     for candidate in candidates:
-        if any(candidate == root or candidate.startswith(root + os.sep) for root in roots):
+        if any(candidate == root or candidate.startswith(root + os.sep) for root in where.roots):
             return "AgentGuard's own configuration and state"
         parent, name = os.path.split(candidate)
         if os.path.basename(parent) == ".claude" and name.startswith("settings") and name.endswith(".json"):
             return "Claude Code's settings, where AgentGuard's hooks are installed"
-        in_codex = os.path.basename(parent) == ".codex" or parent in codex
+        in_codex = os.path.basename(parent) == ".codex" or parent in where.codex
         if name in ("hooks.json", "config.toml") and in_codex:
             return "Codex's hook configuration"
     return ""
@@ -1096,12 +1125,16 @@ def _self_finding(
     )
 
 
-def self_protection(event: AgentEvent) -> list[Finding]:
+def self_protection(event: AgentEvent, *, roots: ProtectedRoots | None = None) -> list[Finding]:
     """Turning AgentGuard off, writing its home or the host hook settings, or taking a
-    route to the developer's own sign-off (A1b): each needs a sign-off."""
+    route to the developer's own sign-off (A1b): each needs a sign-off.
+
+    `roots` are the validation's `ProtectedRoots`; without them they are worked out at
+    the first write target, once, and each distinct target is judged once (A9-perf).
+    """
     raw = _raw_target(event)
     if raw:
-        why = protected_path(raw, event.workspace)
+        why = protected_path(raw, event.workspace, roots=roots)
         if not why:
             return []
         return [
@@ -1120,6 +1153,8 @@ def self_protection(event: AgentEvent) -> list[Finding]:
 
     cwd = event.workspace
     found: list[Finding] = []
+    # (target, cwd) -> why: a target a command names many times is judged once (A9-perf).
+    judged: dict[tuple[str, str], str] = {}
     # A sign-off reply anywhere in the command, quoted or not: the text is the route (A1b).
     reply = _REPLY_TEXT.search(command, 0, shell.MAX_SCAN)
     if reply:
@@ -1184,7 +1219,11 @@ def self_protection(event: AgentEvent) -> list[Finding]:
             continue
         for item in effects.written_paths(part):
             path = item.value if isinstance(item, shell.Token) else item
-            why = protected_path(path, cwd)
+            key = (path, cwd)
+            if key not in judged:
+                roots = roots if roots is not None else ProtectedRoots.now()
+                judged[key] = protected_path(path, cwd, roots=roots)
+            why = judged[key]
             if why:
                 found.append(
                     _self_finding(
