@@ -376,6 +376,9 @@ class Guard:
         index = ws.index if ws.index.is_built else None
         spec = intent.extract(prompt, index)
         spec.complexity = complexity.assess(spec, index)
+        hint = event.host_hints.get("tests_waived")
+        if isinstance(hint, bool):
+            spec.tests_waiver = hint  # the host decides, either way (H5)
         ws.carry_waiver(event.session_id, spec)
         ws.current_spec = spec
 

@@ -66,6 +66,15 @@ class AgentEvent(BaseModel):
     # reports it (Claude Code: Stop's `background_tasks`).
     pending_tasks: list[dict[str, Any]] = Field(default_factory=list)
 
+    # What the host knows that a payload does not say (H5). Recognised keys:
+    #   read_only: bool    — this tool cannot change the workspace (an embedding host's own
+    #                        searches, git reads, snapshot test runs); it skips validation
+    #                        and touches nothing. Only True adds read-only-ness.
+    #   tests_waived: bool — on a prompt: the host's own answer to "were tests waived?",
+    #                        which overrides the prompt lexicon either way.
+    # Upstreamed from Pebble's vendored seams (`raw["host_read_only"]`, `tests_waiver`).
+    host_hints: dict[str, Any] = Field(default_factory=dict)
+
     # Host-specific extras kept verbatim so adapters can round-trip without loss.
     raw: dict[str, Any] = Field(default_factory=dict)
 
@@ -79,10 +88,12 @@ class AgentEvent(BaseModel):
 
     @property
     def is_read_only(self) -> bool:
-        return self.tool in READ_ONLY_TOOLS
+        return self.tool in READ_ONLY_TOOLS or self.host_hints.get("read_only") is True
 
     @property
     def is_mutating(self) -> bool:
+        if self.host_hints.get("read_only") is True:
+            return False
         return self.tool in MUTATING_TOOLS or self.tool in DELETE_TOOLS
 
     @property
