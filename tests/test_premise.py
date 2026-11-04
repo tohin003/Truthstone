@@ -362,3 +362,48 @@ def test_the_hold_names_the_files_of_a_switch_nobody_reads(tmp_path):
     assert "`ACME_TRACE`, but it appears only in docs/ops.md, and no code in this repository reads it" in (
         _denied(output)
     )
+
+
+CI_WITH_TRACE = (
+    "jobs:\n  smoke:\n    steps:\n      - run: python -m acme\n        env:\n          ACME_TRACE: '1'\n"
+)
+
+
+def _stop(repo: Path, message: str, active: bool = False) -> dict:
+    return {
+        "session_id": "s",
+        "turn_id": "t",
+        "cwd": str(repo),
+        "hook_event_name": "Stop",
+        "stop_hook_active": active,
+        "last_assistant_message": message,
+    }
+
+
+def test_after_the_hold_a_reissued_config_edit_still_meets_the_unread_config_check(session):
+    """The live sequence: note; the first edit held; the agent re-issues the same config edit
+    and claims the behaviour works. Stop still holds once on the switch nothing reads."""
+    repo, send = session
+    send(_prompt(repo, ASK))
+    patch = _ci_patch(repo)
+    assert _denied(send(_tool(repo, "apply_patch", patch)))  # held once
+    assert send(_tool(repo, "apply_patch", patch)) == {}  # re-issued: proceeds
+    (repo / ".github" / "workflows" / "ci.yml").write_text(CI_WITH_TRACE)  # Codex applies it
+    done = {**_tool(repo, "apply_patch", patch), "hook_event_name": "PostToolUse", "tool_response": "Success"}
+    assert send(done) == {}
+    held = send(_stop(repo, "Enabled ACME_TRACE for the smoke job; requests are printed now.\n\nFINAL: done"))
+    assert held.get("decision") == "block"
+    assert "Nothing in this repository reads `ACME_TRACE`" in held["reason"]
+    assert send(_stop(repo, "Enabled ACME_TRACE.\n\nFINAL: done", active=True)).get("decision") != "block"
+
+
+def test_a_held_edit_still_records_the_file_as_the_task_found_it(session):
+    """Replay feeds the recorded (held) edit's PostToolUse: the Stop check must still see it."""
+    repo, send = session
+    send(_prompt(repo, ASK))
+    patch = _ci_patch(repo)
+    assert _denied(send(_tool(repo, "apply_patch", patch)))
+    (repo / ".github" / "workflows" / "ci.yml").write_text(CI_WITH_TRACE)
+    send({**_tool(repo, "apply_patch", patch), "hook_event_name": "PostToolUse", "tool_response": "Success"})
+    held = send(_stop(repo, "Enabled ACME_TRACE for the smoke job.\n\nFINAL: done"))
+    assert "Nothing in this repository reads `ACME_TRACE`" in held.get("reason", "")

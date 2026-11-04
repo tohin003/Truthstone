@@ -726,17 +726,18 @@ class Guard:
         # keeps ordinary exploration free.
         if event.is_read_only:
             return Decision.allow()
+        try:
+            # First, even for an edit about to be held: the file as the task found it is
+            # what the Stop-time checks compare against (unread configuration needs it).
+            self._record_parse_baseline(event, ws)
+        except Exception:  # a missing baseline only means "blame as before"
+            log.exception("truthstone: could not record a parse baseline; continuing")
         held = self._premise_hold(event, ws)
         if held is not None:
             return held
         if event.tool in SHELL_TOOLS:
             # The command's window opens: a file it changes changes after this (G5).
             ws.shell.note_start(event.session_id, event.tool_use_id)
-
-        try:
-            self._record_parse_baseline(event, ws)
-        except Exception:  # a missing baseline only means "blame as before"
-            log.exception("truthstone: could not record a parse baseline; continuing")
         return validate.validate(
             event=event,
             index=ws.index,
