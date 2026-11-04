@@ -109,8 +109,9 @@ def test_the_spec_rewrite_is_challenged_once_quoting_the_rule(session):
     assert "README.md" in reason and "thermo/control.py" in reason
     assert "report the contradiction instead of changing the rule" in reason
     assert "does not decide it" in reason
-    assert 'restore the rule and finish with "not done:' in reason
-    assert 'keep the change and finish with "not done: <the rule I changed>, please confirm"' in reason
+    # the first ask: restore the rule (what the documented rule calls for), and hand back
+    assert "Accepted finish: restore the rule and the behaviour it documents" in reason
+    assert "keep the change" not in reason
     # no door for the rationalised rewrite: every accepted finish is a hand-back
     assert "why it should stay" not in reason and "quote those words" not in reason
     assert session.last.findings[0].subject == ReasonCategory.SPEC_EROSION.value
@@ -121,7 +122,9 @@ def test_the_spec_rewrite_is_challenged_once_quoting_the_rule(session):
     )
     assert again["decision"] == "block"
     assert "You finished as done again" in again["reason"]
-    assert "Keep your change if you are sure of it, but do not finish as done." in again["reason"]
+    assert "Keep your change if you are sure of it, but do not finish as done" in again["reason"]
+    keep = 'keep the change and finish with "not done: <the rule I changed>, please confirm"'
+    assert keep in again["reason"]
     third = session.send({**stop_event("Still done.\n\nFINAL: done"), "stop_hook_active": True})
     assert third.get("decision") is None
     assert session.last.unverified_finish

@@ -118,8 +118,7 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         f"{listing}{more}\n"
         "A test that contradicts a documented rule is a conflict only the user can resolve: making tests "
         "pass, or leaving them alone, does not decide it. Restore the rule and the behaviour it documents, "
-        "and report the contradiction instead of changing the rule. If you keep the change instead, do "
-        "not finish as done: say which rule you changed and ask the user to confirm it."
+        "and report the contradiction instead of changing the rule."
     )
     return [arbiter.Concern(ReasonCategory.SPEC_EROSION, text, finding, can_speak=speaks)]
 
