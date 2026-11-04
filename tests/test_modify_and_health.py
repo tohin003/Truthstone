@@ -3,7 +3,7 @@
 Both behaviours were decided with the user, and both weaken a safety property in exchange
 for something better — so the tests here are mostly about the *limits*.
 
-D2 lets AgentGuard rewrite a command, which means it may skip the developer's permission
+D2 lets Truthstone rewrite a command, which means it may skip the developer's permission
 prompt for that call. That is only defensible while every rewrite is a narrowing, so most
 of `TestNarrowingInvariant` is about refusing to rewrite.
 
@@ -22,14 +22,14 @@ import sys
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.challenge.ledger import ChallengeLedger
-from agentguard.core.enums import DecisionAction, EventType
-from agentguard.core.events import AgentEvent
-from agentguard.core.store import ProjectStore
-from agentguard.repo import RepoIndex
-from agentguard.validate import modify, validate
 from tests.conftest import REPO_ROOT, free_port, user_prompt_submit
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.challenge.ledger import ChallengeLedger
+from truthstone.core.enums import DecisionAction, EventType
+from truthstone.core.events import AgentEvent
+from truthstone.core.store import ProjectStore
+from truthstone.repo import RepoIndex
+from truthstone.validate import modify, validate
 
 
 @pytest.fixture
@@ -123,7 +123,7 @@ class TestNarrowingInvariant:
 
     def test_a_command_needing_human_review_is_asked_about_not_rewritten(self, workspace, index):
         """Genuinely dangerous actions go to the developer. Rewriting them would be
-        AgentGuard deciding something that is not its call."""
+        Truthstone deciding something that is not its call."""
         ledger = ChallengeLedger(ProjectStore.for_workspace(workspace))
         decision = validate(
             bash_event(workspace, "git push --force origin main"), index, None, ledger, "t"
@@ -133,7 +133,7 @@ class TestNarrowingInvariant:
 
     def test_allow_is_emitted_for_modify_and_nothing_else(self, workspace):
         """The one permitted exception, and only that one."""
-        from agentguard.core.models import Decision
+        from truthstone.core.models import Decision
 
         event = claude.to_event(
             {"hook_event_name": "PreToolUse", "cwd": str(workspace), "tool_name": "Bash"}
@@ -154,12 +154,12 @@ class TestNarrowingInvariant:
 
 
 class TestVisibleFailure:
-    """Plan D9: a dead AgentGuard tells the developer, and blocks nothing."""
+    """Plan D9: a dead Truthstone tells the developer, and blocks nothing."""
 
     def run_health(self, home, session_id: str = "s1") -> subprocess.CompletedProcess:
-        env = dict(os.environ, AGENTGUARD_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env = dict(os.environ, TRUTHSTONE_HOME=str(home), PYTHONPATH=str(REPO_ROOT / "src"))
         return subprocess.run(
-            [sys.executable, "-m", "agentguard.adapters.claude_code.shim", "--health"],
+            [sys.executable, "-m", "truthstone.adapters.claude_code.shim", "--health"],
             input=json.dumps({**user_prompt_submit("hi"), "session_id": session_id}).encode(),
             capture_output=True,
             env=env,
@@ -177,19 +177,19 @@ class TestVisibleFailure:
         cannot be created, so the daemon can never publish a handshake."""
         blocker = tmp_path / "blocker"
         blocker.write_text("not a directory")
-        return str(blocker / "agentguard")
+        return str(blocker / "truthstone")
 
     def test_an_unrecoverable_daemon_is_reported_to_the_developer(self, tmp_path):
         """Exit non-zero-non-2: Claude Code shows the first stderr line to the developer
         and treats it as non-blocking."""
         env = dict(
             os.environ,
-            AGENTGUARD_HOME=self.unwritable_home(tmp_path),
+            TRUTHSTONE_HOME=self.unwritable_home(tmp_path),
             PYTHONPATH=str(REPO_ROOT / "src"),
-            AGENTGUARD_START_TIMEOUT="1",
+            TRUTHSTONE_START_TIMEOUT="1",
         )
         result = subprocess.run(
-            [sys.executable, "-m", "agentguard.adapters.claude_code.shim", "--health"],
+            [sys.executable, "-m", "truthstone.adapters.claude_code.shim", "--health"],
             input=json.dumps(user_prompt_submit("hi")).encode(),
             capture_output=True,
             env=env,
@@ -198,7 +198,7 @@ class TestVisibleFailure:
         assert result.returncode not in (0, 2), "must be reported, and must not block"
         message = result.stderr.decode()
         assert "UNGUARDED" in message
-        assert "agentguard daemon start" in message, "the message has to be actionable"
+        assert "truthstone daemon start" in message, "the message has to be actionable"
         assert "uninstall" in message
 
     def test_it_warns_once_per_session(self, isolated_home):
@@ -211,14 +211,14 @@ class TestVisibleFailure:
         (isolated_home / "config.toml").write_text("[daemon]\nport = 1\n")
         env = dict(
             os.environ,
-            AGENTGUARD_HOME=str(isolated_home),
+            TRUTHSTONE_HOME=str(isolated_home),
             PYTHONPATH=str(REPO_ROOT / "src"),
-            AGENTGUARD_START_TIMEOUT="1",
+            TRUTHSTONE_START_TIMEOUT="1",
         )
 
         def once():
             return subprocess.run(
-                [sys.executable, "-m", "agentguard.adapters.claude_code.shim", "--health"],
+                [sys.executable, "-m", "truthstone.adapters.claude_code.shim", "--health"],
                 input=json.dumps(user_prompt_submit("hi")).encode(),
                 capture_output=True,
                 env=env,
@@ -243,7 +243,7 @@ class TestVisibleFailure:
         port. Silently: a developer who rebooted mid-week would have collected no census
         data and had no way to know.
         """
-        from agentguard.adapters.claude_code import shim
+        from truthstone.adapters.claude_code import shim
 
         stale = {"host": "127.0.0.1", "port": free_port(), "pid": os.getpid(), "token": "x"}
         (isolated_home / "daemon.json").write_text(json.dumps(stale))
@@ -258,9 +258,9 @@ class TestVisibleFailure:
             json.dumps({"host": "127.0.0.1", "port": port, "pid": os.getpid(), "token": "x"})
         )
 
-        env = dict(os.environ, AGENTGUARD_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env = dict(os.environ, TRUTHSTONE_HOME=str(isolated_home), PYTHONPATH=str(REPO_ROOT / "src"))
         result = subprocess.run(
-            [sys.executable, "-m", "agentguard.adapters.claude_code.shim", "--health"],
+            [sys.executable, "-m", "truthstone.adapters.claude_code.shim", "--health"],
             input=json.dumps(user_prompt_submit("hi")).encode(),
             capture_output=True,
             env=env,
@@ -275,8 +275,8 @@ class TestVisibleFailure:
                 os.kill(int(handshake["pid"]), signal.SIGTERM)
 
     def test_daemon_is_alive_agrees(self, isolated_home, monkeypatch):
-        """`agentguard daemon stop` would otherwise SIGTERM that unrelated process."""
-        from agentguard.daemon.app import daemon_is_alive
+        """`truthstone daemon stop` would otherwise SIGTERM that unrelated process."""
+        from truthstone.daemon.app import daemon_is_alive
 
         (isolated_home / "daemon.json").write_text(
             json.dumps(
@@ -286,15 +286,15 @@ class TestVisibleFailure:
         assert not daemon_is_alive()
 
     def test_being_deliberately_disabled_is_not_reported(self, isolated_home):
-        """AGENTGUARD_DISABLE=1 is a choice, not a fault."""
+        """TRUTHSTONE_DISABLE=1 is a choice, not a fault."""
         env = dict(
             os.environ,
-            AGENTGUARD_HOME=str(isolated_home),
+            TRUTHSTONE_HOME=str(isolated_home),
             PYTHONPATH=str(REPO_ROOT / "src"),
-            AGENTGUARD_DISABLE="1",
+            TRUTHSTONE_DISABLE="1",
         )
         result = subprocess.run(
-            [sys.executable, "-m", "agentguard.adapters.claude_code.shim", "--health"],
+            [sys.executable, "-m", "truthstone.adapters.claude_code.shim", "--health"],
             input=json.dumps(user_prompt_submit("hi")).encode(),
             capture_output=True,
             env=env,

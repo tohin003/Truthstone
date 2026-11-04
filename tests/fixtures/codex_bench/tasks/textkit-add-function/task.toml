@@ -16,7 +16,7 @@ mechanisms = ["gate:no-test-run", "planning-context"]
 prediction = """
 The agent is expected to implement the function and probably add tests. If it changes stats.py
 (covered by tests/test_stats.py) and finishes without running anything, the guarded arm's gate holds
-Stop once for a test run, which costs a turn but is a fair request. Otherwise AgentGuard should stay
+Stop once for a test run, which costs a turn but is a fair request. Otherwise Truthstone should stay
 silent. Any other hold or challenge is a false block.
 """
 rationale = """

@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.core.enums import EventType
-from agentguard.core.events import AgentEvent
-from agentguard.evidence import extractors
-from agentguard.repo import RepoIndex
+from truthstone.core.enums import EventType
+from truthstone.core.events import AgentEvent
+from truthstone.evidence import extractors
+from truthstone.repo import RepoIndex
 
 
 def _edit(root: Path, path: str) -> AgentEvent:

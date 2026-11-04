@@ -1,7 +1,7 @@
 """SPEC §7, §8 — latency budgets.
 
     "Deterministic check: < 100 ms target"
-    "The user should not feel that AgentGuard is slowing down the coding agent."
+    "The user should not feel that Truthstone is slowing down the coding agent."
 
 These assertions run on every commit from here on. As real checks land in Phases 1-4, the
 budget is the thing that stops them from quietly getting expensive.
@@ -23,11 +23,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.metrics import percentile
 from tests.conftest import pre_tool_use, user_prompt_submit
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.metrics import percentile
 
 pytestmark = [pytest.mark.spec, pytest.mark.latency]
 
@@ -105,10 +105,10 @@ class TestInProcess:
         with real symbols, imports and a real dependency graph."""
         import shutil
 
-        from agentguard.complexity import assess
-        from agentguard.intent import extract
-        from agentguard.planning import render
-        from agentguard.repo import RepoIndex
+        from truthstone.complexity import assess
+        from truthstone.intent import extract
+        from truthstone.planning import render
+        from truthstone.repo import RepoIndex
 
         dest = tmp_path / "pyrepo"
         shutil.copytree(Path(__file__).parent.parent / "fixtures" / "pyrepo", dest)
@@ -136,10 +136,10 @@ class TestInProcess:
         most expensive thing on the per-tool-call path, so it is the one to watch."""
         import shutil
 
-        from agentguard import evidence
-        from agentguard.core.enums import EventType
-        from agentguard.core.events import AgentEvent
-        from agentguard.repo import RepoIndex
+        from truthstone import evidence
+        from truthstone.core.enums import EventType
+        from truthstone.core.events import AgentEvent
+        from truthstone.repo import RepoIndex
 
         dest = tmp_path / "pyrepo"
         shutil.copytree(Path(__file__).parent.parent / "fixtures" / "pyrepo", dest)
@@ -201,12 +201,12 @@ class TestEndToEnd:
 
         from tests.conftest import REPO_ROOT
 
-        env = dict(os.environ, AGENTGUARD_HOME=str(daemon.home), PYTHONPATH=str(REPO_ROOT / "src"))
+        env = dict(os.environ, TRUTHSTONE_HOME=str(daemon.home), PYTHONPATH=str(REPO_ROOT / "src"))
         payload = json.dumps(pre_tool_use("Edit", cwd=str(workspace))).encode()
 
         def run_once():
             subprocess.run(
-                [sys.executable, "-m", "agentguard.adapters.claude_code.shim"],
+                [sys.executable, "-m", "truthstone.adapters.claude_code.shim"],
                 input=payload,
                 capture_output=True,
                 env=env,

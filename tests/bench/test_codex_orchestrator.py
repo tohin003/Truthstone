@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.bench.codex import agents, guards, orchestrator, report, suite
-from agentguard.bench.codex.plan import Plan
+from truthstone.bench.codex import agents, guards, orchestrator, report, suite
+from truthstone.bench.codex.plan import Plan
 
 PYTHON = os.path.abspath(os.environ.get("CODEX_BENCH_PYTHON", ".venv/bin/python"))
 TASKS = ["ledger-tax-rounding", "ledger-impossible-cap"]
@@ -216,7 +216,7 @@ class LeakyAgent:
                             "payload": {
                                 "type": "function_call_output",
                                 "output": "Command blocked by PreToolUse hook: "
-                                "AgentGuard: needs developer sign-off",
+                                "Truthstone: needs developer sign-off",
                             },
                         }
                     )

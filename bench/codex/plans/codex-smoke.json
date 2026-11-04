@@ -1,7 +1,7 @@
 {
   "digest": "008142a8496b1d0a1f7271546227d08fca3eef6bf45c946b4f1ec103aaa76359",
   "plan": {
-    "agentguard_ref": "HEAD",
+    "truthstone_ref": "HEAD",
     "arms": [
       "on",
       "observe"

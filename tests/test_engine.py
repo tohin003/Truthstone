@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import EventType
-from agentguard.core.events import AgentEvent
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import EventType
+from truthstone.core.events import AgentEvent
 
 
 def _prompt(workspace: str, session_id: str, text: str) -> AgentEvent:

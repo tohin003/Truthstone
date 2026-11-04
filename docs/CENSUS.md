@@ -41,14 +41,14 @@ cannot drift from the document again.
 
 ## Method
 
-**Observe-only mode.** `agentguard observe on` makes AgentGuard a sensor. Every engine
+**Observe-only mode.** `truthstone observe on` makes Truthstone a sensor. Every engine
 still runs and every finding is still recorded; nothing reaches the agent — no challenges,
 no completion gate, and *no injected planning budget*.
 
 That last one is not an oversight. Injected context steers the agent, and a census of a
 steered agent measures the steering. The point is a baseline.
 
-**The price, stated plainly: while observe-only is on, AgentGuard guards nothing.** That is
+**The price, stated plainly: while observe-only is on, Truthstone guards nothing.** That is
 the cost of an uncontaminated count, and it is why this is a deliberate mode rather than a
 default.
 
@@ -80,7 +80,7 @@ new form: a confident number with nothing behind it.
 
 The `proves` column is narrower than the SPEC bullet above it, deliberately. "Untested
 code was changed" is not "the tests written were inadequate", and a table should not let a
-reader slide from one to the other. `agentguard census -v` prints this alongside the
+reader slide from one to the other. `truthstone census -v` prints this alongside the
 numbers for the same reason.
 
 | SPEC §3 failure mode | Detector | What an observation proves |
@@ -102,7 +102,7 @@ numbers for the same reason.
 | SPEC §3 failure mode | Why there is no detector |
 |---|---|
 | make unsupported assumptions | every instance specific enough to detect is already counted under a narrower mode above; a separate detector would double-count |
-| misunderstand developer intent | requires knowing what the developer meant — a semantic judgement, and AgentGuard owns no LLM to make one (SPEC §6) |
+| misunderstand developer intent | requires knowing what the developer meant — a semantic judgement, and Truthstone owns no LLM to make one (SPEC §6) |
 | under-plan complex tasks | "not enough planning" has no deterministic signature. Phase 9 measures planning depth against complexity directly |
 | introduce unnecessary abstractions | separating a justified abstraction from an unnecessary one is exactly the judgement SPEC §17 says to hand back to the host |
 | overlook regressions | a candidate signal exists — a suite that passed earlier in the task and fails later — but test output carries counts, not test names, so a differing subset is indistinguishable from a regression. Not built rather than built wrong |
@@ -169,27 +169,27 @@ positive.
 ## Running it
 
 ```bash
-agentguard observe on          # sensor mode: records everything, says nothing
-agentguard daemon stop && agentguard daemon start   # the daemon reads config at startup
+truthstone observe on          # sensor mode: records everything, says nothing
+truthstone daemon stop && truthstone daemon start   # the daemon reads config at startup
 
 # ... a week of ordinary work ...
 
-agentguard census              # the ranked table
-agentguard census -v           # plus what each detector actually proves
-agentguard census --json       # machine-readable
-agentguard observe off         # resume guarding
+truthstone census              # the ranked table
+truthstone census -v           # plus what each detector actually proves
+truthstone census --json       # machine-readable
+truthstone observe off         # resume guarding
 ```
 
-`AGENTGUARD_OBSERVE=1` does the same for a single session without touching config.
-`agentguard doctor` reports observe-only prominently — a developer who has forgotten it is
+`TRUTHSTONE_OBSERVE=1` does the same for a single session without touching config.
+`truthstone doctor` reports observe-only prominently — a developer who has forgotten it is
 on believes they are guarded and is not, which is the same hazard plan D9 exists to
 prevent, arrived at from the other direction.
 
 ### It survives reboots
 
 Nothing needs re-running across a week that includes shutdowns. The hooks live in
-`~/.claude/settings.json`, the mode in `~/.agentguard/config.toml` and the data in
-`~/.agentguard/agentguard.db` — all files. Only the daemon is a process, and it does not
+`~/.claude/settings.json`, the mode in `~/.truthstone/config.toml` and the data in
+`~/.truthstone/truthstone.db` — all files. Only the daemon is a process, and it does not
 survive a restart; the `SessionStart` hook is a `command` hook precisely so that the next
 Claude Code session starts it again, reading the mode from config as it does.
 
@@ -208,8 +208,8 @@ The instrument is verified end to end: 69 tests, including the real Guard, the r
 over the real installed `settings.json`, and a latency check (observe-only 0.44 ms p95
 against guarding's 0.45 ms — the mode costs nothing).
 
-What does not exist is data. AgentGuard's hooks are not currently installed on this
-machine, and the Phase 6 and benchmark runs each used an isolated `AGENTGUARD_HOME` that
+What does not exist is data. Truthstone's hooks are not currently installed on this
+machine, and the Phase 6 and benchmark runs each used an isolated `TRUTHSTONE_HOME` that
 no longer survives. The recorded database holds 2 sessions and 3 decisions — nothing to
 count.
 
@@ -224,12 +224,12 @@ Generated from a seeded three-task session, to show the shape of the report. **T
 numbers are from a fixture and mean nothing about real agents.**
 
 ```
-AgentGuard — failure-mode census (SPEC §3)
+Truthstone — failure-mode census (SPEC §3)
 last 1 days
 
   1 session(s) · 3 task(s) · 13 decision(s)
   1 of 1 session(s) ran observe-only
-  AgentGuard would have spoken 2 time(s) in observe-only sessions
+  Truthstone would have spoken 2 time(s) in observe-only sessions
 
 observed
   #  §3 failure mode                       tasks  occurrences    rate
@@ -259,7 +259,7 @@ not instrumented — no detector, so no number
 - **Two modes are proxies.** `over-plan trivial tasks` observes over-*execution*, and
   `invent libraries` cannot distinguish an invented package from a real undeclared one.
   Both are marked as such in `census -v`; neither should be quoted without its caveat.
-- **The census counts what AgentGuard can see.** A failure with no deterministic signature
+- **The census counts what Truthstone can see.** A failure with no deterministic signature
   is invisible to it, and its absence from the table is not evidence of its absence from
   the work. This document lists the six known blind spots; there may be others nobody has
   named.

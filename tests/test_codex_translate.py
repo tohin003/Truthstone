@@ -15,13 +15,13 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.codex import render
-from agentguard.adapters.codex import translate as codex
-from agentguard.core.config import Settings
-from agentguard.core.engine import Guard
-from agentguard.core.enums import ChallengeCategory, DecisionAction, EventType, FailureMode, Severity, Verdict
-from agentguard.core.models import Decision, Finding
 from tests.codex_schema import validate
+from truthstone.adapters.codex import render
+from truthstone.adapters.codex import translate as codex
+from truthstone.core.config import Settings
+from truthstone.core.engine import Guard
+from truthstone.core.enums import ChallengeCategory, DecisionAction, EventType, FailureMode, Severity, Verdict
+from truthstone.core.models import Decision, Finding
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PAYLOADS = FIXTURES / "codex_payloads"
@@ -207,7 +207,7 @@ class TestApplyPatchEvents:
         )
         (event,) = codex.to_events(payload, root=tmp_path)
         assert event.tool == "MultiEdit"
-        from agentguard.evidence import extractors
+        from truthstone.evidence import extractors
 
         outcome = extractors.resolve_edit(event, tmp_path)
         assert outcome.after == "line 1\nline two\nline 3\nline 4\nline 5\nline six\nline 7\n"
@@ -261,7 +261,7 @@ GUARD = Finding(
     failure_mode=FailureMode.NOT_A_FAILURE,
     severity=Severity.MEDIUM,
     subject="modified command",
-    summary="AgentGuard narrowed this command: guarded `OUT` against being unset",
+    summary="Truthstone narrowed this command: guarded `OUT` against being unset",
     detail="`rm -rf $OUT` deletes `/` if `OUT` is empty. The rewrite refuses to run.",
 )
 
@@ -271,7 +271,7 @@ class TestOutputs:
         for hook in ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"):
             assert codex.from_decision(bash_event(), Decision.allow(), hook) == {}
 
-    def test_agentguard_never_emits_allow_in_this_release(self):
+    def test_truthstone_never_emits_allow_in_this_release(self):
         """No `allow` at all by default: rewrites are switched off (IMPROVEMENTS.md A5)."""
         assert render.ENABLE_REWRITES is False
         for action in DecisionAction:
@@ -332,7 +332,7 @@ class TestOutputs:
     def test_modify_is_a_challenge_carrying_the_guarded_form(self):
         decision = Decision(
             action=DecisionAction.MODIFY,
-            reason="AgentGuard narrowed this command: guarded `OUT` against being unset",
+            reason="Truthstone narrowed this command: guarded `OUT` against being unset",
             additional_context="narrowed",
             updated_arguments={"command": '[ -n "$OUT" ] && rm -rf "$OUT"'},
             findings=[GUARD],
@@ -348,13 +348,13 @@ class TestOutputs:
         decision = Decision(
             action=DecisionAction.MODIFY,
             reason="narrowed",
-            additional_context="AgentGuard narrowed this command.",
+            additional_context="Truthstone narrowed this command.",
             updated_arguments={"command": '[ -n "$OUT" ] && rm -rf "$OUT"'},
         )
         spec = render.render(bash_event(), decision, "PreToolUse", rewrites=True)["hookSpecificOutput"]
         assert spec["permissionDecision"] == "allow"
         assert spec["updatedInput"] == {"command": '[ -n "$OUT" ] && rm -rf "$OUT"'}
-        assert spec["additionalContext"] == "AgentGuard narrowed this command."
+        assert spec["additionalContext"] == "Truthstone narrowed this command."
 
     def test_modify_that_codex_cannot_carry_becomes_an_objection(self):
         event = bash_event().model_copy(update={"tool": "Write"})
@@ -582,7 +582,7 @@ class TestThroughTheGuard:
         }
 
     def test_a_disabled_guard_answers_nothing(self, repo, monkeypatch):
-        monkeypatch.setenv("AGENTGUARD_DISABLE", "1")
+        monkeypatch.setenv("TRUTHSTONE_DISABLE", "1")
         g = Guard(Settings.load())
         try:
             text = "*** Begin Patch\n*** Add File: x.py\n+import nothing_here\n*** End Patch"

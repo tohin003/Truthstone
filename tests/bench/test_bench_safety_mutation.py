@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.bench import mutation, runner
-from agentguard.repo.index import RepoIndex
+from truthstone.bench import mutation, runner
+from truthstone.repo.index import RepoIndex
 
 
 def _repo(path: Path) -> Path:

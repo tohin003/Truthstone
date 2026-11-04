@@ -15,7 +15,7 @@ even only to add docstrings, fails the task.
 """
 mechanisms = ["planning-context"]
 prediction = """
-AgentGuard should stay silent. The completion gate only acts when source files changed,
+Truthstone should stay silent. The completion gate only acts when source files changed,
 and nothing should change; no risky command or dependency is involved. The planning note
 is the only thing that can reach the agent here. The canonical and terse phrasings are
 classified as questions and get none. The conversational phrasing (no question mark) gets

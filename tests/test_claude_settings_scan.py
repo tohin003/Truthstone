@@ -1,4 +1,4 @@
-"""Finding AgentGuard in Claude Code's configuration (settings hooks and the plugin).
+"""Finding Truthstone in Claude Code's configuration (settings hooks and the plugin).
 
 Both installs at once would handle every event twice, so each side has to be able to see
 the other. These tests pin what "seeing" means: the same ownership test the installer uses,
@@ -11,8 +11,8 @@ import json
 
 import pytest
 
-from agentguard.adapters.claude_code import install as inst
-from agentguard.adapters.claude_code import settings_scan as scan
+from truthstone.adapters.claude_code import install as inst
+from truthstone.adapters.claude_code import settings_scan as scan
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ class TestLegacyHooks:
         assert [scope for scope, _ in scan.legacy_hook_files(project)] == ["project"]
 
     def test_a_users_own_hooks_are_not_ours(self, config_dir, project):
-        mine = {"hooks": [{"type": "command", "command": "echo agentguard is great"}]}
+        mine = {"hooks": [{"type": "command", "command": "echo truthstone is great"}]}
         write(config_dir / "settings.json", {"hooks": {"PreToolUse": [mine]}})
         assert scan.legacy_hook_files(project) == []
 
@@ -74,7 +74,7 @@ class TestPluginInstalls:
         installed_plugins(
             config_dir,
             {
-                "agentguard@agentguard": [
+                "truthstone@truthstone": [
                     {"scope": "user", "installPath": "/x", "version": "0.1.0"},
                 ],
                 "other@market": [{"scope": "user"}],
@@ -82,14 +82,14 @@ class TestPluginInstalls:
         )
         found = scan.plugin_installs()
         assert [(p.plugin_id, p.scope, p.version) for p in found] == [
-            ("agentguard@agentguard", "user", "0.1.0")
+            ("truthstone@truthstone", "user", "0.1.0")
         ]
         assert scan.active_plugin_installs(project)
 
     def test_a_project_scoped_install_applies_only_there(self, config_dir, project, tmp_path):
         installed_plugins(
             config_dir,
-            {"agentguard@agentguard": [{"scope": "local", "projectPath": str(project)}]},
+            {"truthstone@truthstone": [{"scope": "local", "projectPath": str(project)}]},
         )
         assert scan.active_plugin_installs(project)
         assert scan.active_plugin_installs(project / "sub" / "dir")
@@ -98,19 +98,19 @@ class TestPluginInstalls:
         assert scan.active_plugin_installs(elsewhere) == []
 
     def test_disabled_in_settings_is_not_active(self, config_dir, project):
-        installed_plugins(config_dir, {"agentguard@agentguard": [{"scope": "user"}]})
-        write(config_dir / "settings.json", {"enabledPlugins": {"agentguard@agentguard": False}})
+        installed_plugins(config_dir, {"truthstone@truthstone": [{"scope": "user"}]})
+        write(config_dir / "settings.json", {"enabledPlugins": {"truthstone@truthstone": False}})
         assert scan.active_plugin_installs(project) == []
 
     def test_local_settings_override_user_settings(self, config_dir, project):
         """Claude Code's precedence: local > project > user."""
-        installed_plugins(config_dir, {"agentguard@agentguard": [{"scope": "user"}]})
-        write(config_dir / "settings.json", {"enabledPlugins": {"agentguard@agentguard": False}})
+        installed_plugins(config_dir, {"truthstone@truthstone": [{"scope": "user"}]})
+        write(config_dir / "settings.json", {"enabledPlugins": {"truthstone@truthstone": False}})
         write(
             project / ".claude" / "settings.local.json",
-            {"enabledPlugins": {"agentguard@agentguard": True}},
+            {"enabledPlugins": {"truthstone@truthstone": True}},
         )
-        assert scan.plugin_enabled_setting("agentguard@agentguard", project) is True
+        assert scan.plugin_enabled_setting("truthstone@truthstone", project) is True
         assert scan.active_plugin_installs(project)
 
     def test_no_records_means_no_plugin(self, config_dir, project):

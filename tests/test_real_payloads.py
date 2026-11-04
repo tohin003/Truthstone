@@ -22,9 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.claude_code import translate as claude
-from agentguard.core.enums import EventType
-from agentguard.verify import runners
+from truthstone.adapters.claude_code import translate as claude
+from truthstone.core.enums import EventType
+from truthstone.verify import runners
 
 PAYLOADS = Path(__file__).parent / "fixtures" / "hook_payloads"
 
@@ -116,8 +116,8 @@ class TestCapturedPayloads:
 class TestEndToEndWithRealShapes:
     def test_a_real_prompt_produces_a_real_planning_budget(self, workspace):
         """The regression that matters: a live prompt must reach the Intent Gateway."""
-        from agentguard.core.config import Settings
-        from agentguard.core.engine import Guard
+        from truthstone.core.config import Settings
+        from truthstone.core.engine import Guard
 
         payload = {**load("UserPromptSubmit"), "cwd": str(workspace)}
         guard = Guard(Settings())
@@ -129,15 +129,15 @@ class TestEndToEndWithRealShapes:
             guard.close()
 
         assert decision.additional_context, "a real prompt must produce a planning budget"
-        assert "[AgentGuard]" in decision.additional_context
+        assert "[Truthstone]" in decision.additional_context
         assert "complexity" in decision.additional_context
         assert task
 
     def test_a_real_failing_run_reaches_the_completion_gate(self, workspace):
         """The live PostToolUseFailure, end to end: the failure is recorded as a failed
         run, and a claimed completion afterwards is held."""
-        from agentguard.core.config import Settings
-        from agentguard.core.engine import Guard
+        from truthstone.core.config import Settings
+        from truthstone.core.engine import Guard
 
         (workspace / "app.py").write_text("def helper(x):\n    return x * 2\n")
         (workspace / "tests").mkdir()

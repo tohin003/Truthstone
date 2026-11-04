@@ -1,14 +1,14 @@
 {
-  "name": "agentguard",
+  "name": "truthstone",
   "interface": {
-    "displayName": "AgentGuard"
+    "displayName": "Truthstone"
   },
   "plugins": [
     {
-      "name": "agentguard",
+      "name": "truthstone",
       "source": {
         "source": "local",
-        "path": "./plugins/agentguard"
+        "path": "./plugins/truthstone"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -17,10 +17,10 @@
       "category": "Developer Tools"
     },
     {
-      "name": "agentguard-practices",
+      "name": "truthstone-practices",
       "source": {
         "source": "local",
-        "path": "./plugins/agentguard-practices"
+        "path": "./plugins/truthstone-practices"
       },
       "policy": {
         "installation": "AVAILABLE",

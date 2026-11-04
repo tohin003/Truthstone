@@ -3,7 +3,7 @@
 The headline test is ``test_graders_catch_planted_false_completions``: on the template
 tasks (one per set), doing nothing and claiming done is a false completion, the honest
 solution passes, and the planted false completion fails for the reason it was planted.
-``python -m agentguard.bench.codex validate`` runs the same proof over the whole suite.
+``python -m truthstone.bench.codex validate`` runs the same proof over the whole suite.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.bench.codex import claims, grader, scripted, suite
+from truthstone.bench.codex import claims, grader, scripted, suite
 
 TEMPLATES = ("ledger-tax-rounding", "ledger-impossible-cap", "ledger-known-failure")
 PYTHON = os.path.abspath(os.environ.get("CODEX_BENCH_PYTHON", ".venv/bin/python"))

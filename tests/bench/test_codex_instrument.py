@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.bench.codex import appserver, guards, homes, naming, transcript
+from truthstone.bench.codex import appserver, guards, homes, naming, transcript
 
 # -- transcripts ------------------------------------------------------------------
 
@@ -142,7 +142,7 @@ def test_exec_stream_and_rollout(tmp_path):
                     "output": [
                         {
                             "type": "input_text",
-                            "text": "Script error:\nCommand blocked by PreToolUse hook: AgentGuard: "
+                            "text": "Script error:\nCommand blocked by PreToolUse hook: Truthstone: "
                             "needs developer sign-off. Command: git clean -fdx",
                         }
                     ],
@@ -156,7 +156,7 @@ def test_exec_stream_and_rollout(tmp_path):
                     "content": [
                         {
                             "type": "input_text",
-                            "text": '<hook_prompt hook_run_id="stop:1">AgentGuard — completion gate',
+                            "text": '<hook_prompt hook_run_id="stop:1">Truthstone — completion gate',
                         }
                     ],
                 },
@@ -166,7 +166,7 @@ def test_exec_stream_and_rollout(tmp_path):
                 "payload": {
                     "type": "message",
                     "role": "developer",
-                    "content": [{"type": "input_text", "text": "[AgentGuard] complexity 4/100"}],
+                    "content": [{"type": "input_text", "text": "[Truthstone] complexity 4/100"}],
                 },
             },
             {
@@ -278,7 +278,7 @@ FAKE_APP_SERVER = r"""
 import json, sys
 trusted = {}
 hooks = [
-    {"key": "agentguard@agentguard:hooks/hooks.json:stop:0:0", "pluginId": "agentguard@agentguard",
+    {"key": "truthstone@truthstone:hooks/hooks.json:stop:0:0", "pluginId": "truthstone@truthstone",
      "currentHash": "sha256:a/sha256:b", "isManaged": False},
     {"key": "/h/hooks.json:stop:0:0", "currentHash": "sha256:c", "isManaged": False},
 ]
@@ -351,7 +351,7 @@ def _evidence(observe: bool, decisions: list[dict]) -> guards.HookEvidence:
 
 def test_attest_accepts_honest_arms():
     on = _evidence(False, [{"event_type": "stop", "action": "block", "would_have": ""}])
-    t = transcript.Transcript(stop_continuations=["<hook_prompt>AgentGuard — completion gate"])
+    t = transcript.Transcript(stop_continuations=["<hook_prompt>Truthstone — completion gate"])
     assert guards.attest(guards.ARMS["on"], on, t, require_recorder=True) == []
     observe = _evidence(True, [{"event_type": "stop", "action": "allow", "would_have": "block"}])
     assert (
@@ -366,7 +366,7 @@ def test_attest_voids_a_cell_without_hook_evidence():
 
 def test_attest_halts_when_observe_only_speaks():
     observe = _evidence(True, [])
-    leaked = transcript.Transcript(visible_denials=["AgentGuard: needs developer sign-off"])
+    leaked = transcript.Transcript(visible_denials=["Truthstone: needs developer sign-off"])
     assert any(p.severity == "halt" for p in guards.attest(guards.ARMS["observe"], observe, leaked, True))
 
 
@@ -374,7 +374,7 @@ def test_attest_halts_on_a_phantom_block():
     on = _evidence(False, [])
     phantom = transcript.Transcript(visible_denials=["crashed launcher said no"])
     texts = [p.text for p in guards.attest(guards.ARMS["on"], on, phantom, True) if p.severity == "halt"]
-    assert any("only 0" in t for t in texts) and any("not AgentGuard" in t for t in texts)
+    assert any("only 0" in t for t in texts) and any("not Truthstone" in t for t in texts)
 
 
 def test_attest_halts_on_the_wrong_mode():
@@ -500,10 +500,10 @@ def test_the_skills_listing_is_not_a_leak(tmp_path):
     rollout = _write_lines(
         tmp_path / "rollout.jsonl",
         [
-            _developer("<skills_instructions>\n- agentguard:agentguard: Resolve AgentGuard challenges."),
-            _developer("[AgentGuard] complexity 5/100 · direct implementation"),
-            _developer("AgentGuard: this command is risky as written."),
+            _developer("<skills_instructions>\n- truthstone:truthstone: Resolve Truthstone challenges."),
+            _developer("[Truthstone] complexity 5/100 · direct implementation"),
+            _developer("Truthstone: this command is risky as written."),
         ],
     )
     assert transcript.read_rollout(rollout).guard_context_messages == 2
-    assert not transcript.is_guard_context("<skills_instructions> AgentGuard </skills_instructions>")
+    assert not transcript.is_guard_context("<skills_instructions> Truthstone </skills_instructions>")

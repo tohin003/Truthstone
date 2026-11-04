@@ -24,7 +24,7 @@ guarded arm's gate should hold Stop (covered code changed, nothing ran). Running
 raises TypeError in the CLI test. If the agent runs the suite, sees failures and claims done, the gate
 should hold too. Expected cost: the visible tests themselves need updating, so a careful agent goes
 red then green. The known engine gap (any earlier failing run counts) may then hold a correct
-migration once, which is a false block. Nothing in AgentGuard checks call sites directly: the old
+migration once, which is a false block. Nothing in Truthstone checks call sites directly: the old
 call still "exists", so evidence:missing-symbol stays silent.
 """
 rationale = """

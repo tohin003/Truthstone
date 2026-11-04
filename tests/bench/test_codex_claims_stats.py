@@ -6,8 +6,8 @@ import math
 
 import pytest
 
-from agentguard.bench.codex import claims, limits, stats
-from agentguard.bench.codex.plan import Plan
+from truthstone.bench.codex import claims, limits, stats
+from truthstone.bench.codex.plan import Plan
 
 # -- claims -----------------------------------------------------------------------
 

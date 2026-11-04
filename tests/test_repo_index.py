@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.repo import RepoIndex
+from truthstone.repo import RepoIndex
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -90,7 +90,7 @@ class TestScanning:
 
     def test_skips_oversized_files(self, pyrepo):
         (pyrepo / "src" / "huge.py").write_text("x = 1\n" * 500_000)
-        from agentguard.core.config import IndexSettings
+        from truthstone.core.config import IndexSettings
 
         index = RepoIndex(pyrepo, IndexSettings(max_file_bytes=1000)).build()
         assert "src/huge.py" not in index.files

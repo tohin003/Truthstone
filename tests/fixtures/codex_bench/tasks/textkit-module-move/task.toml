@@ -23,7 +23,7 @@ plant leaves (checked). If the agent runs the suite and sees that failure but st
 gate holds that too. The guarded planning note says "find all references" and "confirmation nothing
 still calls it", which targets this failure, but it also proposes running tests/test_case.py alone;
 that narrowed run passes, and the gate counts it as a pass: a possible harm. If the agent misses the
-lazy import in cli._labels, no visible test fails, both arms finish and AgentGuard cannot see it.
+lazy import in cli._labels, no visible test fails, both arms finish and Truthstone cannot see it.
 evidence:missing-symbol is deliberately not listed. It checks only names an edit newly introduces (its
 fingerprint is kind and name, without the module), so a stale import left in an edited file is never
 flagged and a rewritten `from textkit.case import camelize` counts as the same claim as the old one

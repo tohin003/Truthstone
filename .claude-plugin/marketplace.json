@@ -1,21 +1,21 @@
 {
-  "name": "agentguard",
+  "name": "truthstone",
   "owner": {
     "name": "tohin003",
     "url": "https://github.com/tohin003"
   },
-  "description": "AgentGuard: a deterministic reliability layer for coding agents.",
+  "description": "Truthstone (previously named AgentGuard): a deterministic reliability layer for coding agents.",
   "plugins": [
     {
-      "name": "agentguard",
-      "source": "./plugins/agentguard-claude",
+      "name": "truthstone",
+      "source": "./plugins/truthstone-claude",
       "description": "Evidence checks, risk and scope review, and a completion gate for Claude Code. Installs its local runtime with uv on first use.",
       "category": "development",
       "tags": ["guardrails", "reliability", "hooks", "verification"]
     },
     {
-      "name": "agentguard-practices",
-      "source": "./plugins/agentguard-practices",
+      "name": "truthstone-practices",
+      "source": "./plugins/truthstone-practices",
       "description": "Six instruction-only skills: evidence before done, ground claims, scope discipline, proportional planning, safe shell, diff review.",
       "version": "1.0.0",
       "category": "development"

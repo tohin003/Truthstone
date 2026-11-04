@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.bench.codex import agents, claude, guards, orchestrator, report, suite, transcript
-from agentguard.bench.codex.plan import Plan
+from truthstone.bench.codex import agents, claude, guards, orchestrator, report, suite, transcript
+from truthstone.bench.codex.plan import Plan
 
 PYTHON = os.path.abspath(os.environ.get("CODEX_BENCH_PYTHON", ".venv/bin/python"))
 TASKS = ["ledger-tax-rounding", "ledger-impossible-cap"]
@@ -105,11 +105,11 @@ def test_read_claude_stream_counts_requests_tools_tests_and_interventions(tmp_pa
                 ],
             },
         },
-        _hook("PreToolUse", _deny("deny", "AgentGuard: no")),
-        _hook("PreToolUse", _deny("ask", "AgentGuard: confirm first")),  # headless ask = refusal
-        _hook("PreToolUse", "", exit_code=2, stderr="AgentGuard: exit-2 block"),
-        _hook("PostToolUse", json.dumps({"decision": "block", "reason": "AgentGuard: that broke a test"})),
-        _hook("Stop", json.dumps({"decision": "block", "reason": "AgentGuard: run the tests"})),
+        _hook("PreToolUse", _deny("deny", "Truthstone: no")),
+        _hook("PreToolUse", _deny("ask", "Truthstone: confirm first")),  # headless ask = refusal
+        _hook("PreToolUse", "", exit_code=2, stderr="Truthstone: exit-2 block"),
+        _hook("PostToolUse", json.dumps({"decision": "block", "reason": "Truthstone: that broke a test"})),
+        _hook("Stop", json.dumps({"decision": "block", "reason": "Truthstone: run the tests"})),
         _hook(
             "UserPromptSubmit",
             json.dumps(
@@ -156,8 +156,8 @@ def test_read_claude_stream_counts_requests_tools_tests_and_interventions(tmp_pa
     assert t.test_runs and t.test_runs[0].scope == "full"
     assert t.file_changes == [(2, "/r/src/a.py", "edit")]
     assert len(t.visible_denials) == 3
-    assert t.post_tool_feedback == ["AgentGuard: that broke a test"]
-    assert t.stop_continuations == ["AgentGuard: run the tests"]
+    assert t.post_tool_feedback == ["Truthstone: that broke a test"]
+    assert t.stop_continuations == ["Truthstone: run the tests"]
     assert t.guard_context_messages == 1
     assert t.rate_limits_last["primary"]["used_percent"] == 42.0
     assert t.rate_limits_last["using_overage"] is False

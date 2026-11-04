@@ -18,11 +18,11 @@ from pathlib import Path
 
 import pytest
 
-from agentguard.adapters.codex import render
-from agentguard.adapters.codex import translate as codex
-from agentguard.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
-from agentguard.core.models import Decision, Finding
 from tests.codex_schema import validate
+from truthstone.adapters.codex import render
+from truthstone.adapters.codex import translate as codex
+from truthstone.core.enums import ChallengeCategory, DecisionAction, FailureMode, Severity, Verdict
+from truthstone.core.models import Decision, Finding
 
 PAYLOADS = Path(__file__).parent / "fixtures" / "codex_payloads"
 
@@ -45,7 +45,7 @@ def test_captured_payloads_match_codex_input_schema(path):
 
 def test_every_hook_we_install_was_captured_live():
     events = {json.loads(p.read_text())["hook_event_name"] for p in captured()}
-    from agentguard.adapters.codex.install import HOOK_SPECS
+    from truthstone.adapters.codex.install import HOOK_SPECS
 
     assert {spec.event for spec in HOOK_SPECS} <= events
 
@@ -64,14 +64,14 @@ GUARD = Finding(
     failure_mode=FailureMode.NOT_A_FAILURE,
     severity=Severity.MEDIUM,
     subject="modified command",
-    summary="AgentGuard narrowed this command",
+    summary="Truthstone narrowed this command",
     detail="`rm -rf $OUT` deletes `/` if `OUT` is empty. The rewrite refuses to run.",
 )
 DECISIONS = [
     Decision(),
     Decision(additional_context="Complexity 12/100. Plan: edit, test."),
-    Decision(action=DecisionAction.CHALLENGE, reason="AgentGuard: `get_user` does not exist."),
-    Decision(action=DecisionAction.BLOCK, reason="AgentGuard — completion gate: incomplete"),
+    Decision(action=DecisionAction.CHALLENGE, reason="Truthstone: `get_user` does not exist."),
+    Decision(action=DecisionAction.BLOCK, reason="Truthstone — completion gate: incomplete"),
     Decision(
         action=DecisionAction.REQUEST_REVIEW, reason="Irreversible command: force push", findings=[RISK]
     ),
@@ -79,7 +79,7 @@ DECISIONS = [
     Decision(
         action=DecisionAction.MODIFY,
         reason="narrowed",
-        additional_context="AgentGuard narrowed this command.",
+        additional_context="Truthstone narrowed this command.",
         updated_arguments={"command": '[ -n "$OUT" ] && rm -rf "$OUT"'},
         findings=[GUARD],
     ),
