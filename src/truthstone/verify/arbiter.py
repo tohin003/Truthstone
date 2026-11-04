@@ -276,15 +276,17 @@ _DEFAULT_FINISHES = (
 # "why it should stay": an agent that rewrote a documented rule, weakened a test or set a
 # switch nothing reads would take that door with the same rationale that led it there.
 _FINISHES: dict[ReasonCategory, str] = {
+    # Both finishes are hand-backs: a rule change is the user's decision, so the agent may keep
+    # its change but not call it done. An agent sure the request settles it (an instruction
+    # about the tests) still has an honest finish that does not contradict the user.
     ReasonCategory.SPEC_EROSION: (
         'Accepted finishes: restore the rule and finish with "not done: <which test contradicts '
-        'which documented rule>", so the user can decide; or, if the request itself asked to change '
-        "this rule, quote those words in your final message."
+        'which documented rule>"; or keep the change and finish with "not done: <the rule I changed>, '
+        'please confirm", so the user decides.'
     ),
     ReasonCategory.TEST_WEAKENING: (
-        'Accepted finishes: restore the test and fix the code, then finish; finish with "not done: '
-        '<reason>"; or, if the request itself asked for this test change, quote those words in your '
-        "final message."
+        'Accepted finishes: restore the test and fix the code, then finish; or finish with "not done: '
+        '<which test was weakened, and why>", so the user decides.'
     ),
     ReasonCategory.UNREAD_CONFIG: (
         'Accepted finishes: finish with "not done: <reason>"; or show in your final message which code '

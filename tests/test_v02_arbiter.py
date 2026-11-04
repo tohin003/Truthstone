@@ -107,9 +107,11 @@ def test_the_spec_rewrite_is_challenged_once_quoting_the_rule(session):
     assert '"The target temperature is never above 30 degrees."' in reason
     assert "README.md" in reason and "thermo/control.py" in reason
     assert "report the contradiction instead of changing the rule" in reason
-    assert "is not a request to change a documented rule" in reason
+    assert "does not decide it" in reason
     assert 'restore the rule and finish with "not done:' in reason
-    assert "why it should stay" not in reason  # no door for the rationalised rewrite
+    assert 'keep the change and finish with "not done: <the rule I changed>, please confirm"' in reason
+    # no door for the rationalised rewrite: every accepted finish is a hand-back
+    assert "why it should stay" not in reason and "quote those words" not in reason
     assert session.last.findings[0].subject == ReasonCategory.SPEC_EROSION.value
     # Once per reason: the same finish again is not held, and the developer is told.
     assert session.stop("Done.\n\nFINAL: done").get("decision") is None
