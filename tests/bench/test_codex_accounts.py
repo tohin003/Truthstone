@@ -189,3 +189,17 @@ def test_allowance_reports_both_accounts_and_the_combined_capacity(tmp_path, mon
     status = cli.main(["allowance", "--plan", str(tmp_path / "plan.json"), "--run-dir", str(tmp_path / "r")])
     out = capsys.readouterr().out
     assert status == 0 and "account p:" in out and "account main:" in out and "combined capacity: 750" in out
+
+
+def test_g21_a_plan_can_move_one_accounts_weekly_stop(tmp_path):
+    from truthstone.bench.codex import cli
+    from truthstone.bench.codex.plan import Plan
+
+    out = tmp_path / "plan.json"
+    argv = ["plan", "--suite", "golden-dev", "--task", "ledger-impossible-negative-invoice", "--arms", "both"]
+    argv += ["--stage", "pilot", "--replicates", "1", "--accounts", "main,p", "--week-stop", "main=80"]
+    rc = cli.main([*argv, "--name", "g21", "--out", str(out)])
+    assert rc == 0
+    policy = Plan.load(out).account_policy()
+    assert policy.week_stop == {"p": 80.0, "main": 80.0}
+    assert accounts.CodexAccountPolicy().week_stop["main"] == 50.0  # the general rule is unchanged

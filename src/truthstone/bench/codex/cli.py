@@ -172,9 +172,18 @@ def _cmd_plan(args: argparse.Namespace) -> int:
             if unknown:
                 print(f"unknown Codex account(s) {unknown}; known: {sorted(codex_accounts.ACCOUNTS)}")
                 return 2
+            stops = dict(codex_accounts.CodexAccountPolicy().week_stop)
+            for item in args.week_stop or []:  # G21: a plan may move an account's weekly stop line
+                name, _, pct = item.partition("=")
+                if name.strip() not in codex_accounts.ACCOUNTS or not pct:
+                    known = sorted(codex_accounts.ACCOUNTS)
+                    print(f"bad --week-stop {item!r}: use ACCOUNT=PERCENT, ACCOUNT in {known}")
+                    return 2
+                stops[name.strip()] = float(pct)
             policy = codex_accounts.CodexAccountPolicy(
                 per_cell_week=args.weekly_percent_per_cell or 0.1,
                 per_cell_primary=args.per_cell_session or 0.55,
+                week_stop=stops,
             )
             host_fields.update({"accounts": names, "budget": dataclasses.asdict(policy)})
     default_model = "claude-opus-5-5" if args.host == "claude" else "gpt-6.1-sol"  # amendment A5
@@ -1212,6 +1221,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cell-timeout", type=int, default=1200)
     p.add_argument("--max-attempts", type=int, default=3)
     p.add_argument("--stop-weekly-at", type=float, help="Override the weekly stop line (smoke plans only).")
+    p.add_argument(
+        "--week-stop",
+        action="append",
+        metavar="ACCOUNT=PERCENT",
+        help="Codex multi-account plans: move one account's weekly stop line (G21), e.g. main=80.",
+    )
     p.add_argument(
         "--weekly-percent-per-cell",
         type=float,
