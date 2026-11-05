@@ -27,23 +27,24 @@ $py -m truthstone.bench.codex plan --suite golden-candidates --task fetchkit-deb
     --name golden-cand-sol-guarded1 --out $out/golden-cand-sol-guarded1.json
 
 # G9, the held-out main study (the release gate): both arms, the 31 frozen tasks x 3 phrasings x
-# R=2 = 186 pairs, as two disjoint pair shards run in parallel, one runner per account. Per the
-# user (2026-11-04 23:00) main takes three fifths (112 pairs) and p two fifths (74 pairs); main keeps
-# its 50% weekly reserve; the analysis and the gate pool the two runs as one design.
+# R=2 = 186 pairs, as two disjoint pair shards, one runner per account. G18 (the user, 2026-11-05):
+# p takes three fifths (112 pairs) and main two fifths (74 pairs), because main's 50% weekly reserve
+# leaves it about 230 cells; the shards run ONE AFTER THE OTHER, so T6 is timed with one runner on
+# the machine. The analysis and the gate pool the two runs as one design.
 $py -m truthstone.bench.codex plan --suite golden-heldout --arms both --stage main $three \
-    --replicates 1,2 $sol --shard 3,4/5 --accounts p \
+    --replicates 1,2 $sol --shard 0,1,2/5 --accounts p \
     --name golden-heldout-sol-main-p --out $out/golden-heldout-sol-main-p.json
 $py -m truthstone.bench.codex plan --suite golden-heldout --arms both --stage main $three \
-    --replicates 1,2 $sol --shard 0,1,2/5 --accounts main \
+    --replicates 1,2 $sol --shard 3,4/5 --accounts main \
     --name golden-heldout-sol-main-main --out $out/golden-heldout-sol-main-main.json
 
 # G10, weaker models on the same frozen split (reported, not gates). Luna: the same split; each
 # shard starts only after the same account's Sol shard has finished (one runner per account).
 $py -m truthstone.bench.codex plan --suite golden-heldout --arms both --stage main $three \
-    --replicates 1,2 $luna --shard 3,4/5 --accounts p \
+    --replicates 1,2 $luna --shard 0,1,2/5 --accounts p \
     --name golden-heldout-luna-main-p --out $out/golden-heldout-luna-main-p.json
 $py -m truthstone.bench.codex plan --suite golden-heldout --arms both --stage main $three \
-    --replicates 1,2 $luna --shard 0,1,2/5 --accounts main \
+    --replicates 1,2 $luna --shard 3,4/5 --accounts main \
     --name golden-heldout-luna-main-main --out $out/golden-heldout-luna-main-main.json
 # Claude Code: re-make these with --per-cell-session and --per-cell-week from each model's two
 # smoke cells before running them (unset, the runner cannot refuse a pair the windows cannot finish).

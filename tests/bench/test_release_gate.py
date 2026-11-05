@@ -171,3 +171,13 @@ def test_the_gate_refuses_paired_runs_that_are_not_the_shards_of_one_design(tmp_
     run = _shard_run(tmp_path, 0)
     assert cli.main(["analyze", "--gate", "--run-dir", str(run), "--run-dir", str(run)]) == 2
     assert "refusing the gate" in capsys.readouterr().out
+
+
+def test_t3_is_non_inferiority_two_points(tmp_path):
+    """G17: guarded success may be at most 2 points below unguarded (point estimate)."""
+    assert acceptance.T3_MARGIN == -0.02 and acceptance.GateThresholds().t3_point == -0.02
+    run = _paired_run(tmp_path, guarded_fc=0, control_blocks=0)
+    g = acceptance.gate([run], resamples=300)
+    assert g["targets"]["T3"]["verdict"] == "pass"
+    strict = acceptance.gate([run], acceptance.GateThresholds(t3_point=0.5), resamples=300)
+    assert strict["targets"]["T3"]["verdict"] == "FAIL"
