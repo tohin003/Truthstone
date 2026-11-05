@@ -54,7 +54,9 @@ def test_every_plan_name_is_new():
 
 def test_the_shards_partition_heldout2s_design_with_main_taking_eleven_twentieths():
     tasks = [t.id for t in suite.load_suite(suite="golden-heldout2")]
-    base = dict(name="h2", stage="main", seed=1, tasks=tasks, phrasings=list(suite.PHRASINGS), replicates=[1, 2])
+    base = dict(
+        name="h2", stage="main", seed=1, tasks=tasks, phrasings=list(suite.PHRASINGS), replicates=[1, 2]
+    )
     whole = {p.id for p in Plan(**base).pairs()}
     main = {p.id for p in Plan(**base, pair_shard=[*range(11), 20]).pairs()}
     p = {p.id for p in Plan(**base, pair_shard=[*range(11, 20), 20]).pairs()}

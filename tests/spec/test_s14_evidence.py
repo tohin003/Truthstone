@@ -714,7 +714,11 @@ class TestFalsePositiveRateOnRealCode:
         from truthstone.evidence import extractors, resolvers
 
         index = own_source_index
-        python_files = [p for p, r in index.files.items() if r.lang == "python"]
+        # Benchmark fixtures model broken or unfinished repositories (a task's own code is
+        # incomplete until it is solved): not "working, committed code", so not this corpus.
+        python_files = [
+            p for p, r in index.files.items() if r.lang == "python" and not p.startswith("tests/fixtures/")
+        ]
         assert len(python_files) > 40, "the corpus should be substantial"
 
         claims_checked = 0

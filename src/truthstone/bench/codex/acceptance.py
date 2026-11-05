@@ -304,7 +304,7 @@ def _premise_tokens(cells: list[dict]) -> dict[str, tuple[str, ...]]:
     if not wanted:
         return {}
     names = {c.get("_suite") for c in cells if c.get("family") == "false-premise" and c.get("_suite")}
-    names = names or {"golden-dev", "golden-candidates"}
+    names = names or set(PREMISE_SUITES)  # cells without a run's suite: every suite with tokens
     tokens: dict[str, tuple[str, ...]] = {}
     for name in sorted(names):
         for task in suite.load_suite(suite=name):
