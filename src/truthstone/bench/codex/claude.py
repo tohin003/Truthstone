@@ -220,6 +220,10 @@ def reading_from_stream(snapshot: dict | None) -> dict | None:
     }
 
 
+# The Claude account that takes every pair it can (G19, the user's instruction 2026-11-05).
+PREFERRED_ACCOUNT = "work"
+
+
 @dataclass(frozen=True, slots=True)
 class AccountPolicy:
     """Pre-registered account rules for the Claude host."""
@@ -311,10 +315,12 @@ def choose_account(
         if isinstance(resets, (int, float)):
             waits.append(resets - now)
     if eligible:
-        headroom, name = max(eligible)
-        return AccountChoice(
-            name, f"{name} has the most headroom ({headroom:.0f} points); " + "; ".join(notes)
-        )
+        # The user (2026-11-05): "keep claude-w more busy than claude-p". The work account takes
+        # every pair it can; personal only when work cannot take one (G19). Among others, headroom.
+        preferred = [item for item in eligible if item[1] == PREFERRED_ACCOUNT]
+        headroom, name = preferred[0] if preferred else max(eligible)
+        why = "preferred: work first" if preferred else "the most headroom"
+        return AccountChoice(name, f"{name} ({why}; {headroom:.0f} points of headroom); " + "; ".join(notes))
     if waits:
         wait = int(max(0.0, min(waits))) + policy.reset_slack_s
         if wait <= policy.max_wait_s:

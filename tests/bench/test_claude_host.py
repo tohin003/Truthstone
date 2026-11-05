@@ -320,12 +320,12 @@ def test_claude_cells_record_their_account_and_pairs_never_straddle_accounts(tmp
     assert all(len(v) == 1 for v in by_pair.values())
     assert {c["effort"] for c in cells} == {"medium"}
     assert {tuple(c["permission_modes"]) for c in cells} == {("bypassPermissions",)}
-    # personal (headroom 50) beats work (headroom 3) until it nears its reserve
-    assert cells[0]["account"] == "personal"
+    # G19: work takes every pair it can (one: 95% -> 97%), then personal takes the rest
+    assert cells[0]["account"] == "work"
     usage_log = (tmp_path / "run" / "usage.jsonl").read_text().splitlines()
     assert usage_log, "the runner reads /usage before the study"
     analysis = report.analyze(tmp_path / "run")
-    assert analysis["data_quality"]["cells_by_account"] == {"personal": 8}
+    assert analysis["data_quality"]["cells_by_account"] == {"work": 2, "personal": 6}
     assert report.render_markdown(analysis).startswith("# Claude Code benchmark")
 
 
