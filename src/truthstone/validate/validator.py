@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable
+from pathlib import Path
 
 from truthstone import evidence
 from truthstone.challenge import render as render_challenge
@@ -77,6 +78,7 @@ def validate(
         checks.risky_command(event)
         + checks.self_protection(event, roots=roots)
         + checks.outside_write(event, roots=roots)
+        + _script_effects(event, index)
     )
     rewrite = modify.propose(event, risky)
     if rewrite is not None:
@@ -108,6 +110,18 @@ def validate(
         defer(lambda: _advise(event, index, state, ledger, task_id, findings))
         return Decision.allow(EscalationLevel.REPOSITORY if index.is_built else EscalationLevel.DETERMINISTIC)
     return _advise(event, index, state, ledger, task_id, findings)
+
+
+def _script_effects(event: AgentEvent, index: RepoIndex) -> list[Finding]:
+    """A repository script the command runs that moves or deletes files the repository's
+    version control ignores (M10). Needs the index to know which files those are (it lists
+    tracked and unignored files only); without it, silence."""
+    if event.tool != "Bash" or not index.is_built:
+        return []
+    from truthstone.validate import script_effects
+
+    files = index.files
+    return script_effects.check(event, Path(index.root), lambda rel: rel not in files)
 
 
 def _advise(
