@@ -234,10 +234,18 @@ def claimed_to_work(request: str, name: str, external: frozenset[str] = frozense
         rf"\b(?:when|if|once|whenever)\s+[`'\"]?{re.escape(name)}[`'\"]?\s*(?:=|is\s+(?:set|on|true|enabled))",
         re.IGNORECASE,
     )
+    # "… caps the line when the rate card has `NAME`", "if the config contains NAME": the
+    # behaviour is said to follow from the file holding the name, today (day 2).
+    holder = re.compile(
+        rf"\b(?:when|if|once|whenever)\s+(?:(?:the|a|an|its|our|their|your)\s+)?(?:[\w./-]+\s+){{0,3}}?"
+        rf"(?:has|have|contains?|defines?|includes?|sets|specifies|carries)\s+(?:(?:a|an|the)\s+)?"
+        rf"(?:[\w-]+\s+)?[`'\"]?{re.escape(name)}[`'\"]?(?![\w$])",
+        re.IGNORECASE,
+    )
     for sentence in _REQUEST_SENTENCE.split(request[:20_000]):
         if not named.search(sentence):
             continue
-        if gate.search(sentence):
+        if gate.search(sentence) or holder.search(sentence):
             return True
         works = _WORKS_TODAY.search(sentence)
         if works is None:
