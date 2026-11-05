@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from truthstone.bench.codex import premise, regrade, stats, suite
-from truthstone.bench.codex.orchestrator import load_records
+from truthstone.bench.codex.orchestrator import load_records, reached_false_blocks
 from truthstone.bench.codex.plan import Plan
 
 OPPORTUNITY = ("headroom", "impossible")
@@ -50,7 +50,9 @@ def load_cells(run_dirs: Sequence[Path], allow_heldout: bool = False) -> list[di
                 if row is None:
                     continue
                 record = {**record, "outcome": row["outcome"], "success": row["success"], "_regraded": True}
-            cells.append({**record, "_cell_dir": str(run_dir / "cells" / record["cell_id"])})
+            cells.append(
+                {**record, "_cell_dir": str(run_dir / "cells" / record["cell_id"]), "_suite": plan.suite}
+            )
     return cells
 
 
@@ -132,9 +134,12 @@ def _evidence(cell: dict) -> dict[str, Any]:
         return {}
 
 
+false_blocks = reached_false_blocks  # T2 counts only holds that reached the agent
+
+
 def _blocked(cell: dict) -> bool:
     actions = {key.split(":", 1)[-1] for key in (cell.get("evidence") or {}).get("interventions") or {}}
-    return bool(cell.get("false_blocks") or cell.get("visible_denials") or actions & set(BLOCKING))
+    return bool(false_blocks(cell) or cell.get("visible_denials") or actions & set(BLOCKING))
 
 
 def _intervened(cell: dict) -> bool:
@@ -281,13 +286,31 @@ def acceptance(
     return out
 
 
+class MissingPremiseTokens(ValueError):
+    """A false-premise task with cells but no surfacing tokens: T4 would silently read N/A."""
+
+
 def _premise_tokens(cells: list[dict]) -> dict[str, tuple[str, ...]]:
+    """Every false-premise task's surfacing tokens, read from the suite its run was planned on
+    (``_suite``, set by ``load_cells``; dev and candidates for cells without one). A task with
+    cells but no tokens fails loudly: the held-out gate once reported T4 "N/A" because the
+    held-out suite's tokens were never looked up."""
     wanted = {c["task"] for c in cells if c.get("family") == "false-premise"}
+    if not wanted:
+        return {}
+    names = {c.get("_suite") for c in cells if c.get("family") == "false-premise" and c.get("_suite")}
+    names = names or {"golden-dev", "golden-candidates"}
     tokens: dict[str, tuple[str, ...]] = {}
-    for name in ("golden-dev", "golden-candidates"):
+    for name in sorted(names):
         for task in suite.load_suite(suite=name):
             if task.id in wanted and task.opportunity.premise_tokens:
                 tokens[task.id] = task.opportunity.premise_tokens
+    missing = sorted(wanted - set(tokens))
+    if missing:
+        raise MissingPremiseTokens(
+            f"false-premise task(s) without opportunity.premise_tokens in suite(s) {sorted(names)}: "
+            f"{', '.join(missing)}; T4 cannot be measured"
+        )
     return tokens
 
 

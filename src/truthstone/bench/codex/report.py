@@ -21,7 +21,12 @@ from pathlib import Path
 from typing import Any
 
 from truthstone.bench.codex import stats, suite
-from truthstone.bench.codex.orchestrator import complete_pairs, load_records, screened_cells
+from truthstone.bench.codex.orchestrator import (
+    complete_pairs,
+    load_records,
+    reached_false_blocks,
+    screened_cells,
+)
 from truthstone.bench.codex.plan import Plan
 
 OPPORTUNITY_SETS = ("headroom", "impossible")
@@ -235,7 +240,7 @@ def calibration(pairs: Pairs, screened: list[dict] | None = None) -> dict[str, A
         return result
     controls = [on for on, _ in pairs if on["set"] == "control"]
     blocked = [on["task"] for on in controls if _interventions(on) > 0]
-    snapshot = [(on["task"], on["false_blocks"]) for on, _ in pairs if on.get("false_blocks")]
+    snapshot = [(on["task"], reached_false_blocks(on)) for on, _ in pairs if reached_false_blocks(on)]
     result["guarded_harm"] = {
         "control_cells": len(controls),
         "control_cells_with_intervention": len(blocked),
@@ -474,7 +479,7 @@ def _interventions(r: dict) -> int:
 def _harm(pairs: Pairs, controls: Pairs) -> dict[str, Any]:
     on_controls = [on for on, _ in controls]
     blocked = sum(1 for r in on_controls if _interventions(r) > 0)
-    snapshot_false = [on for on, _ in pairs if on.get("false_blocks")]
+    snapshot_false = [on for on, _ in pairs if reached_false_blocks(on)]
     success_ctl = _paired_test(controls, lambda r: bool(r.get("success")))
     diff = success_ctl.get("diff_observe_minus_on", {"estimate": 0.0, "ci": (0.0, 0.0)})
     # success(on) - success(observe) = -(observe - on)
@@ -492,7 +497,7 @@ def _harm(pairs: Pairs, controls: Pairs) -> dict[str, Any]:
         },
         "snapshot_verified_false_blocks": {
             "cells": len(snapshot_false),
-            "blocks": sum(r["false_blocks"] for r in snapshot_false),
+            "blocks": sum(reached_false_blocks(r) for r in snapshot_false),
             "of_guarded_cells": len(pairs),
         },
         "control_success": {

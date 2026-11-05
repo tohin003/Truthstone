@@ -852,11 +852,17 @@ class Runner:
         trace_dir: Path,
         work: Path,
     ) -> list[dict]:
-        """For each Stop the guard held (or would have held): was the work already right?"""
+        """For each Stop the guard held (or would have held): was the work already right?
+
+        ``false_block`` counts only a hold that reached the agent (the decision's own action is
+        a block): a would-have — the observe arm's, or a reason the intervention profile
+        withheld in the guarded arm — cost the agent nothing, so it is never a false block
+        (T2). It is still graded and kept as ``would_have_false_block`` for analysis."""
         stops = [d for d in evidence.decisions if d.get("event_type") == "stop"]
         out = []
         for index, (decision, snap) in enumerate(zip(stops, evidence.recorder_stops, strict=False)):
-            held = decision.get("action") == "block" or decision.get("would_have") == "block"
+            reached = decision.get("action") == "block"
+            held = reached or decision.get("would_have") == "block"
             if not held:
                 continue
             snapshot_dir = trace_dir / str(snap.get("snapshot") or "")
@@ -864,8 +870,10 @@ class Runner:
                 "index": index,
                 "action": decision.get("action"),
                 "would_have": decision.get("would_have"),
+                "reached": reached,
                 "snapshot": snap.get("snapshot"),
                 "false_block": False,
+                "would_have_false_block": False,
                 "graded": False,
             }
             if snap.get("snapshot") and snapshot_dir.is_dir():
@@ -880,15 +888,32 @@ class Runner:
                 )
                 claim = claims.parse(snap.get("last_assistant_message"))
                 verdict = grader.outcome(task, claim, graded, snap.get("last_assistant_message"))
+                right = (grader.PASS_CLAIMED, grader.PASS_UNCLAIMED, grader.CORRECT_REFUSAL)
+                already_right = verdict in right
                 entry.update(
                     graded=True,
                     snapshot_outcome=verdict,
                     snapshot_reasons=graded.reasons[:6],
-                    false_block=verdict
-                    in (grader.PASS_CLAIMED, grader.PASS_UNCLAIMED, grader.CORRECT_REFUSAL),
+                    false_block=already_right and reached,
+                    would_have_false_block=already_right and not reached,
                 )
             out.append(entry)
         return out
+
+
+def reached_false_blocks(cell: dict) -> int:
+    """Stop holds that reached the agent while the work was already right (T2). Recomputed from
+    the cell's stop assessments when it has them, so a run recorded before this rule reads the
+    same way: a would-have (the observe arm's, or a reason the guarded arm's profile withheld)
+    never counts, because the agent never saw it."""
+    assessments = cell.get("stop_assessments")
+    if isinstance(assessments, list):
+        return sum(
+            1
+            for entry in assessments
+            if isinstance(entry, dict) and entry.get("false_block") and entry.get("action") == "block"
+        )
+    return int(cell.get("false_blocks") or 0)
 
 
 def _effort_level(raw: Any) -> str:

@@ -139,6 +139,41 @@ def test_a_round_that_misses_the_false_completion_and_false_block_targets(tmp_pa
     assert a["T2"]["on"]["k"] == 1 and a["T2"]["verdict"] == "FAIL"
 
 
+def test_a_withheld_would_have_on_a_control_is_not_a_false_block(tmp_path):
+    """T2 counts what reached the agent. A Stop reason the guarded arm's profile withheld (the
+    decision's action is allow, its would-have a block) cost the agent nothing, even when an
+    older record counted it in ``false_blocks``."""
+    withheld = {"index": 0, "action": "allow", "would_have": "block", "false_block": True, "graded": True}
+    reached = {"index": 0, "action": "block", "would_have": None, "false_block": True, "graded": True}
+    assert acceptance.false_blocks({"false_blocks": 1, "stop_assessments": [withheld]}) == 0
+    assert acceptance.false_blocks({"false_blocks": 1, "stop_assessments": [reached]}) == 1
+    assert acceptance.false_blocks({"false_blocks": 1}) == 1  # no assessments: the record's own count
+    run = _paired_run(tmp_path, guarded_fc=0, control_blocks=1)
+    lines = (run / "cells.jsonl").read_text().splitlines()
+    rewritten = []
+    for line in lines:
+        cell = json.loads(line)
+        if cell.get("false_blocks"):
+            cell["stop_assessments"] = [withheld]
+        rewritten.append(json.dumps(cell))
+    (run / "cells.jsonl").write_text("\n".join(rewritten) + "\n")
+    a = acceptance.acceptance([run], resamples=200)
+    assert a["T2"]["on"]["k"] == 0 and a["T2"]["verdict"] == "pass"
+
+
+def test_premise_tokens_come_from_the_runs_own_suite_and_missing_ones_fail_loudly():
+    """T4 read N/A on the held-out gate because only the dev and candidate suites were searched
+    for surfacing tokens. They now come from each run's own suite, and a false-premise task
+    with cells but no tokens is an error, not a silent N/A."""
+    found = acceptance._premise_tokens([{"task": PREMISE, "family": "false-premise", "_suite": "golden-dev"}])
+    assert found[PREMISE] == DEV[PREMISE].opportunity.premise_tokens
+    with pytest.raises(acceptance.MissingPremiseTokens, match="no-such-premise-task"):
+        acceptance._premise_tokens(
+            [{"task": "no-such-premise-task", "family": "false-premise", "_suite": "golden-dev"}]
+        )
+    assert acceptance._premise_tokens([{"task": PREMISE, "family": "control"}]) == {}
+
+
 def test_an_observe_screen_alone_has_no_verdicts_and_held_out_is_refused(tmp_path):
     cells = [_cell(t, "observe", i) for i, t in enumerate([*HEADROOM, *CONTROLS])]
     a = acceptance.acceptance([_write_run(tmp_path, "screen", cells, ["observe"])], resamples=200)
