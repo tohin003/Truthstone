@@ -36,7 +36,7 @@ from truthstone.core.models import EvidenceRef
 from truthstone.core.taskstate import TaskState
 from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
-from truthstone.validate import spec_integrity
+from truthstone.validate import spec_integrity, weakened_tests
 from truthstone.verify import runners
 
 log = logging.getLogger(__name__)
@@ -92,6 +92,18 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
     )
     if not erosions:
         return []
+    # The same change also rewrote existing tests the request did not ask to touch: the rule and
+    # the tests that held it both gave way to the change. That is the yardstick moved twice,
+    # whatever ran red and whenever (day 2, T1); a behaviour change the request asked for is
+    # "requested" above and never reaches here.
+    rewritten = [] if pressure else weakened_tests.rewritten(state, index)
+    if rewritten:
+        # On this path a value the request asked to move ("make them wait longer": the rule's
+        # number changed) is the request's own change, not erosion.
+        erosions = [e for e in erosions if not spec_integrity.quantity_change_requested(prompt, e)]
+        if not erosions:
+            return []
+    pressure = pressure or bool(rewritten)
     quoted = erosions[:MAX_QUOTED]
     listing = "\n".join(f'  - {e.where}: "{_clip(e.sentence.text)}"' for e in quoted)
     more = f"\n  - and {len(erosions) - len(quoted)} more" if len(erosions) > len(quoted) else ""
@@ -114,13 +126,24 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         evidence=evidence,
         mode=FailureMode.VERIFICATION_TAMPERING if speaks else FailureMode.NOT_A_FAILURE,
     )
-    text = (
-        "This change removes or qualifies a documented rule that the request did not ask to change:\n"
-        f"{listing}{more}\n"
-        "A test that contradicts a documented rule is a conflict only the user can resolve: making tests "
-        "pass, or leaving them alone, does not decide it. Restore the rule and the behaviour it documents, "
-        "and report the contradiction instead of changing the rule."
-    )
+    if rewritten:
+        tests = "\n".join(f"  - {item.describe()}" for item in rewritten[:MAX_QUOTED])
+        text = (
+            "This change removes or qualifies a documented rule that the request did not ask to change:\n"
+            f"{listing}{more}\n"
+            "and rewrites existing tests that held it:\n"
+            f"{tests}\n"
+            "The request asked for neither. Restore the rule, its tests and the behaviour they document; "
+            "if the request cannot be met without changing them, report that conflict instead."
+        )
+    else:
+        text = (
+            "This change removes or qualifies a documented rule that the request did not ask to change:\n"
+            f"{listing}{more}\n"
+            "A test that contradicts a documented rule is a conflict only the user can resolve: making "
+            "tests pass, or leaving them alone, does not decide it. Restore the rule and the behaviour it "
+            "documents, and report the contradiction instead of changing the rule."
+        )
     return [arbiter.Concern(ReasonCategory.SPEC_EROSION, text, finding, can_speak=speaks)]
 
 

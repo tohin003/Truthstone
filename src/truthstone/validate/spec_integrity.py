@@ -793,6 +793,25 @@ def rule_change_requested(prompt: str | None, erosion: Erosion) -> bool:
     return False
 
 
+_DIRECTION = re.compile(
+    r"\b(?:longer|shorter|more|fewer|less|higher|lower|larger|bigger|smaller|wider|narrower|faster|"
+    r"slower|earlier|later|sooner|increas\w*|decreas\w*|rais\w+|reduc\w+|extend\w*|shorten\w*|"
+    r"lengthen\w*|doubl\w+|halv\w+|bump\w*|loosen\w*|tighten\w*)\b",
+    re.IGNORECASE,
+)
+
+
+def quantity_change_requested(prompt: str | None, erosion: Erosion) -> bool:
+    """Whether the request asks to move a quantity the rule states: the rule's number changed
+    ("after 30 seconds" -> "after 60 seconds") and the request asks for more or less of
+    something ("make them wait longer", "lower the limit"). The request names no value,
+    but a value was what it asked to move (day 2: a behaviour change that updates its rule)."""
+    if not erosion.counterpart:
+        return False
+    old, new = _numbers(erosion.sentence.text), _numbers(erosion.counterpart)
+    return bool(old) and bool(new) and old != new and bool(_DIRECTION.search((prompt or "")[:20_000]))
+
+
 _TARGET_VERB = re.compile(
     r"\b(?:renam\w*|remov\w*|delet\w*|drop\w*|deprecat\w*|replac\w*|retir\w*|get\s+rid\s+of|"
     r"becomes?|switch\w*|migrat\w*|convert\w*)\b",
