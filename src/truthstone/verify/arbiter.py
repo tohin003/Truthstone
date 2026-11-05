@@ -150,10 +150,10 @@ MAX_COMPARED_FILES = 400
 
 
 def _integrity_checks() -> list[IntegrityCheck]:
-    from truthstone.validate import config_reads, weakened_tests
+    from truthstone.validate import config_reads, test_fitting, weakened_tests
     from truthstone.verify import integrity
 
-    return [integrity.spec_concerns, weakened_tests.concerns, config_reads.concerns]
+    return [integrity.spec_concerns, weakened_tests.concerns, test_fitting.concerns, config_reads.concerns]
 
 
 def arbitrate(
@@ -315,6 +315,10 @@ _FINISHES: dict[ReasonCategory, str] = {
     ReasonCategory.UNREAD_CONFIG: (
         'Accepted finishes: finish with "not done: <reason>"; or show in your final message which code '
         "reads it."
+    ),
+    ReasonCategory.TEST_FITTING: (
+        'Accepted finishes: remove the special case and finish with "not done: <what makes the test '
+        'impossible>"; or move the exception into configuration or data the code reads, then finish.'
     ),
 }
 
