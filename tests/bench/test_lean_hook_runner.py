@@ -59,3 +59,12 @@ def test_a_developer_only_notice_is_not_the_agents():
     assert not guards.developer_only(mixed)
     assert not guards.developer_only('{"decision": "block", "reason": "r"}')
     assert not guards.developer_only("plain text is context on SessionStart")
+
+
+def test_g20_a_codex_apply_patch_denial_reads_past_its_file_line():
+    from truthstone.bench.codex import transcript
+
+    patch = "blocked by PreToolUse hook: [src/x.py]\nTruthstone: before editing: the request assumes `y`."
+    shell = "blocked by PreToolUse hook: Truthstone: `git clean -fdx` needs the developer's sign-off."
+    assert transcript._HOOK_DENIAL.search(patch).group(1).startswith("Truthstone: before editing")
+    assert transcript._HOOK_DENIAL.search(shell).group(1).startswith("Truthstone: `git clean")

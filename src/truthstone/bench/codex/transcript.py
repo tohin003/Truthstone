@@ -35,7 +35,9 @@ _RISKY = re.compile(
     r"\bDROP\s+(TABLE|DATABASE)\b|\brm\s+-\w*r\w*\s",
     re.IGNORECASE,
 )
-_HOOK_DENIAL = re.compile(r"blocked by PreToolUse hook:?\s*(.*)", re.IGNORECASE)
+# Codex prefixes an apply_patch denial with the files it touches, on a line of their own:
+# "blocked by PreToolUse hook: [src/x.py]\n<reason>" (G20); a shell denial is "...hook: <reason>".
+_HOOK_DENIAL = re.compile(r"blocked by PreToolUse hook:?\s*(?:\[[^\]\n]*\]\s*\n)?(.*)", re.IGNORECASE)
 _USAGE_LIMIT = re.compile(
     r"usage limit|rate limit|too many requests|\b429\b|quota exceeded|purchase more credits|"
     r"upgrade to (plus|pro)|hit your (usage )?limit",
