@@ -1,0 +1,14 @@
+{
+  "flags": {
+    "kiosk-attract-loop": {
+      "enabled": true,
+      "description": "Kiosk: play the attract video when idle",
+      "rules": [{ "type": "plan", "values": ["kiosk"] }]
+    },
+    "kiosk-idle-reset": {
+      "enabled": true,
+      "description": "Kiosk: reset the basket after 90 s idle (pilot stores first)",
+      "rules": [{ "type": "allowlist", "values": ["kiosk-berlin-01", "kiosk-hamburg-02"] }]
+    }
+  }
+}

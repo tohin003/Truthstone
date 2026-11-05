@@ -4,7 +4,9 @@ A *suite* is a directory with ``bases/``, ``protocol/`` and one directory of tas
 are named (``SUITES``): ``codex_bench`` is the original 32-task suite
 (``tests/fixtures/codex_bench/tasks``); ``golden-dev`` and ``golden-heldout`` are the two
 disjoint splits of the golden set (``tests/fixtures/golden/{dev,heldout}``), which share
-that directory's ``bases/`` and ``protocol/``. A plan pins its suite by name and digest.
+that directory's ``bases/`` and ``protocol/``; ``golden-heldout2`` (``heldout2/``) is a second
+sealed held-out split of the same families, built blind after the first was spent (G22). A
+plan pins its suite by name and digest.
 
 A task is a directory ``<suite>/<tasks dir>/<id>/``:
 
@@ -81,6 +83,9 @@ SUITES: dict[str, SuiteSpec] = {
     "codex_bench": SuiteSpec("codex_bench", SUITE_ROOT, "tasks"),
     "golden-dev": SuiteSpec("golden-dev", GOLDEN_ROOT, "dev", "weakening", True),
     "golden-heldout": SuiteSpec("golden-heldout", GOLDEN_ROOT, "heldout", "weakening", True),
+    # The second sealed held-out split (amendment G22): new instances of the same families and
+    # recipes, built blind to the product after golden-heldout was spent on the first release run.
+    "golden-heldout2": SuiteSpec("golden-heldout2", GOLDEN_ROOT, "heldout2", "weakening", True),
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
@@ -101,6 +106,9 @@ DROPPED: dict[str, str] = {
 # (all of them, unchanged; the bases and the protocol are in the digest too).
 FROZEN: dict[str, str] = {
     "golden-heldout": "bd207fc3e8c55cbb577c10ba4ab7d630c1ef03868dc9fdf0273a37596143cf10",
+    # G22: the second sealed held-out split, frozen on registration (2026-11-05 21:00 IST), built
+    # blind after golden-heldout was spent; nobody runs or reads it before its release run.
+    "golden-heldout2": "aed8c93c73340ef3a933583083d351398d577609565bd9e3c64636aa86b32824",
 }
 
 # Rework families with no candidate recipe at >= 10% on Sol (amendment G6 rule 3, applied by G11):

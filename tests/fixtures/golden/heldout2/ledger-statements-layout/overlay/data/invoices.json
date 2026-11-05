@@ -1,0 +1,291 @@
+[
+ {
+  "number": "INV-0801",
+  "month": "2026-08",
+  "customer": "acme",
+  "region": "CA",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 3,
+    "unit_price": "4.50"
+   }
+  ]
+ },
+ {
+  "number": "INV-0802",
+  "month": "2026-08",
+  "customer": "acme",
+  "region": "CA",
+  "items": [
+   {
+    "sku": "P-4",
+    "description": "Pump",
+    "quantity": 6,
+    "unit_price": "189.00"
+   }
+  ]
+ },
+ {
+  "number": "INV-0803",
+  "month": "2026-08",
+  "customer": "acme",
+  "region": "CA",
+  "items": [
+   {
+    "sku": "W-1",
+    "description": "Widget",
+    "quantity": 4,
+    "unit_price": "9.99"
+   }
+  ]
+ },
+ {
+  "number": "INV-0804",
+  "month": "2026-08",
+  "customer": "globex",
+  "region": "NY",
+  "items": [
+   {
+    "sku": "G-2",
+    "description": "Gadget",
+    "quantity": 12,
+    "unit_price": "25.00"
+   }
+  ]
+ },
+ {
+  "number": "INV-0805",
+  "month": "2026-08",
+  "customer": "globex",
+  "region": "NY",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 8,
+    "unit_price": "4.50"
+   }
+  ]
+ },
+ {
+  "number": "INV-0806",
+  "month": "2026-08",
+  "customer": "initech",
+  "region": "OR",
+  "items": [
+   {
+    "sku": "W-1",
+    "description": "Widget",
+    "quantity": 12,
+    "unit_price": "9.99"
+   },
+   {
+    "sku": "P-4",
+    "description": "Pump",
+    "quantity": 6,
+    "unit_price": "189.00"
+   }
+  ],
+  "discounts": [
+   "OFF20"
+  ]
+ },
+ {
+  "number": "INV-0807",
+  "month": "2026-09",
+  "customer": "acme",
+  "region": "CA",
+  "items": [
+   {
+    "sku": "G-2",
+    "description": "Gadget",
+    "quantity": 12,
+    "unit_price": "25.00"
+   },
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 5,
+    "unit_price": "4.50"
+   }
+  ]
+ },
+ {
+  "number": "INV-0808",
+  "month": "2026-09",
+  "customer": "globex",
+  "region": "NY",
+  "items": [
+   {
+    "sku": "P-4",
+    "description": "Pump",
+    "quantity": 8,
+    "unit_price": "189.00"
+   },
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 1,
+    "unit_price": "4.50"
+   }
+  ],
+  "discounts": [
+   "SAVE5"
+  ]
+ },
+ {
+  "number": "INV-0809",
+  "month": "2026-09",
+  "customer": "globex",
+  "region": "NY",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 5,
+    "unit_price": "4.50"
+   }
+  ],
+  "discounts": [
+   "OFF20"
+  ]
+ },
+ {
+  "number": "INV-0810",
+  "month": "2026-09",
+  "customer": "globex",
+  "region": "NY",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 5,
+    "unit_price": "4.50"
+   }
+  ],
+  "discounts": [
+   "SAVE10"
+  ]
+ },
+ {
+  "number": "INV-0811",
+  "month": "2026-09",
+  "customer": "initech",
+  "region": "OR",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 8,
+    "unit_price": "4.50"
+   },
+   {
+    "sku": "W-1",
+    "description": "Widget",
+    "quantity": 7,
+    "unit_price": "9.99"
+   }
+  ],
+  "discounts": [
+   "OFF20"
+  ]
+ },
+ {
+  "number": "INV-0812",
+  "month": "2026-10",
+  "customer": "acme",
+  "region": "CA",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 12,
+    "unit_price": "4.50"
+   }
+  ]
+ },
+ {
+  "number": "INV-0813",
+  "month": "2026-10",
+  "customer": "globex",
+  "region": "NY",
+  "items": [
+   {
+    "sku": "P-4",
+    "description": "Pump",
+    "quantity": 12,
+    "unit_price": "189.00"
+   },
+   {
+    "sku": "W-1",
+    "description": "Widget",
+    "quantity": 2,
+    "unit_price": "9.99"
+   }
+  ]
+ },
+ {
+  "number": "INV-0814",
+  "month": "2026-10",
+  "customer": "globex",
+  "region": "NY",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 3,
+    "unit_price": "4.50"
+   }
+  ]
+ },
+ {
+  "number": "INV-0815",
+  "month": "2026-10",
+  "customer": "globex",
+  "region": "NY",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 4,
+    "unit_price": "4.50"
+   }
+  ]
+ },
+ {
+  "number": "INV-0816",
+  "month": "2026-10",
+  "customer": "initech",
+  "region": "OR",
+  "items": [
+   {
+    "sku": "W-1",
+    "description": "Widget",
+    "quantity": 3,
+    "unit_price": "9.99"
+   },
+   {
+    "sku": "G-2",
+    "description": "Gadget",
+    "quantity": 3,
+    "unit_price": "25.00"
+   }
+  ]
+ },
+ {
+  "number": "INV-0817",
+  "month": "2026-10",
+  "customer": "initech",
+  "region": "OR",
+  "items": [
+   {
+    "sku": "S-3",
+    "description": "Sprocket",
+    "quantity": 10,
+    "unit_price": "4.50"
+   }
+  ]
+ }
+]

@@ -1,0 +1,17 @@
+[project]
+name = "stockroom"
+version = "0.6.1"
+description = "Stock levels, reservations, kits, backorders and reorder suggestions for a small warehouse."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+stockroom = "stockroom.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# The integration tests (the CLI and storage round trips through real files) are deselected by
+# default to keep the inner loop fast; CI runs them in their own job: `pytest -m integration`.
+addopts = "-m 'not integration'"
+markers = ["integration: round trips through real files (CI runs these with -m integration)"]

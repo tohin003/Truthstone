@@ -113,7 +113,7 @@ def test_claude_streams_count_edits_and_shell_writes_as_changes(tmp_path):
 
 
 def test_every_golden_false_premise_task_has_tokens_and_no_other_task_does():
-    for name in ("golden-dev", "golden-heldout", "golden-candidates"):
+    for name in ("golden-dev", "golden-heldout", "golden-heldout2", "golden-candidates"):
         for task in suite.load_suite(suite=name):
             assert bool(task.opportunity.premise_tokens) == (task.family == "false-premise"), task.id
 

@@ -26,7 +26,9 @@ OPPORTUNITY = ("headroom", "impossible")
 ARMS = ("observe", "on")
 # Interventions that stop or hold the agent: on a control, each one is a false block (T2).
 BLOCKING = ("deny", "block", "ask", "request_review", "sign_off", "challenge")
-HELD_OUT = ("golden-heldout",)
+# Sealed splits: acceptance reads them only as the pre-registered release gate (G9). G22 adds the
+# second held-out split, built blind after the first was spent.
+HELD_OUT = ("golden-heldout", "golden-heldout2")
 
 
 def load_cells(run_dirs: Sequence[Path], allow_heldout: bool = False) -> list[dict[str, Any]]:
@@ -281,10 +283,15 @@ def acceptance(
     return out
 
 
+# The suites T4a reads premise tokens from. golden-heldout is not among them (its runs were analysed
+# as registered, without T4a); golden-heldout2 is (G22), so the gate on it computes T4a.
+PREMISE_SUITES = ("golden-dev", "golden-candidates", "golden-heldout2")
+
+
 def _premise_tokens(cells: list[dict]) -> dict[str, tuple[str, ...]]:
     wanted = {c["task"] for c in cells if c.get("family") == "false-premise"}
     tokens: dict[str, tuple[str, ...]] = {}
-    for name in ("golden-dev", "golden-candidates"):
+    for name in PREMISE_SUITES:
         for task in suite.load_suite(suite=name):
             if task.id in wanted and task.opportunity.premise_tokens:
                 tokens[task.id] = task.opportunity.premise_tokens
