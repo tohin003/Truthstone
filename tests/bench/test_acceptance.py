@@ -181,6 +181,9 @@ def test_an_observe_screen_alone_has_no_verdicts_and_held_out_is_refused(tmp_pat
     held = _write_run(tmp_path, "held", cells, ["observe"], suite_name="golden-heldout")
     with pytest.raises(ValueError, match="held-out"):
         acceptance.acceptance([held])
+    held2 = _write_run(tmp_path, "held2", cells, ["observe"], suite_name="golden-heldout2")
+    with pytest.raises(ValueError, match="held-out"):  # G22: the second sealed split too
+        acceptance.acceptance([held2])
 
 
 def test_the_cli_pools_several_dev_runs(tmp_path, capsys):

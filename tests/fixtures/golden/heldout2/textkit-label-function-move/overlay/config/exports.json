@@ -1,0 +1,22 @@
+{
+  "jobs": [
+    {
+      "name": "orders-csv",
+      "formatter": "textkit.formats.csv_fmt",
+      "labels": "textkit.legacy_case.humanize",
+      "columns": ["order_id", "created_at", "total_cents", "ship_to_region"]
+    },
+    {
+      "name": "stock-report-md",
+      "formatter": "textkit.formats.md_table",
+      "labels": "textkit.legacy_case.humanize",
+      "columns": ["sku", "on_hand", "reorder_point"]
+    },
+    {
+      "name": "partner-feed-json",
+      "formatter": "textkit.formats.json_fmt",
+      "labels": "textkit.case.to_camel",
+      "columns": ["sku", "unit_price", "stock_level"]
+    }
+  ]
+}

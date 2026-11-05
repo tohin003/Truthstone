@@ -14,16 +14,20 @@ from collections import Counter
 
 import pytest
 
-from truthstone.bench.codex import scripted, suite, toolchain
+from truthstone.bench.codex import acceptance, premise, scripted, suite, toolchain
 
 PYTHON = os.path.abspath(os.environ.get("CODEX_BENCH_PYTHON", ".venv/bin/python"))
 DOC = suite.REPO_ROOT / "docs" / "BENCH-golden.md"
 SPLITS = ("golden-dev", "golden-heldout")
+# The second sealed held-out split (G22). It meets every rule the first one does, but its task list
+# stays out of the pre-registration's inventory: it was built blind, and the lead and the product's
+# implementers stay blind to it until its run.
+SEALED = ("golden-heldout2",)
 
 
 @pytest.fixture(scope="module")
 def splits() -> dict[str, list[suite.Task]]:
-    return {name: suite.load_suite(suite=name) for name in SPLITS}
+    return {name: suite.load_suite(suite=name) for name in (*SPLITS, *SEALED)}
 
 
 def _share(tasks: list[suite.Task], which: str) -> float:
@@ -56,7 +60,7 @@ def test_heldout_meets_the_registered_composition(splits):
 
 
 def test_every_task_states_its_design_honestly(splits):
-    for task in (t for name in SPLITS for t in splits[name]):
+    for task in (t for name in (*SPLITS, *SEALED) for t in splits[name]):
         rationale = task.opportunity.rationale
         if task.set == "control":
             assert rationale.startswith("No-harm control"), task.id
@@ -75,7 +79,7 @@ def test_every_task_states_its_design_honestly(splits):
 
 
 def test_typescript_bases_have_zero_npm_dependencies_and_erasable_sources(splits):
-    bases = {t.base_root for name in SPLITS for t in splits[name] if t.language == "typescript"}
+    bases = {t.base_root for name in (*SPLITS, *SEALED) for t in splits[name] if t.language == "typescript"}
     assert len(bases) == 2
     for base in bases:
         manifest = json.loads((base / "package.json").read_text(encoding="utf-8"))
@@ -95,7 +99,7 @@ def _registered_digest(name: str) -> str | None:
     return match.group(1) if match else None
 
 
-@pytest.mark.parametrize("name", SPLITS)
+@pytest.mark.parametrize("name", (*SPLITS, *SEALED))
 def test_the_digests_are_the_ones_registered_in_the_preregistration(splits, name):
     """Any change to a split (or its bases or protocol) must be registered by amendment."""
     assert suite.suite_digest(splits[name]) == _registered_digest(name)
@@ -138,7 +142,7 @@ FULL = os.environ.get("CODEX_BENCH_VALIDATE_GOLDEN") == "1"
 
 
 @pytest.mark.skipif(not FULL, reason="set CODEX_BENCH_VALIDATE_GOLDEN=1")
-@pytest.mark.parametrize("name", SPLITS)
+@pytest.mark.parametrize("name", (*SPLITS, *SEALED))
 def test_every_golden_grader_holds(splits, name, tmp_path):
     bad = []
     for task in splits[name]:
@@ -151,6 +155,62 @@ def test_inventory_doc_lists_every_task(splits):
     text = DOC.read_text(encoding="utf-8")
     for task in (t for name in SPLITS for t in splits[name]):
         assert f"| {task.id} |" in text, task.id
+
+
+def test_the_sealed_split_names_no_task_in_the_preregistration(splits):
+    """G22: the document gives heldout2's design, composition and digest, never its tasks."""
+    text = DOC.read_text(encoding="utf-8")
+    for task in (t for name in SEALED for t in splits[name]):
+        assert task.id not in text, task.id
+
+
+def _recipe_group(recipe: str) -> str:
+    """IMP-SPEC and its surface forms (G7) are one recipe group; every other recipe is its own."""
+    return "IMP-SPEC" if recipe.startswith("IMP-SPEC") else recipe
+
+
+def test_heldout2_is_composed_like_the_first_heldout_split(splits):
+    """G22: 31 new instances, family by family, set by set and language by language as the spent
+    golden-heldout (G11), with the same recipe groups."""
+    held, held2 = splits["golden-heldout"], splits["golden-heldout2"]
+    shape = lambda ts: Counter((t.set, t.family, t.language) for t in ts)  # noqa: E731
+    assert shape(held2) == shape(held)
+    recipes = lambda ts: Counter((t.family, _recipe_group(t.recipe)) for t in ts)  # noqa: E731
+    assert recipes(held2) == recipes(held)
+    assert Counter(t.set for t in held2) == {"headroom": 18, "impossible": 5, "control": 8}
+    assert Counter(t.language for t in held2) == {"python": 19, "typescript": 12}
+
+
+def test_heldout2_is_disjoint_from_every_other_golden_suite(splits):
+    held2 = {t.id for t in splits["golden-heldout2"]}
+    others = {t.id for name in SPLITS for t in splits[name]}
+    others |= {t.id for t in suite.load_suite(suite="golden-candidates")}
+    assert held2 and not held2 & others
+    assert {t.suite_root for t in splits["golden-heldout2"]} == {suite.GOLDEN_ROOT}
+
+
+def test_the_heldout2_split_is_frozen_and_plan_refuses_anything_else(splits, tmp_path):
+    from truthstone.bench.codex import cli
+
+    held2 = splits["golden-heldout2"]
+    digest = suite.suite_digest(held2)
+    assert digest == suite.FROZEN["golden-heldout2"] == _registered_digest("golden-heldout2")
+    out = tmp_path / "subset.json"
+    argv = ["plan", "--suite", "golden-heldout2", "--task", held2[0].id, "--arms", "both", "--stage", "main"]
+    argv += ["--phrasing", "canonical", "--replicates", "1", "--name", "subset", "--out", str(out)]
+    assert cli.main(argv) == 2 and not out.exists()
+
+
+def test_t4a_reads_heldout2_premise_tokens_and_the_honest_answer_surfaces_them(splits, tmp_path):
+    """The first held-out run could not compute T4a: its tokens were never read. heldout2's are."""
+    premised = [t for t in splits["golden-heldout2"] if t.family == "false-premise"]
+    assert len(premised) == 2 and all(t.opportunity.premise_tokens for t in premised)
+    cells = [{"task": t.id, "family": t.family} for t in premised]
+    assert acceptance._premise_tokens(cells) == {t.id: t.opportunity.premise_tokens for t in premised}
+    for task in premised:  # the honest answer names a token next to an absence cue
+        made = suite.materialize(task, tmp_path / task.id / "w", tmp_path / task.id / "p", python=PYTHON)
+        message = scripted.run_solution(task, "honest", made.repo, PYTHON)
+        assert premise.names_absence(message, task.opportunity.premise_tokens), task.id
 
 
 def test_a_caught_first_attempt_can_use_git(splits, tmp_path):

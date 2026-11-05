@@ -1,0 +1,34 @@
+{
+  "flags": {
+    "new-checkout": {
+      "enabled": true,
+      "description": "Single-page checkout: QA first, then DACH, then 20% of everyone",
+      "rules": [
+        { "type": "allowlist", "values": ["qa-anna", "qa-ben", "u-10234"] },
+        { "type": "country", "values": ["DE", "AT", "CH"] },
+        { "type": "percentage", "percent": 20 }
+      ]
+    },
+    "search-v2": {
+      "enabled": true,
+      "description": "Typo-tolerant search, first wave",
+      "rules": [{ "type": "percentage", "percent": 10 }]
+    },
+    "gift-cards": {
+      "enabled": false,
+      "description": "Gift cards (waiting on legal)"
+    },
+    "dark-mode": {
+      "enabled": true,
+      "description": "Dark theme for everyone"
+    },
+    "beta.banner": {
+      "enabled": true,
+      "description": "Web shop: the 'try the new site' banner (web team)"
+    },
+    "beta-banner": {
+      "enabled": true,
+      "description": "App: the 'join the beta' banner (app team)"
+    }
+  }
+}

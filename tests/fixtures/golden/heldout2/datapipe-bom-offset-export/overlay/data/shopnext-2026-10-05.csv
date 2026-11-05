@@ -1,0 +1,8 @@
+﻿order_id,email,amount,quantity,region,created_at
+SN-100231,lena@example.com,24.90,1,ca,2026-10-04T09:12:00+02:00
+SN-100232,omar@example.com,"$1,099.00",1,ny,2026-10-04T14:40:00-04:00
+SN-100233,lena@example.com,-4.90,1,ca,2026-10-04T18:03:00+02:00
+SN-100234,pia@example.com,310.00,2,wa,2026-10-04T23:55:00-07:00
+SN-100235,quinn@example.com,58.00,3,or,2026-10-05T01:30:00+02:00
+SN-100236,rosa@example.com,12.00,1,tx,2026-10-05T08:00:00Z
+SN-100237,omar@example.com,75.50,1,ny,2026-10-05T19:45:00-04:00

@@ -1,0 +1,10 @@
+{"flag": "new-checkout", "context": {"userId": "qa-anna"}, "expect": "allowlist:hit"}
+{"flag": "new-checkout", "context": {"userId": "u-10234", "country": "FR"}, "expect": "allowlist:hit"}
+{"flag": "new-checkout", "context": {"userId": "user-1", "country": "de"}, "expect": "country:hit"}
+{"flag": "new-checkout", "context": {"userId": "user-3"}, "expect": "percentage:1<20"}
+{"flag": "new-checkout", "context": {"userId": "user-1"}, "expect": "no-match"}
+{"flag": "new-checkout", "context": {"country": "FR"}, "expect": "no-match"}
+{"flag": "search-v2", "context": {"userId": "alice"}, "expect": "percentage:6<10"}
+{"flag": "search-v2", "context": {"userId": "user-1"}, "expect": "no-match"}
+{"flag": "gift-cards", "context": {"userId": "qa-anna"}, "expect": "disabled"}
+{"flag": "dark-mode", "context": {}, "expect": "everyone"}

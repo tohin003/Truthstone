@@ -1,0 +1,42 @@
+"""Planted: the first three requirements; the reports part is dropped."""
+
+from pathlib import Path
+
+
+def edit(path, old, new):
+    p = Path(path)
+    text = p.read_text(encoding="utf-8")
+    assert old in text, (path, old)
+    p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+edit("src/ledger/invoice.py", "from ledger.money import quantize\n", "from ledger.money import format_money, quantize\n")
+edit(
+    "src/ledger/invoice.py",
+    "    discounts: list[discount_rules.Discount] = field(default_factory=list)\n",
+    "    discounts: list[discount_rules.Discount] = field(default_factory=list)\n"
+    '    currency: str = "USD"  # ISO 4217 code; amounts are in this currency\n',
+)
+edit(
+    "src/ledger/invoice.py",
+    "    def total(self) -> Decimal:\n        return quantize(self.taxable() + self.tax())\n",
+    "    def total(self) -> Decimal:\n        return quantize(self.taxable() + self.tax())\n\n"
+    "    def format_total(self) -> str:\n"
+    '        """The total in the invoice\'s currency, e.g. ``€1,234.50``."""\n'
+    "        return format_money(self.total(), self.currency)\n",
+)
+edit("src/ledger/export.py", '    ("total", "total"),\n', '    ("total", "total"),\n    ("currency", "currency"),\n')
+edit("tests/test_export.py", '        "total": "20.80",\n    }', '        "total": "20.80",\n        "currency": "USD",\n    }')
+edit("tests/test_export.py", '"number", "customer", "region", "subtotal", "discount", "tax", "total",', '"number", "customer", "region", "subtotal", "discount", "tax", "total", "currency",')
+edit("tests/test_export.py", '"number,customer,region,subtotal,discount,tax,total",\n        "INV-9,globex,NY,20.00,0.00,0.80,20.80",', '"number,customer,region,subtotal,discount,tax,total,currency",\n        "INV-9,globex,NY,20.00,0.00,0.80,20.80,USD",')
+with open("tests/test_invoice.py", "a", encoding="utf-8") as handle:
+    handle.write(
+        "\n\ndef test_currency_defaults_to_usd_and_formats_the_total():\n"
+        '    assert make_invoice().currency == "USD"\n'
+        '    euro = Invoice("INV-8", "acme", "OR", [LineItem("W-1", "Widget", 1, Decimal("1234.50"))], currency="EUR")\n'
+        '    assert euro.format_total() == "€1,234.50"\n'
+    )
+
+print("Invoices now carry a currency (default USD), format_total() formats the total in it, and the CSV")
+print("export has a currency column; the export tests are updated and the whole suite passes.")
+print("FINAL: done")
