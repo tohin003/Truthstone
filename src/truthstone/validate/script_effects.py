@@ -41,6 +41,7 @@ import shlex
 from pathlib import Path, PurePosixPath
 
 from truthstone.core.enums import ChallengeCategory, EscalationLevel, FailureMode, Severity, Verdict
+from truthstone.core.events import SHELL_TOOLS
 from truthstone.core.models import EvidenceRef, Finding
 from truthstone.validate import shell
 
@@ -267,7 +268,7 @@ def _targets(
 def check(event, root: Path, ignored) -> list[Finding]:
     """Sign-off for a shell command that runs a repository script destroying ignored files.
     ``ignored(path)`` answers whether git ignores a repository-relative path."""
-    command = event.arg("command") if event.tool == "Bash" else None
+    command = event.arg("command") if event.tool in SHELL_TOOLS else None
     if not isinstance(command, str) or not command.strip():
         return []
     parsed = shell.parse(command)

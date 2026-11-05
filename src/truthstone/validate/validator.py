@@ -31,7 +31,7 @@ from truthstone.challenge import render as render_challenge
 from truthstone.challenge.ledger import ChallengeLedger
 from truthstone.challenge.renderer import HUMAN
 from truthstone.core.enums import ChallengeCategory, DecisionAction, EscalationLevel, Verdict
-from truthstone.core.events import AgentEvent
+from truthstone.core.events import SHELL_TOOLS, AgentEvent
 from truthstone.core.models import Decision, Finding
 from truthstone.core.taskstate import TaskState
 from truthstone.evidence import extractors
@@ -116,7 +116,7 @@ def _script_effects(event: AgentEvent, index: RepoIndex) -> list[Finding]:
     """A repository script the command runs that moves or deletes files the repository's
     version control ignores (M10). Needs the index to know which files those are (it lists
     tracked and unignored files only); without it, silence."""
-    if event.tool != "Bash" or not index.is_built:
+    if event.tool not in SHELL_TOOLS or not index.is_built:
         return []
     from truthstone.validate import script_effects
 

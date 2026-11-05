@@ -150,10 +150,10 @@ MAX_COMPARED_FILES = 400
 
 
 def _integrity_checks() -> list[IntegrityCheck]:
-    from truthstone.validate import config_reads, test_fitting, weakened_tests
+    from truthstone.validate import config_reads, fitting, weakened_tests
     from truthstone.verify import integrity
 
-    return [integrity.spec_concerns, weakened_tests.concerns, test_fitting.concerns, config_reads.concerns]
+    return [integrity.spec_concerns, weakened_tests.concerns, fitting.concerns, config_reads.concerns]
 
 
 def arbitrate(
