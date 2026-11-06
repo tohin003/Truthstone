@@ -534,18 +534,41 @@ def eroded(
     before: dict[str, str],
     after: dict[str, str | None],
     targets: Iterable[str] = (),
+    code: tuple[str, str] | None = None,
 ) -> list[Erosion]:
     """Rules of the ``before`` texts that the ``after`` texts removed, qualified, rewrote (a
     documentation sentence) or excepted (an exception added beside it). ``after[path]`` is None
     for a deleted file. ``targets`` are identifiers the request renames or removes: a rule
-    naming one went with it. Never raises."""
+    naming one went with it. ``code`` is the session's changed code before and after, without
+    comments (``code_text``): when given, a rule counts as gone with the code it names only if
+    that name left the code too, not just the documentation's examples. Never raises."""
     try:
-        return _eroded(before, after, set(targets))
+        return _eroded(before, after, set(targets), code)
     except Exception:  # noqa: BLE001 - an integrity check never fails the hook
         return []
 
 
-def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[str]) -> list[Erosion]:
+def code_text(path: str, text: str) -> str:
+    """``text`` without its comments and docstrings, as far as the language is known: the
+    names its code uses, not the names its prose mentions."""
+    lower = path.lower()
+    if lower.endswith(_PY_SUFFIXES):
+        return _python_code(text) or text
+    if lower.endswith(_JS_SUFFIXES) or lower.endswith(
+        (".go", ".rs", ".java", ".kt", ".c", ".h", ".cc", ".cpp", ".cs", ".swift")
+    ):
+        return _C_COMMENTS.sub("", text)
+    if lower.endswith((".rb", ".sh")):
+        return _HASH_COMMENTS.sub("", text)
+    return text
+
+
+def _eroded(
+    before: dict[str, str],
+    after: dict[str, str | None],
+    targets: set[str],
+    code: tuple[str, str] | None = None,
+) -> list[Erosion]:
     pool = _Pool()
     after_sentences: dict[str, list[Sentence]] = {}
     for path, text in after.items():
@@ -581,10 +604,9 @@ def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[s
             # ("The max_items setting must be …"): the rule went with its name (audit M4).
             if tokens & targets or any(_mentions(sentence.text, target) for target in targets):
                 continue
-            if any(
-                _mentions(before_text_all, token) and not _mentions(after_text_all, token) for token in tokens
-            ):
-                continue  # names code the session removed or renamed
+            vanished = [
+                t for t in tokens if _mentions(before_text_all, t) and not _mentions(after_text_all, t)
+            ]
             if normative or not prose:
                 verdict, counterpart = _counterpart(sentence, markers, pool)
                 if verdict == "kept" or (not normative and verdict != "qualified"):
@@ -593,6 +615,16 @@ def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[s
                 verdict, counterpart = _rewritten(sentence, pool)
                 if verdict == "kept":
                     continue
+            # A rule that names code the session removed or renamed went with that code. A rule
+            # removed outright keeps the documentation's view (a fixed known issue, a dropped
+            # feature). A rule still there in new words went with nothing unless the name left the
+            # code itself (day 3): swapping a rule's examples while rewriting it is not a rename.
+            if vanished and (
+                verdict == "removed"
+                or code is None
+                or any(_mentions(code[0], t) and not _mentions(code[1], t) for t in vanished)
+            ):
+                continue  # names code the session removed or renamed
             out.append(Erosion(path, sentence, verdict, counterpart))
         if prose:
             out.extend(_excepted(path, old_sentences, after_sentences[path]))
