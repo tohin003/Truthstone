@@ -220,8 +220,8 @@ LAUNCHER_TEMPLATE = """#!/bin/sh
 # Lookup order: $TRUTHSTONE_CODEX_HOOK, then `{command}` on PATH, then a private copy in
 # Codex's per-plugin data directory ($PLUGIN_DATA), which the session-start hook installs
 # with uv on first use (set TRUTHSTONE_NO_BOOTSTRAP=1 to prevent that). The events that only
-# forward (tool calls, Stop, SessionEnd) take a shorter way when the runtime has left one:
-# the lean forwarder in $PLUGIN_DATA/lean, under the runtime's own Python with -I -S.
+# forward (tool calls, Stop, SessionEnd) take a shorter way when the runtime has left one in
+# $PLUGIN_DATA/lean: its native forwarder, else its lean forwarder under its own Python.
 #
 # It does nothing at all outside a git work tree, and when TRUTHSTONE_DISABLE is set.
 # It always exits 0. Codex reads exit code 2 as "block this", and a launcher problem must
@@ -240,17 +240,24 @@ until [ -e "$d/.git" ]; do
   d="${{d%/*}}"
 done
 
-# The hot path. The session-start hook puts the runtime's lean forwarder and its Python in
-# $PLUGIN_DATA/lean; they run with -I -S: no site, nothing from the working directory on
-# sys.path, builtin modules only. An explicit $TRUTHSTONE_CODEX_HOOK is always honoured
-# instead, and anything missing falls through to the runtime below.
+# The hot path. The session-start hook leaves the runtime's forwarders in $PLUGIN_DATA/lean:
+# forward-native, the forwarder compiled from the runtime's own C source when there is a C
+# compiler; and the lean Python forwarder with its interpreter, run with -I -S (no site,
+# nothing from the working directory on sys.path, builtin modules only). The first one there
+# answers; either is run, never exec'd, so this script's own exit 0 stands. An explicit
+# $TRUTHSTONE_CODEX_HOOK is always honoured instead, and anything missing falls through to
+# the runtime below.
 if [ -z "${{TRUTHSTONE_CODEX_HOOK:-}}" ] && [ -n "${{PLUGIN_DATA:-}}" ]; then
   case "$event" in
   pre-tool-use|post-tool-use|stop|subagent-stop|session-end)
     lean="$PLUGIN_DATA/lean"
+    budget=4
+    [ "$event" = "session-end" ] && budget=2
+    if [ -f "$lean/forward-native" ] && [ -x "$lean/forward-native" ]; then
+      "$lean/forward-native" --timeout "$budget"
+      exit 0
+    fi
     if [ -r "$lean/run.py" ] && [ -r "$lean/python" ] && read -r py <"$lean/python" && [ -x "$py" ]; then
-      budget=4
-      [ "$event" = "session-end" ] && budget=2
       "$py" -I -S "$lean/run.py" --timeout "$budget"
       exit 0
     fi
@@ -373,6 +380,12 @@ set it, else `{command}` on your `PATH`, else a private copy in the plugin's dat
   run was seen, it holds the turn once, with the reason and the command to run.
 - **Session end** (`SessionEnd`): closes the session record.
 
+**The native forwarder.** At session start the runtime also compiles the small C program that
+hands tool calls, Stop and SessionEnd to its helper process (`forward_native.c`, shipped with
+the runtime), with your C compiler (`cc`), into the plugin's data folder, once per version.
+Those events then skip Python's start-up. Without a compiler nothing is compiled and Python
+does the same job.
+
 **The one-time download.** At session start, if no runtime is found, `uv` is available and
 `TRUTHSTONE_NO_BOOTSTRAP` is not set, the script installs a private copy into the plugin's
 data folder, never onto your `PATH`:
@@ -490,7 +503,9 @@ This plugin runs code on your machine. Every hook runs `{launcher}`, a POSIX scr
 does nothing outside a git work tree. Otherwise it hands the event to the {display} runtime:
 an installed `{command}`, or a private copy that the session-start hook installs once with
 `uv` into Codex's data folder for this plugin, from `{source}`. With
-`TRUTHSTONE_NO_BOOTSTRAP=1` nothing is installed. The runtime talks only to its own daemon
+`TRUTHSTONE_NO_BOOTSTRAP=1` nothing is installed. At session start the runtime also compiles
+its native forwarder, a C file it ships, with the system's `cc` into that data folder, and the
+script runs it for tool calls, Stop and SessionEnd. The runtime talks only to its own daemon
 on `127.0.0.1`, which authenticates every request with a bearer token stored owner-only
 under `~/.truthstone`. Nothing is sent off the machine, and the plugin has no MCP servers.
 `README.md` lists everything the plugin runs, sends, fetches and stores.

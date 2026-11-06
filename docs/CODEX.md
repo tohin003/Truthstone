@@ -272,6 +272,22 @@ into `$PLUGIN_DATA/lean`; the launcher then runs those events as `<python> -I -S
 no working directory on `sys.path`, the forwarder's bytecode cached), and falls through to the
 runtime when anything is missing. An explicit `TRUTHSTONE_CODEX_HOOK` is honoured for every event.
 
+**The native forwarder.** Process start dominates, and Codex's hooks start on a cold machine,
+after the model's thinking pause: `python -I -S` then takes 35–40 ms just to start. So at
+SessionStart the runtime also compiles `adapters/codex/forward_native.c`, a C port of the lean
+forwarder, into `$PLUGIN_DATA/lean/forward-native`, and the launcher prefers it for the
+forwarding events (then the Python forwarder, then the runtime; it runs either one, never
+`exec`s it, and exits 0 itself). `forward.py` stays the specification: `tests/test_codex_native.py`
+holds the two to identical requests and byte-identical output, on every recorded payload and on
+granting, malformed and adversarial replies. The build (`adapters/codex/native.py`) never holds
+SessionStart up: a detached process compiles with `cc -O2` to a temporary name, smoke-runs the
+result, renames it into place and stamps it (the source's hash, the flags, the platform), so it
+compiles once per version; a stale binary is removed first, so the Python forwarder answers until
+the new one lands. It takes `cc` from absolute `PATH` directories only, in a clean environment,
+and on macOS only when the developer tools are installed (otherwise `/usr/bin/cc` offers to
+install them, in a dialog). No compiler, or any failure: no binary, and the Python forwarder
+answers, silently. Measured: [The native forwarder](#the-native-forwarder-measured).
+
 The forwarder (`adapters/codex/hook.py`) is stdlib-only, and on the hot path it imports only
 `json`, `os`, `socket` and `sys`. It reads the daemon handshake from `TRUTHSTONE_HOME`, so no
 port or token is baked into any hook and the token never appears on a command line. It
@@ -454,6 +470,31 @@ stdin) against a real daemon guarding a copy of `tests/fixtures/pyrepo`, N = 200
 | in daemon | `Guard.handle` Bash / Edit / Write | 0.10 / 0.43 / 0.76 ms | 0.12 / 0.47 / 0.81 ms | |
 
 Process start dominates. The daemon's decision itself is under a millisecond.
+
+### The native forwarder, measured
+
+Timed as the benchmark times T6: its C hook timer (`guards.build_hook_timer`) spawns the
+forwarder and records the wall time, spawn to exit, against a real daemon guarding a copy of
+`tests/fixtures/pyrepo`, with a PreToolUse Bash payload. N = 200 per row, 2026-11-06, Apple
+Silicon, the four paths interleaved one process at a time (load average 1.8–2.8). Warm is back
+to back; cold is after a 2 s idle pause, as after the model's thinking.
+
+| Path | warm p50 | warm p95 | cold p50 | cold p95 |
+|---|---|---|---|---|
+| native forwarder (`forward-native --timeout 4`) | 2.8 ms | 3.1 ms | 11.6 ms | 13.6 ms |
+| lean Python forwarder (`python -I -S run.py --timeout 4`) | 13.1 ms | 14.1 ms | 38.9 ms | 42.4 ms |
+| benchmark runner (`dash`) → native forwarder | 4.7 ms | 5.0 ms | 16.8 ms | 29.0 ms |
+| benchmark runner (`dash`) → lean Python forwarder | 15.2 ms | 16.2 ms | 43.0 ms | 47.6 ms |
+
+A second run, with the order rotated every iteration (N = 60 per path; its two runner paths
+both reached the native forwarder, because SessionStart's build had landed in both data
+folders), gave the same medians. Pooled cold: the native forwarder 11.6 ms p50 / 13.6 ms p95,
+1 of 260 runs over 25 ms (31.3 ms); behind the runner 16.8 / 28.8 ms (N = 320), 19 runs (5.9%)
+at 25–55 ms, so that p95 sits on the edge of a tail; the lean Python forwarder 39.0 / 43.2 ms.
+Two cold process starts in a row are exposed twice to whatever else wakes the machine. Shell
+start alone, cold (N = 20, 1 s pauses): `/bin/sh` (bash 3.2 on macOS) 12.5 ms p50 / 14.4 ms
+p95, `dash` 5.6 / 7.2 ms, `/usr/bin/true` 5.5 / 6.3 ms. The plugin's launcher runs under
+`/bin/sh` before any forwarder, so in real use the hot path also pays bash's start.
 
 **Cold start of the plugin's bootstrap.** With no runtime installed, an empty uv cache and
 an empty `$PLUGIN_DATA`, the first SessionStart took **2.45 s**: uv resolved and installed

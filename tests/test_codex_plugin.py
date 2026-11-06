@@ -21,6 +21,7 @@ import pytest
 from tests.codex_trust import declaration_hashes, plugin_content_hash
 from truthstone import __version__
 from truthstone.adapters.codex import plugin
+from truthstone.adapters.codex.hook import HOT_EVENTS
 from truthstone.adapters.codex.install import HOOK_SPECS
 
 REPO = Path(__file__).resolve().parents[1]
@@ -168,6 +169,9 @@ class TestPackage:
 # `hooks/list` (declaration/content), so the reimplementation itself is pinned to Codex.
 # Re-pinned 2026-11-04 for README.md, LICENSE, SECURITY.md, the git-work-tree gate and the
 # publisher details (declarations unchanged); confirm via Codex hooks/list before release.
+# Re-pinned 2026-11-06 for the native forwarder: the launcher's hot path prefers
+# $PLUGIN_DATA/lean/forward-native, and README.md and SECURITY.md say so (declarations
+# unchanged; computed with plugin_content_hash, to confirm via Codex hooks/list before release).
 # rename-tool: re-pinned for Truthstone by scripts/rename_product.py; confirm via Codex hooks/list.
 EXPECTED_DECLARATIONS = {
     "session_start:0:0": "sha256:16dff026e1a8d1e64802603624e8b79a31721cd548267e454c61785e61eb44f1",
@@ -177,7 +181,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:88b7c8fed33a006d708393b1b4e662e1e758a5334e56843f2ef98304e54a4771"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:c72b4ca531a867ca66297b484272ea18dcee08dd5b110dd08cf7f917ebf8ed3f"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
@@ -371,10 +375,67 @@ class TestLauncherHotPath:
 
     def test_outside_a_work_tree_the_hot_path_does_nothing_either(self, tmp_path):
         _lean(tmp_path)
+        _native(tmp_path)
         outside = tmp_path / "plain"
         outside.mkdir()
         result = launch("pre-tool-use", tmp_path, cwd=outside)
         assert (result.returncode, result.stdout) == (0, b"")
+
+
+def _native(tmp: Path, script: str = 'printf "native:%s|" "$*"; cat\n') -> Path:
+    """What SessionStart's background build leaves in $PLUGIN_DATA/lean (here a stand-in)."""
+    return write_exe(tmp / "data" / "lean" / "forward-native", script)
+
+
+class TestLauncherNativePath:
+    """The native forwarder, when SessionStart has built one, answers before the lean Python."""
+
+    @pytest.mark.parametrize("event", sorted(HOT_EVENTS))
+    def test_forwarding_events_prefer_the_native_forwarder(self, tmp_path, event):
+        write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, FAKE_RUNTIME)
+        _lean(tmp_path)
+        _native(tmp_path)
+        result = launch(event, tmp_path, stdin='{"x":1}')
+        budget = "2" if event == "session-end" else "4"
+        assert (result.returncode, result.stdout) == (0, f'native:--timeout {budget}|{{"x":1}}'.encode())
+
+    def test_without_the_lean_python_the_native_forwarder_still_answers(self, tmp_path):
+        _native(tmp_path)
+        assert launch("stop", tmp_path, stdin="{}").stdout == b"native:--timeout 4|{}"
+
+    @pytest.mark.parametrize("event", ["session-start", "user-prompt-submit"])
+    def test_lifecycle_events_never_take_it(self, tmp_path, event):
+        write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, FAKE_RUNTIME)
+        _native(tmp_path)
+        assert launch(event, tmp_path, stdin="{}").stdout == f"{event}|{{}}".encode()
+
+    def test_an_explicit_runtime_is_still_honoured_for_every_event(self, tmp_path):
+        _native(tmp_path)
+        override = write_exe(tmp_path / "custom" / "runner", 'printf "override"\n')
+        assert launch("pre-tool-use", tmp_path, TRUTHSTONE_CODEX_HOOK=str(override)).stdout == b"override"
+
+    def test_one_that_is_not_an_executable_file_falls_back_to_the_lean_python(self, tmp_path):
+        lean = _lean(tmp_path)
+        native = _native(tmp_path)
+        native.chmod(0o600)
+        expected = f"lean:-I -S {lean / 'run.py'} --timeout 4|{{}}".encode()
+        assert launch("pre-tool-use", tmp_path, stdin="{}").stdout == expected
+        native.unlink()
+        native.mkdir()  # a directory passes test -x
+        assert launch("pre-tool-use", tmp_path, stdin="{}").stdout == expected
+
+    @pytest.mark.parametrize("status", ["2", "1", "127"])
+    def test_a_failing_native_forwarder_never_exits_2(self, tmp_path, status):
+        _native(tmp_path, f"cat >/dev/null; exit {status}\n")
+        result = launch("pre-tool-use", tmp_path)
+        assert (result.returncode, result.stdout) == (0, b"")
+
+    def test_its_silence_is_the_answer(self, tmp_path):
+        """The payload is read once: nothing else runs after the native forwarder."""
+        write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, FAKE_RUNTIME)
+        _lean(tmp_path)
+        _native(tmp_path, "cat >/dev/null\n")
+        assert launch("pre-tool-use", tmp_path, stdin="{}").stdout == b""
 
 
 class TestDocuments:
