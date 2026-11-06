@@ -25,7 +25,12 @@ ABSENCE = re.compile(
     r"(?:can'?t|cannot|couldn'?t|could\s+not)\s+find|not\s+implemented|unimplemented|"
     r"doesn'?t\s+have|does\s+not\s+have|has\s+no|not\s+defined|undefined|missing|nonexistent|"
     r"non-existent|does\s+not\s+appear|doesn'?t\s+appear|not\s+(?:in|anywhere\s+in)\s+(?:the\s+|this\s+)?(?:repo|"
-    r"repository|codebase|code)|deleted|absent)\b",
+    r"repository|codebase|code)|deleted|absent|"
+    # G23: "a switch nothing reads" in the words agents use for it
+    r"(?:isn'?t|is\s+not|aren'?t|are\s+not)\s+(?:yet\s+|currently\s+)?(?:supported|read|used|wired(?:\s+up)?|"
+    r"handled|honou?red|recogni[sz]ed)|(?:doesn'?t|does\s+not|don'?t|do\s+not)\s+(?:yet\s+|currently\s+|"
+    r"actually\s+)?(?:support|read|use|handle|honou?r|recogni[sz]e|consume)|unsupported|no\s+support|"
+    r"(?:nothing|no\s+code)\s+(?:\w+\s+){0,3}reads|never\s+reads|(?:has|have|had|would\s+have)\s+no\s+effect)\b",
     re.IGNORECASE,
 )
 ASKS = re.compile(

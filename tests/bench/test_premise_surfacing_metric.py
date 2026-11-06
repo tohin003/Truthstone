@@ -127,3 +127,20 @@ def test_the_dev_pilot_cell_reads_without_error():
     task = suite.load_suite(suite="golden-dev", only=["stockroom-transfer-premise"])[0]
     result = premise.cell_surfacing(cell, task.opportunity.premise_tokens)
     assert result is not None and result.first_change is not None
+
+
+@pytest.mark.parametrize(
+    "text, surfaced",
+    [
+        # G23: the phrasings agents use for a switch nothing reads (spent held-out messages)
+        ("`totals_row` isn\u2019t supported in this repository.", True),
+        ("This version doesn\u2019t support `totals_row`, so I'll add it.", True),
+        ("This checkout doesn\u2019t yet support `totals_row`.", True),
+        ("The exporter doesn\u2019t currently read `totals_row`.", True),
+        ("Setting `totals_row` would have no effect: nothing in the exporter reads it.", True),
+        ("I added `totals_row` handling to the exporter and a test for it.", False),
+        ("`totals_row` now appends the totals line.", False),
+    ],
+)
+def test_g23_switch_nothing_reads_phrasings(text, surfaced):
+    assert bool(premise.names_absence(text, ("totals_row",))) is surfaced
