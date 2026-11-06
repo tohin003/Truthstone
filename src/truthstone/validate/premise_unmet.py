@@ -37,7 +37,9 @@ JS/TS: any occurrence outside a line comment counts (precision first).
 
 It speaks on a completion claim, once per task (``premise_unmet``). No note, no finding at
 all: a task whose prompt was never noted is never even looked at, so control tasks cannot
-carry one. A scan that would read more than ``MAX_SCAN_BYTES`` says nothing.
+carry one. Nor does a task that changed no file: an explanation of how the code works builds
+nothing on the premise, whatever words the request used for it (day 3). A scan that would
+read more than ``MAX_SCAN_BYTES`` says nothing.
 """
 
 from __future__ import annotations
@@ -70,6 +72,8 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
     names = [name for name in dict.fromkeys(state.spec.premises or []) if name]
     if not names:
         return []  # no note, no finding (T4b: control tasks never carry one)
+    if not state.changed_files:
+        return []  # nothing was built on the premise: an explanation, an answer (day 3)
     from truthstone.validate import config_reads
     from truthstone.verify import arbiter
 

@@ -51,13 +51,19 @@ on routine work.
   running node --test"), unless the request says the behaviour works today.
 * **External things are skipped:** URLs, package specs (``@scope/pkg``, ``node:fs``), HTTP
   headers, versions, dates, numbers.
+* **Never a library's API** (day 3): a name the request attributes to a package the project
+  declares or the request adds ("Add the date-fns package. It already has a `formatISO` helper",
+  "use its existing `field_validator`", "We already depend on requests, so reuse its `Session`").
+  Never one after "our", "my" or "the project's": those are the project's own.
 * Silent while the index is not built, and once per name per session (the caller keeps that).
 """
 
 from __future__ import annotations
 
 import builtins
+import json
 import re
+import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -734,12 +740,108 @@ def resolve(
     return out
 
 
+# -- a library's API (day 3) -----------------------------------------------------------------
+
+# A package the request adds: "Add the date-fns package", "install zod", "switch to httpx".
+_ADDS_PACKAGE = re.compile(
+    r"\b(?:add|install|adopt|switch\s+to|depend\s+on|bring\s+in|pull\s+in)\s+(?:the\s+)?`?"
+    r"(@?[a-z][\w.-]*(?:/[\w.-]+)?)`?",
+    re.IGNORECASE,
+)
+_NOT_PACKAGES = frozenset(
+    {"a", "an", "the", "new", "more", "some", "support", "tests", "test", "it", "them", "this", "that", "our"}
+)
+# The name is the package's: its possessive, or "it has / they provide ..." just before it.
+_ATTRIBUTED = re.compile(
+    r"\b(?:its|their)\b|\b(?:it|they)\s+(?:already\s+)?"
+    r"(?:has|have|provides?|ships?|exposes?|offers?|includes?|comes?\s+with|supports?)\b",
+    re.IGNORECASE,
+)
+_OWNED = re.compile(r"\b(?:our|my|the\s+project'?s|this\s+repo(?:sitory)?'?s)\b", re.IGNORECASE)
+MAX_MANIFEST_BYTES = 1_000_000
+
+
+def _packages(root: Path, prompt: str) -> set[str]:
+    """The packages a request may name as another program: the project's declared dependencies
+    (pyproject, package.json, requirements files at the root) and those the request adds. Lower
+    case; never raises."""
+    names: set[str] = set()
+
+    def read(name: str) -> str:
+        try:
+            full = Path(root) / name
+            if full.is_file() and full.stat().st_size <= MAX_MANIFEST_BYTES:
+                return full.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+        return ""
+
+    try:
+        data = tomllib.loads(read("pyproject.toml") or "")
+        project = data.get("project") if isinstance(data.get("project"), dict) else {}
+        specs = list(project.get("dependencies") or [])
+        for extra in (project.get("optional-dependencies") or {}).values():
+            specs += list(extra or [])
+        poetry = (data.get("tool") or {}).get("poetry") or {}
+        specs += list((poetry.get("dependencies") or {}).keys())
+        names |= {m.group(1) for spec in specs if (m := re.match(r"\s*([A-Za-z0-9][\w.-]*)", str(spec)))}
+    except (ValueError, AttributeError, TypeError):
+        pass
+    try:
+        package = json.loads(read("package.json") or "{}")
+        for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+            for dep in package.get(key) or {}:
+                names |= {dep, dep.rpartition("/")[2]}
+    except (ValueError, AttributeError, TypeError):
+        pass
+    for line in read("requirements.txt").splitlines():
+        match = re.match(r"\s*([A-Za-z0-9][\w.-]*)", line)
+        if match and not line.lstrip().startswith(("-", "#")):
+            names.add(match.group(1))
+    for match in _ADDS_PACKAGE.finditer(prompt[:20_000]):
+        name = match.group(1).strip(".,;:")
+        names |= {name, name.rpartition("/")[2]}
+    return {name.lower() for name in names if len(name) >= 3 and name.lower() not in _NOT_PACKAGES}
+
+
+def _mentions(text: str, packages: set[str]) -> bool:
+    return any(re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text, re.IGNORECASE) for name in packages)
+
+
+def library_api(name: str, prompt: str, packages: set[str]) -> bool:
+    """Whether the request attributes ``name`` to one of ``packages``: in the sentence that names
+    it, after "its"/"their" or "it has / they provide" with the package in that sentence or the
+    one before it, or right after the package's own name ("httpx's", "date-fns `formatISO`")."""
+    sentences = [sentence for _, sentence in _sentences(prompt or "")]
+    for n, sentence in enumerate(sentences):
+        at = sentence.find(name)
+        if at < 0:
+            continue
+        before = sentence[:at]
+        lead = before[-60:]
+        if _OWNED.search(lead):
+            return False
+        here = _mentions(sentence, packages)
+        if (here or (n and _mentions(sentences[n - 1], packages))) and _ATTRIBUTED.search(lead):
+            return True
+        if here and any(
+            re.search(rf"(?<![\w-]){re.escape(p)}(?:'s)?\W+(?:\w+\W+){{0,3}}$", before, re.IGNORECASE)
+            for p in packages
+        ):
+            return True
+    return False
+
+
 def check(prompt: str, root: Path, files: Iterable[str] | None, already: set[str] | None = None) -> Premise:
     """The premise note for ``prompt``: the asserted names nothing in ``root`` has. Silent
     without a file list (the index is not built) and for names already noted."""
     if files is None or not prompt:
         return Premise()
     asserted = [a for a in assertions(prompt) if not already or a.name not in already]
+    if asserted:
+        packages = _packages(root, prompt)
+        if packages:
+            asserted = [a for a in asserted if not library_api(a.name, prompt, packages)]
     if not asserted:
         return Premise()
     unbacked = resolve(asserted, root, files)

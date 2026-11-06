@@ -908,10 +908,11 @@ class Guard:
         """Whether this is the first edit of a task whose premise note may go unheeded: a file
         tool's edit, or a shell command with positive evidence of a write (day 3). A command
         Truthstone cannot prove read-only is not an edit for that: reading the code to verify
-        the premise is what the note asks for, and holding it only confused the agent."""
+        the premise is what the note asks for, and holding it only confused the agent. Nor is a
+        command that writes only outside the repository (``… | tee /tmp/run.log``)."""
         if not event.task_id or event.task_id not in ws.premise_holds:
             return False
-        return event.is_mutating or (event.tool in SHELL_TOOLS and checks.writes_files(event))
+        return event.is_mutating or (event.tool in SHELL_TOOLS and checks.writes_inside(event, ws.root))
 
     @staticmethod
     def _premise_hold(event: AgentEvent, ws: Workspace) -> Decision | None:

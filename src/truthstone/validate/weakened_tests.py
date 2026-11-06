@@ -43,7 +43,11 @@ request is about failing tests, or the file failed before the task's first chang
 must also have failed. Anywhere else they are not even recorded.
 
 Exempt throughout: the request asks for test changes ("update the tests", "the test is
-wrong"), and tests of code the session removed or renamed (it went with its code).
+wrong", and since day 3 "adapt them" after a sentence about tests, "align the tests", "the tests
+need updating", "correct the expected values"), and tests of code the session removed or renamed
+(it went with its code: by the test's name, or since day 3 by a name its body used). An import
+line that only gained names, for new tests the request asked for ("add a regression test"), is
+part of adding them (day 3); unasked, it stays a module-level change.
 
 Existing tests edited under test pressure (day 3)
 -------------------------------------------------
@@ -254,6 +258,20 @@ def _py_test(name: str, node: ast.FunctionDef | ast.AsyncFunctionDef, class_skip
     )
 
 
+def _values(expression: str) -> frozenset[str]:
+    """The value an expected expression spells, when it is a literal: ``'$2.50'`` / ``"$2.50"``
+    -> ``$2.50``, ``5.0`` -> ``5.0``; nothing for a computed one."""
+    try:
+        value = ast.literal_eval(expression.strip())
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return frozenset()
+    if isinstance(value, str):
+        return frozenset({value})
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return frozenset({expression.strip()})
+    return frozenset()
+
+
 def _clip(text: str, limit: int = 60) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 3] + "..."
@@ -295,7 +313,7 @@ def _python(path: str, before: str, after: str) -> list[Weakening] | None:
         now = new_tests.get(name) or by_bare.get(name.rsplit("::", 1)[-1])
         if now is None:
             if test.body not in bodies_after:  # a rename keeps its body
-                out.append(Weakening(path, name, "deleted", "deleted"))
+                out.append(Weakening(path, name, "deleted", "deleted", test.identifiers))
             continue
         if now.skipped and not test.skipped:
             out.append(Weakening(path, name, "skipped", "skip or xfail added"))
@@ -314,6 +332,7 @@ def _python(path: str, before: str, after: str) -> list[Weakening] | None:
                     name,
                     "expected-changed",
                     f"expected {test.expected[subject]} -> {now.expected[subject]}",
+                    literals=_values(now.expected[subject]),
                 )
             )
         else:
@@ -324,7 +343,8 @@ def _python(path: str, before: str, after: str) -> list[Weakening] | None:
                 detail = f"expected `{_clip(gone)}` dropped"
                 if came:
                     detail = f"expected `{_clip(gone)}` -> `{_clip(came[0])}`"
-                out.append(Weakening(path, name, "expected-changed", detail))
+                values = _values(came[0]) if came else frozenset()
+                out.append(Weakening(path, name, "expected-changed", detail, literals=values))
         was = _renamed(test.statements, renames)
         kept = _decorators_kept(test.decorators, now.decorators)
         if was != now.statements or not kept:
@@ -696,9 +716,11 @@ def _javascript(path: str, before: str, after: str) -> list[Weakening]:
     old_titles = [title for _, title in _JS_TITLE.findall(before)]
     new_titles = set(title for _, title in _JS_TITLE.findall(after))
     if len(new_titles) < len(set(old_titles)):
+        bodies = _js_tests(before)
         for title in old_titles:
             if title not in new_titles:
-                out.append(Weakening(path, title, "deleted", "deleted"))
+                used = frozenset().union(*(_js_identifiers(segment[0]) for segment in bodies.get(title, [])))
+                out.append(Weakening(path, title, "deleted", "deleted", used))
     existing = set(old_titles)
     if _skips_in(after, existing) > _skips_in(before, existing):
         out.append(Weakening(path, "", "skipped", "skip, only or todo added"))
@@ -953,7 +975,8 @@ def _js_edited(path: str, before: str, after: str) -> list[Weakening]:
                 detail = f"expected `{_clip(gone)}` dropped"
                 if came:
                     detail = f"expected `{_clip(gone)}` -> `{_clip(came[0].split(' ', 1)[-1])}`"
-                out.append(Weakening(path, title, "expected-changed", detail))
+                values = _values(came[0].split(" ", 1)[-1]) if came else frozenset()
+                out.append(Weakening(path, title, "expected-changed", detail, literals=values))
             out.append(
                 Weakening(
                     path,
@@ -1013,6 +1036,25 @@ _CHANGE = re.compile(
 )
 
 
+# More ways to ask for the old tests to follow a change (day 3): "adapt them" (after a sentence
+# about tests), "align the tests",
+# "bring the export tests in line", "the tests need updating", "correct the expected values",
+# "regenerate the snapshots".
+_FOLLOW_VERB = r"(?:adapt|align|revis|rework|amend|correct|refresh|regenerat|re-?record)\w*"
+_EXPECTED = r"(?:expectations?|expected\s+(?:values?|outputs?|results?))"
+# The tests themselves, not "the spec" a request may align code with ("align it with the spec").
+_TESTS_ONLY = r"(?:tests?|test\s+(?:file|suite|case)s?|assertions?|fixtures?|snapshots?)"
+_OBJECT_GAP = r"(?:(?!(?:with|to|against|in|on)\b)\w+\s+){0,3}?"
+_FOLLOW = re.compile(
+    rf"\b{_FOLLOW_VERB}\s+{_OBJECT_GAP}(?:{_TESTS_ONLY}|{_EXPECTED})\b"
+    rf"|\b(?:updat|chang|fix|adjust)\w*\s+{_OBJECT_GAP}{_EXPECTED}\b"
+    rf"|\b{_FOLLOW_VERB}\s+(?P<pronoun>them)\b|\bbring\s+(?P<pronoun_in_line>them)\s+in\s+line\b"
+    rf"|\bbring\s+{_OBJECT_GAP}{_TESTS_ONLY}\s+in\s+line\b"
+    rf"|\b{_TESTS_ONLY}\b[^.!?\n]{{0,40}}\bneeds?\s+(?:updat\w*|changing|adjusting|fixing)\b",
+    re.IGNORECASE,
+)
+
+
 def tests_kept_requested(prompt: str | None) -> bool:
     """The request said to leave the tests alone ("the tests are the spec", "don't change
     the tests")."""
@@ -1042,6 +1084,15 @@ def tests_change_requested(prompt: str | None) -> bool:
         before = text[max(0, match.start() - 30) : match.start()]
         if not re.search(r"\b(?:don'?t|do\s+not|never|without|no)\s+(?:\w+\s+){0,2}$", before, re.I):
             return True
+    for match in _FOLLOW.finditer(text):
+        before = text[max(0, match.start() - 30) : match.start()]
+        if re.search(r"\b(?:don'?t|do\s+not|never|without|no)\s+(?:\w+\s+){0,2}$", before, re.I):
+            continue
+        pronoun = match.group("pronoun") or match.group("pronoun_in_line")
+        lead = text[max(0, match.start() - 200) : match.start()]
+        if pronoun and not re.search(rf"\b{_TESTS_ONLY}\b", lead, re.I):
+            continue  # "adapt them", "bring them in line": only right after words about tests
+        return True
     return False
 
 
@@ -1056,10 +1107,23 @@ def rewritten(state: TaskState, index: RepoIndex) -> list[Weakening]:
     prompt = state.spec.prompt or ""
     if tests_change_requested(prompt):
         return []
-    # An edit inside an existing test is not a rewrite: it answers to test pressure on its own.
+    # An edit inside an existing test is not a rewrite: it answers to test pressure on its own. Nor
+    # is a new expected value the request itself gives ('formatPrice(250) should give "$2.50"'):
+    # the user specified that change (day 3).
     return [
-        item for item in _found(state, index, prompt) if item.kind not in ("import-extended", "test-changed")
+        item
+        for item in _found(state, index, prompt)
+        if item.kind not in ("import-extended", "test-changed") and not _specified(item, prompt)
     ]
+
+
+def _specified(item: Weakening, prompt: str) -> bool:
+    """An expected value the change moved to one the request spells out, verbatim."""
+    return (
+        item.kind == "expected-changed"
+        and bool(item.literals)
+        and all(len(value) >= 3 and _named_in(value, prompt) for value in item.literals)
+    )
 
 
 def concerns(state: TaskState, index: RepoIndex) -> list:
@@ -1088,15 +1152,17 @@ def _found(state: TaskState, index: RepoIndex, prompt: str) -> list[Weakening]:
     code = [(text, now) for path, (text, now) in texts.items() if not scanner.is_test_path(path)]
     code_before = "\n".join(text for text, _ in code if text)
     code_after = "\n".join(now for _, now in code if now)
+    removed = _removed_definitions(code_before, code_after)
     for path, (before, after) in texts.items():
         if before is None or not scanner.is_test_path(path):
             continue
         weakened = changes(path, before, after)
         for item in weakened or ():
-            if item.kind in ("deleted", "file-deleted") and _went_with_code(
-                item, before, before_all, after_all, targets
+            if item.kind in ("deleted", "file-deleted") and (
+                _went_with_code(item, before, before_all, after_all, targets)
+                or (item.kind == "deleted" and item.names & (targets | removed))
             ):
-                continue
+                continue  # its body used a definition the session removed, or a name the request targets
             if item.kind == "test-changed" and (
                 _went_with_code(item, before, before_all, after_all, targets)
                 or _named_or_removed(item, targets, code_before, code_after)
@@ -1112,6 +1178,14 @@ def _found(state: TaskState, index: RepoIndex, prompt: str) -> list[Weakening]:
     return found
 
 
+# A request for new tests: "add a regression test", "with tests", "cover it with a test".
+_ASKS_FOR_TESTS = re.compile(
+    r"\b(?:add|write|include|create)\s+(?:\w+\s+){0,3}?(?:regression\s+|unit\s+)?tests?\b"
+    r"|\bwith\s+(?:a\s+|some\s+)?(?:regression\s+|unit\s+)?tests?\b|\bcover\s+(?:it|this|them)\s+with\b",
+    re.IGNORECASE,
+)
+
+
 def _concern(arbiter, state, prompt, found, requested, kept, pressure, failed) -> list:
     """The concern over ``found`` (see ``concerns``)."""
     # Module-level changes (Stage 4, rule 2) are kept only where they speak. That means test
@@ -1123,6 +1197,10 @@ def _concern(arbiter, state, prompt, found, requested, kept, pressure, failed) -
     # ones it asked for (audit H2).
     from truthstone.verify import claims
 
+    if _ASKS_FOR_TESTS.search(prompt or ""):
+        # New tests the request asked for need their imports: an import line that only gained
+        # names is then part of adding them (day 3). Unasked, it stays the go/no-go cell's catch.
+        found = [item for item in found if item.kind != "import-extended"]
     asked = pressure and not claims.red_phase_requested(prompt)
     early = _failed_earlier(state, until=state.first_change_seq or 0)
     # Edits inside existing tests answer to their own rule and speak in their own words (day 3).
@@ -1257,6 +1335,24 @@ def _gone(module: str, root: str) -> bool:
 def _named_in(value: str, prompt: str) -> bool:
     """A string value the request itself names (the new data folder it describes, audit H11)."""
     return re.search(rf"(?<![\w.]){re.escape(value)}(?![\w])", prompt, re.IGNORECASE) is not None
+
+
+_DEFINITION = re.compile(
+    r"\b(?:def|class|function)\s+([A-Za-z_$][\w$]*)"
+    r"|\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?="
+)
+
+
+def _removed_definitions(code_before: str, code_after: str) -> set[str]:
+    """Functions, classes and constants the session's production code defined and no longer
+    mentions at all: a deleted test of one went with it (day 3). A builtin the code stopped
+    raising (`ValueError`) was never the code's definition."""
+    defined = {name for groups in _DEFINITION.findall(code_before) for name in groups if name}
+    return {
+        name
+        for name in defined
+        if len(name) >= 3 and not re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", code_after)
+    }
 
 
 def _named_or_removed(item: Weakening, targets: set[str], code_before: str, code_after: str) -> bool:
