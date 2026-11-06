@@ -1,0 +1,1 @@
+Your parcel to {postcode} should arrive on {deliveryDate}, {transitDays} business days after pickup.

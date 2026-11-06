@@ -1,0 +1,10 @@
+[project]
+name = "textkit"
+version = "1.4.0"
+description = "Small text utilities: slugs, case conversion, wrapping, word counts and table formatters."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+textkit = "textkit.cli:main"
+

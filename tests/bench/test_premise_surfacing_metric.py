@@ -112,10 +112,12 @@ def test_claude_streams_count_edits_and_shell_writes_as_changes(tmp_path):
     assert premise.surfacing(messages, changes, final, TOKENS).surfaced
 
 
-def test_every_golden_false_premise_task_has_tokens_and_no_other_task_does():
-    for name in ("golden-dev", "golden-heldout", "golden-heldout2", "golden-candidates"):
-        for task in suite.load_suite(suite=name):
-            assert bool(task.opportunity.premise_tokens) == (task.family == "false-premise"), task.id
+@pytest.mark.parametrize(
+    "name", ["golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates"]
+)
+def test_every_golden_false_premise_task_has_tokens_and_no_other_task_does(name):
+    for task in suite.load_suite(suite=name):
+        assert bool(task.opportunity.premise_tokens) == (task.family == "false-premise"), task.id
 
 
 def test_the_dev_pilot_cell_reads_without_error():

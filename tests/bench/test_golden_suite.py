@@ -7,6 +7,7 @@ validated here by default.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -19,10 +20,11 @@ from truthstone.bench.codex import acceptance, premise, scripted, suite, toolcha
 PYTHON = os.path.abspath(os.environ.get("CODEX_BENCH_PYTHON", ".venv/bin/python"))
 DOC = suite.REPO_ROOT / "docs" / "BENCH-golden.md"
 SPLITS = ("golden-dev", "golden-heldout")
-# The second sealed held-out split (G22). It meets every rule the first one does, but its task list
-# stays out of the pre-registration's inventory: it was built blind, and the lead and the product's
-# implementers stay blind to it until its run.
-SEALED = ("golden-heldout2",)
+# The sealed held-out splits built blind (G22, G28). Each meets every rule the first one does, but its
+# task list stays out of the pre-registration's inventory: it was built blind, and the lead and the
+# product's implementers stay blind to it until its run (golden-heldout2's run is done, G28; its list
+# still stays out).
+SEALED = ("golden-heldout2", "golden-heldout3")
 
 
 @pytest.fixture(scope="module")
@@ -118,7 +120,7 @@ def test_the_heldout_split_is_frozen_and_plan_refuses_anything_else(splits, tmp_
     assert cli.main(argv) == 2 and not out.exists()
 
 
-def test_g26_a_dev_check_may_take_part_of_the_spent_split_never_of_the_sealed_one(splits, tmp_path):
+def test_g26_a_dev_check_may_take_part_of_a_spent_split_never_of_the_sealed_one(splits, tmp_path):
     from truthstone.bench.codex import cli
     from truthstone.bench.codex.plan import Plan
 
@@ -130,12 +132,14 @@ def test_g26_a_dev_check_may_take_part_of_the_spent_split_never_of_the_sealed_on
         argv += ["--out", str(out)]
         return cli.main(argv), out, task
 
-    status, out, task = plan("golden-heldout", "pilot")
-    assert status == 0 and Plan.load(out).tasks == [task]
-    status, out, _ = plan("golden-heldout", "main")  # a main study needs every task
-    assert status == 2 and not out.exists()
-    status, out, _ = plan("golden-heldout2", "pilot")  # sealed: nothing before its release run
-    assert status == 2 and not out.exists() and "golden-heldout2" not in suite.SPENT
+    assert {"golden-heldout", "golden-heldout2"} == suite.SPENT  # G28: the second run is done too
+    for spent in sorted(suite.SPENT):
+        status, out, task = plan(spent, "pilot")
+        assert status == 0 and Plan.load(out).tasks == [task]
+        status, out, _ = plan(spent, "main")  # a main study needs every task
+        assert status == 2 and not out.exists()
+    status, out, _ = plan("golden-heldout3", "pilot")  # sealed: nothing before its release run
+    assert status == 2 and not out.exists() and "golden-heldout3" not in suite.SPENT
 
 
 def _node_available() -> bool:
@@ -178,7 +182,8 @@ def test_inventory_doc_lists_every_task(splits):
 
 
 def test_the_sealed_split_names_no_task_in_the_preregistration(splits):
-    """G22: the document gives heldout2's design, composition and digest, never its tasks."""
+    """G22, G28: the document gives heldout2's and heldout3's design, composition and digest, never
+    their tasks."""
     text = DOC.read_text(encoding="utf-8")
     for task in (t for name in SEALED for t in splits[name]):
         assert task.id not in text, task.id
@@ -209,21 +214,88 @@ def test_heldout2_is_disjoint_from_every_other_golden_suite(splits):
     assert {t.suite_root for t in splits["golden-heldout2"]} == {suite.GOLDEN_ROOT}
 
 
-def test_the_heldout2_split_is_frozen_and_plan_refuses_anything_else(splits, tmp_path):
+# G28: the recipes a golden-heldout3 task may use, per family: the documented recipes (§3) that the
+# registered rules leave in the held-out splits. Impossible: IMP-SPEC and its surface forms, and
+# IMP-REQ (G7 replaced IMP-NET and IMP-TOOL). False-premise: FP-CONFIG (G6, G11).
+HELDOUT3_RECIPES = {
+    "impossible": {"IMP-SPEC", "IMP-REQ"},
+    "false-premise": {"FP-CONFIG"},
+    "scope-creep": {"SC"},
+    "ignored-failure": {"IF"},
+    "narrowed-run": {"NR"},
+    "unverified-completion": {"UV-ENTRY", "UV-SKIP", "UV-SLOW", "UV-DIR", "UV-TOOL", "UV-MULTI"},
+    "test-tampering": {"TT"},
+    "partial-migration": {"PM"},
+    "destructive-command": {"DC"},
+    "unneeded-dependency": {"UD"},
+    "control": {
+        *("C-REDGREEN", "C-KNOWNFAIL", "C-CLEANUP", "C-DOCS"),
+        *("C-EXPLAIN", "C-WAIVER", "C-LEGITDEP", "C-FEATURE"),
+    },
+}
+
+
+def test_heldout3_is_composed_like_the_other_heldout_splits(splits):
+    """G28: 31 new instances, family by family, set by set and language by language as golden-heldout2
+    (which mirrored golden-heldout); recipes chosen within each family's registered recipes."""
+    held, held2, held3 = (splits[n] for n in ("golden-heldout", "golden-heldout2", "golden-heldout3"))
+    shape = lambda ts: Counter((t.set, t.family, t.language) for t in ts)  # noqa: E731
+    assert shape(held3) == shape(held2) == shape(held)
+    assert Counter(t.set for t in held3) == {"headroom": 18, "impossible": 5, "control": 8}
+    assert Counter(t.language for t in held3) == {"python": 19, "typescript": 12}
+    assert set(HELDOUT3_RECIPES) == set(suite.FAMILIES)
+    for task in held3:
+        assert _recipe_group(task.recipe) in HELDOUT3_RECIPES[task.family], (task.id, task.recipe)
+    controls = [t.recipe for t in held3 if t.set == "control"]
+    assert len(set(controls)) == len(controls) == 8  # every control recipe, once
+    # Each group of unverified-completion recipes has an instance (§2): a dropped requirement, an
+    # unrunnable suite, and a suite hidden by default.
+    uv = {t.recipe for t in held3 if t.family == "unverified-completion"}
+    assert {"UV-MULTI", "UV-TOOL"} <= uv and uv & {"UV-ENTRY", "UV-SKIP", "UV-SLOW", "UV-DIR"}
+
+
+def _sha(path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_heldout3_is_new_and_disjoint_from_every_other_golden_suite(splits):
+    """G28: no id, prompt, hidden test or solution of heldout3 is taken from another golden suite."""
+    held3 = splits["golden-heldout3"]
+    others = [t for name in (*SPLITS, "golden-heldout2") for t in splits[name]]
+    others += suite.load_suite(suite="golden-candidates")
+    assert held3 and not {t.id for t in held3} & {t.id for t in others}
+    assert {t.suite_root for t in held3} == {suite.GOLDEN_ROOT}
+    prompts = lambda ts: {t.prompt(p) for t in ts for p in suite.PHRASINGS}  # noqa: E731
+    assert not prompts(held3) & prompts(others)
+
+    def material(tasks):  # hidden tests and scripted solutions, by content (empty files aside)
+        files = [f for t in tasks for d in ("hidden", "solutions") for f in (t.root / d).rglob("*")]
+        return {_sha(f) for f in files if f.is_file() and "__pycache__" not in f.parts and f.stat().st_size}
+
+    assert not material(held3) & material(others)
+
+
+@pytest.mark.parametrize("name", SEALED)
+def test_the_sealed_splits_are_frozen_and_plan_refuses_anything_else(splits, name, tmp_path):
     from truthstone.bench.codex import cli
 
-    held2 = splits["golden-heldout2"]
-    digest = suite.suite_digest(held2)
-    assert digest == suite.FROZEN["golden-heldout2"] == _registered_digest("golden-heldout2")
+    tasks = splits[name]
+    digest = suite.suite_digest(tasks)
+    assert digest == suite.FROZEN[name] == _registered_digest(name)
     out = tmp_path / "subset.json"
-    argv = ["plan", "--suite", "golden-heldout2", "--task", held2[0].id, "--arms", "both", "--stage", "main"]
+    argv = ["plan", "--suite", name, "--task", tasks[0].id, "--arms", "both", "--stage", "main"]
     argv += ["--phrasing", "canonical", "--replicates", "1", "--name", "subset", "--out", str(out)]
     assert cli.main(argv) == 2 and not out.exists()
 
 
-def test_t4a_reads_heldout2_premise_tokens_and_the_honest_answer_surfaces_them(splits, tmp_path):
-    """The first held-out run could not compute T4a: its tokens were never read. heldout2's are."""
-    premised = [t for t in splits["golden-heldout2"] if t.family == "false-premise"]
+@pytest.mark.parametrize("name", SEALED)
+def test_t4a_reads_the_sealed_splits_premise_tokens_and_the_honest_answer_surfaces_them(
+    splits, name, tmp_path
+):
+    """The first held-out run could not compute T4a: its tokens were never read. heldout2's and
+    heldout3's are."""
+    assert name in acceptance.PREMISE_SUITES
+    premised = [t for t in splits[name] if t.family == "false-premise"]
     assert len(premised) == 2 and all(t.opportunity.premise_tokens for t in premised)
     cells = [{"task": t.id, "family": t.family} for t in premised]
     assert acceptance._premise_tokens(cells) == {t.id: t.opportunity.premise_tokens for t in premised}

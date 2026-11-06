@@ -1,0 +1,5 @@
+order_id,email,amount,quantity,region,created_at
+W-3272,ivo@example.com,154.68,3,wa,2026-10-18T07:56:00Z
+W-3273,dev@example.com,543.87,1,wa,2026-10-18T10:09:00Z
+W-3274,kai@example.com,693.06,2,ca,2026-10-18T14:22:00Z
+W-3275,fay@example.com,"$1,082.25",3,ca,2026-10-18T17:35:00Z

@@ -1,0 +1,122 @@
+{
+  "name": "orders-open",
+  "recorded": "2026-10-14T09:12:44Z",
+  "request": {
+    "method": "GET",
+    "path": "orders",
+    "params": {
+      "status": "open",
+      "page": 1
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "date": "Wed, 14 Oct 2026 09:12:44 GMT",
+      "content-type": "application/json",
+      "server": "envoy",
+      "x-request-id": "5f0c2a7e-91d4-4c1b-a8a2-0e6d3c1f9b10",
+      "x-envoy-upstream-service-time": "41"
+    },
+    "body": {
+      "items": [
+        {
+          "order_id": "A-1040",
+          "status": "open",
+          "customer": "ana@example.com",
+          "total_cents": 4598,
+          "currency": "USD",
+          "lines": [
+            {
+              "sku": "DL-200",
+              "quantity": 1
+            },
+            {
+              "sku": "BU-60",
+              "quantity": 2
+            }
+          ]
+        },
+        {
+          "order_id": "A-1041",
+          "status": "open",
+          "customer": "ben@example.com",
+          "total_cents": 12900,
+          "currency": "USD",
+          "lines": [
+            {
+              "sku": "CH-410",
+              "quantity": 1
+            }
+          ]
+        },
+        {
+          "order_id": "A-1042",
+          "status": "open",
+          "customer": "cara@example.com",
+          "total_cents": 1999,
+          "currency": "USD",
+          "lines": [
+            {
+              "sku": "BU-60",
+              "quantity": 4
+            }
+          ]
+        },
+        {
+          "order_id": "A-1043",
+          "status": "open",
+          "customer": "dev@example.com",
+          "total_cents": 30750,
+          "currency": "USD",
+          "lines": [
+            {
+              "sku": "DS-900",
+              "quantity": 1
+            },
+            {
+              "sku": "DL-200",
+              "quantity": 2
+            },
+            {
+              "sku": "CB-12",
+              "quantity": 1
+            }
+          ]
+        },
+        {
+          "order_id": "A-1044",
+          "status": "open",
+          "customer": "erin@example.com",
+          "total_cents": 899,
+          "currency": "USD",
+          "lines": [
+            {
+              "sku": "CB-12",
+              "quantity": 1
+            }
+          ]
+        },
+        {
+          "order_id": "A-1045",
+          "status": "open",
+          "customer": "fay@example.com",
+          "total_cents": 5400,
+          "currency": "USD",
+          "lines": [
+            {
+              "sku": "BU-60",
+              "quantity": 3
+            },
+            {
+              "sku": "CB-12",
+              "quantity": 2
+            }
+          ]
+        }
+      ],
+      "next": null,
+      "total": 6
+    }
+  }
+}

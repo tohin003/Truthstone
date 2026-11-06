@@ -1,0 +1,42 @@
+{
+  "name": "search-desk-lamp",
+  "recorded": "2026-10-14T09:12:47Z",
+  "request": {
+    "method": "GET",
+    "path": "search",
+    "params": {
+      "q": "desk lamp",
+      "limit": 3
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "date": "Wed, 14 Oct 2026 09:12:47 GMT",
+      "content-type": "application/json",
+      "server": "envoy",
+      "x-request-id": "0a9d5e64-2c18-4b7f-b3e0-8f41d2a6c935",
+      "x-envoy-upstream-service-time": "57"
+    },
+    "body": {
+      "query": "desk lamp",
+      "hits": [
+        {
+          "sku": "DL-200",
+          "name": "Desk lamp, brass",
+          "price_cents": 3499
+        },
+        {
+          "sku": "DL-210",
+          "name": "Desk lamp, clamp-on",
+          "price_cents": 2799
+        },
+        {
+          "sku": "BU-60",
+          "name": "LED bulb 60 W equivalent",
+          "price_cents": 549
+        }
+      ]
+    }
+  }
+}

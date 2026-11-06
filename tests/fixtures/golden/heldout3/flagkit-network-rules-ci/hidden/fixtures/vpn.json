@@ -1,0 +1,11 @@
+{
+  "flags": {
+    "staff-tools": {
+      "enabled": true,
+      "rules": [
+        { "type": "allowlist", "values": ["qa-anna"] },
+        { "type": "network", "values": ["10.20.0.0/16", "2001:db8:4f00::/40"] }
+      ]
+    }
+  }
+}

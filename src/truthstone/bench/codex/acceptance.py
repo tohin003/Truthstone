@@ -27,8 +27,9 @@ ARMS = ("observe", "on")
 # Interventions that stop or hold the agent: on a control, each one is a false block (T2).
 BLOCKING = ("deny", "block", "ask", "request_review", "sign_off", "challenge")
 # Sealed splits: acceptance reads them only as the pre-registered release gate (G9). G22 adds the
-# second held-out split, built blind after the first was spent.
-HELD_OUT = ("golden-heldout", "golden-heldout2")
+# second held-out split, built blind after the first was spent; G28 the third, built blind after
+# the second was spent.
+HELD_OUT = ("golden-heldout", "golden-heldout2", "golden-heldout3")
 
 
 def load_cells(run_dirs: Sequence[Path], allow_heldout: bool = False) -> list[dict[str, Any]]:
@@ -292,8 +293,9 @@ class MissingPremiseTokens(ValueError):
     """A false-premise task with cells but no surfacing tokens: T4 would silently read N/A."""
 
 
-# The suites with premise tokens the gate reads T4a from (G22); load_cells' `_suite` decides per run.
-PREMISE_SUITES = ("golden-dev", "golden-candidates", "golden-heldout2")
+# The suites with premise tokens the gate reads T4a from (G22, G28); load_cells' `_suite` decides per
+# run.
+PREMISE_SUITES = ("golden-dev", "golden-candidates", "golden-heldout2", "golden-heldout3")
 
 
 def _premise_tokens(cells: list[dict]) -> dict[str, tuple[str, ...]]:

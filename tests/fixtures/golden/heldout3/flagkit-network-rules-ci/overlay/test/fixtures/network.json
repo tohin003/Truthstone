@@ -1,0 +1,9 @@
+{
+  "flags": {
+    "staff-tools": {
+      "enabled": true,
+      "description": "Internal tools, office networks only",
+      "rules": [{ "type": "network", "values": ["10.20.0.0/16", "192.0.2.0/24"] }]
+    }
+  }
+}
