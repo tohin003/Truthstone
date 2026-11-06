@@ -322,6 +322,14 @@ _FINISHES: dict[ReasonCategory, str] = {
     ),
 }
 
+# An edit inside an existing test under test pressure (``validate/weakened_tests.py``, day 3):
+# its own lead, so its own finishes, which keep the new checks as new tests.
+EDITED_LEAD = "This change edits tests that existed before it"
+_EDITED_FINISH = (
+    "Accepted finishes: restore the existing tests (put any new checks in new tests next to them) and "
+    'finish; or finish with "not done: <which existing test is wrong, and why>".'
+)
+
 
 SPEC_EROSION_AGAIN = "spec_erosion:again"
 _AGAIN_FINISH = (
@@ -366,6 +374,8 @@ def _finishes(first: Concern) -> str:
     if first.text.startswith(_CAUSED_LEAD):
         # No "why it should stay": the disclosure already said why, and the tests are still red.
         return _CAUSED_FINISH
+    if first.text.startswith(EDITED_LEAD):
+        return _EDITED_FINISH
     return _FINISHES.get(first.category, _DEFAULT_FINISHES)
 
 

@@ -44,6 +44,30 @@ must also have failed. Anywhere else they are not even recorded.
 
 Exempt throughout: the request asks for test changes ("update the tests", "the test is
 wrong"), and tests of code the session removed or renamed (it went with its code).
+
+Existing tests edited under test pressure (day 3)
+-------------------------------------------------
+When the request is about failing tests ("CI is red, get it green", "X fails, fix it"), the
+tests that existed are the yardstick it asks to meet, and a grader that holds them to the
+letter fails *any* edit inside one, an added assertion included. Agents strengthen them
+helpfully: a new check slipped into an existing test, next to the new tests they add. So
+**test-changed** is its own finding, with its own message, separate from weakening:
+
+* a test that existed before the task (the same qualified name in Python, the same title in
+  JS/TS) has a different body: any statement added, removed or changed (Python by AST, its
+  decorators included; JS/TS by code lines, comments and blank lines dropped);
+* the request is about failing tests (``spec_integrity.test_pressure_requested``), is not a
+  requested red phase, and does not excuse the failure (flaky, known, leave it failing);
+  and that test's file failed in a run of this task (file-level evidence is enough: node:test
+  names no test ids); **or** the request says to leave the tests alone (``tests_kept_requested``),
+  failure or not.
+
+It is never even recorded anywhere else: a behaviour change legitimately edits the tests that
+pinned the old behaviour. New tests, new files and new module-level helpers are never a finding;
+a test that changed with code the session removed, or that the request renames, is exempt; and
+the request asking for test changes exempts it, as it exempts everything here. JS/TS also gets
+the expected-value comparison Python has (``assert.equal(x, 3)`` -> ``assert.equal(x, 4)``,
+``expect(x).toBe(…)``), which speaks under the weakening rules above.
 """
 
 from __future__ import annotations
@@ -60,7 +84,7 @@ from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
 from truthstone.validate import spec_integrity
 
-__all__ = ["Weakening", "concerns", "tests_change_requested", "tests_kept_requested", "weakenings"]
+__all__ = ["Weakening", "changes", "concerns", "tests_change_requested", "tests_kept_requested", "weakenings"]
 
 _PY = (".py",)
 _JS = (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts")
@@ -71,11 +95,12 @@ class Weakening:
     path: str
     test: str  # the test's name, or "" for the file
     # skipped | hack | deleted | fewer-assertions | expected-changed | file-deleted | module-level |
-    # import-extended
+    # import-extended | test-changed
     kind: str
     detail: str = ""
     # module-level: the identifiers the change touched (a deleted statement's, or those a changed
     # one gained or lost), so a rename the request names, or code the session removed, exempts it.
+    # test-changed: the identifiers the test's body lost, for the same exemptions.
     names: frozenset[str] = frozenset()
     # module-level: string values a changed statement gained (the request may name them)
     literals: frozenset[str] = frozenset()
@@ -140,6 +165,11 @@ class _PyTest:
     # still asserted moved the yardstick as surely as a changed literal (day 2, T1: a round
     # trip's `== name` rewritten as `== expected`, computed to agree with the new code).
     checks: dict[str, frozenset[str]] = field(default_factory=dict)
+    # Its decorators and its statements, each normalised, and the identifiers it mentions:
+    # whether an existing test was edited at all, and whether only by additions (day 3).
+    decorators: tuple[tuple[str, tuple[str, ...] | None], ...] = ()
+    statements: tuple[str, ...] = ()
+    identifiers: frozenset[str] = frozenset()
 
 
 def _py_tests(text: str) -> tuple[dict[str, _PyTest], set[str], bool] | None:
@@ -207,7 +237,18 @@ def _py_test(name: str, node: ast.FunctionDef | ast.AsyncFunctionDef, class_skip
     skipped = skipped or bool(_SKIP_CALL.search(ast.unparse(node)))
     body = ast.dump(ast.Module(body=node.body, type_ignores=[]), include_attributes=False)
     frozen = {subject: frozenset(values) for subject, values in checks.items()}
-    return _PyTest(name, body, asserts, skipped, expected, tautologies, frozen)
+    return _PyTest(
+        name,
+        body,
+        asserts,
+        skipped,
+        expected,
+        tautologies,
+        frozen,
+        decorators=tuple(_decorator(d) for d in node.decorator_list),
+        statements=tuple(ast.dump(s, include_attributes=False) for s in node.body),
+        identifiers=_identifiers(node),
+    )
 
 
 def _clip(text: str, limit: int = 60) -> str:
@@ -246,6 +287,7 @@ def _python(path: str, before: str, after: str) -> list[Weakening] | None:
     by_bare = {}
     for new_name, new_test in new_tests.items():
         by_bare.setdefault(new_name.rsplit("::", 1)[-1], new_test)
+    renames = _module_renames(before, after)
     for name, test in old_tests.items():
         now = new_tests.get(name) or by_bare.get(name.rsplit("::", 1)[-1])
         if now is None:
@@ -280,8 +322,94 @@ def _python(path: str, before: str, after: str) -> list[Weakening] | None:
                 if came:
                     detail = f"expected `{_clip(gone)}` -> `{_clip(came[0])}`"
                 out.append(Weakening(path, name, "expected-changed", detail))
+        was = _renamed(test.statements, renames)
+        kept = _decorators_kept(test.decorators, now.decorators)
+        if was != now.statements or not kept:
+            out.append(
+                Weakening(
+                    path,
+                    name,
+                    "test-changed",
+                    _EDITED_ADDED if kept and _within_order(was, now.statements) else _EDITED_CHANGED,
+                    test.identifiers - now.identifiers - set(renames),
+                )
+            )
     out.extend(_module_level(path, before, after))
     return out
+
+
+def _decorator(node: ast.expr) -> tuple[str, tuple[str, ...] | None]:
+    """A test's decorator as compared across a change: its dump, and for a ``parametrize`` whose
+    cases are a literal list or tuple, those cases apart, so a case added to the table is a new
+    test (audit H9: new cases are additions), not an edit of the old ones."""
+    dump = ast.dump(node, include_attributes=False)
+    if not (isinstance(node, ast.Call) and ast.unparse(node.func).endswith("parametrize")):
+        return dump, None
+    cases = node.args[1] if len(node.args) >= 2 else None
+    keywords = list(node.keywords)
+    for keyword in node.keywords:
+        if keyword.arg == "argvalues":
+            cases = keyword.value
+            keywords.remove(keyword)
+    if not isinstance(cases, (ast.List, ast.Tuple)):
+        return dump, None
+    head = ast.Call(func=node.func, args=node.args[:1], keywords=keywords)
+    items = tuple(ast.dump(item, include_attributes=False) for item in cases.elts)
+    return ast.dump(head, include_attributes=False), items
+
+
+def _decorators_kept(old: tuple, new: tuple) -> bool:
+    """The same decorators, a parametrize table that only gained cases included."""
+    if len(old) != len(new):
+        return False
+    for (head, cases), (now_head, now_cases) in zip(old, new, strict=True):
+        if head != now_head:
+            return False
+        if cases != now_cases and (cases is None or now_cases is None or not _within(cases, now_cases)):
+            return False
+    return True
+
+
+def _renamed(statements: tuple[str, ...], renames: dict[str, str]) -> tuple[str, ...]:
+    """``statements`` (AST dumps) with module-level names the change renamed, body intact, read
+    under their new names: a test that only follows a renamed helper is not edited."""
+    if not renames:
+        return statements
+    pattern = re.compile(r"Name\(id='(" + "|".join(re.escape(name) for name in renames) + r")'")
+    return tuple(pattern.sub(lambda m: f"Name(id='{renames[m.group(1)]}'", s) for s in statements)
+
+
+def _module_renames(before: str, after: str) -> dict[str, str]:
+    """Module-level helpers, classes and constants renamed with their body or value intact:
+    old name -> new name."""
+    try:
+        old, new = _module_units(ast.parse(before)), _module_units(ast.parse(after))
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
+        return {}
+    new_keys = {unit.key for unit in new}
+    old_keys = {unit.key for unit in old}
+    out: dict[str, str] = {}
+    for unit in old:
+        if unit.binds or unit.key in new_keys or ":" not in unit.key:
+            continue
+        twin = next((o for o in new if o.dump == unit.dump and o.key not in old_keys and not o.binds), None)
+        if twin is None:
+            continue
+        before_name, after_name = unit.key.split(":", 1)[1], twin.key.split(":", 1)[1]
+        if before_name.isidentifier() and after_name.isidentifier():
+            out[before_name] = after_name
+    return out
+
+
+# How a test-changed finding describes the edit.
+_EDITED_ADDED = "lines added inside it"
+_EDITED_CHANGED = "changed"
+
+
+def _within_order(old: tuple[str, ...] | list[str], new: tuple[str, ...] | list[str]) -> bool:
+    """Every item of ``old`` is in ``new``, in the same order: ``new`` only added to it."""
+    remaining = iter(new)
+    return all(any(item == other for other in remaining) for item in old)
 
 
 # -- module level (Stage 4, rule 2) -------------------------------------------------------------------
@@ -584,12 +712,267 @@ def _javascript(path: str, before: str, after: str) -> list[Weakening]:
                 f"{len(_JS_ASSERT.findall(before))} assertion(s) -> {len(_JS_ASSERT.findall(after))}",
             )
         )
+    out.extend(_js_edited(path, before, after))
+    return out
+
+
+# -- JS/TS: each test's own body (day 3) --------------------------------------------------------
+#
+# The title-and-count checks above cannot see an edit inside a test: a changed expected value,
+# a changed input, an assertion added. Each `test("title", …)` / `it("title", …)` call is read
+# with its body (the rest of the call), comments and blank lines dropped, and compared with the
+# call of the same title before the change; tests repeated under one title (a loop, `describe`
+# blocks) are compared in order. A scanner, not a parser: strings, template literals, comments
+# and regular-expression literals are skipped so their brackets do not count. A file it cannot
+# make sense of gives different bodies on both sides only where the text really changed.
+
+_JS_TEST_CALL = re.compile(
+    r"(?<![\w$.])(?:it|test)(?:\.(?:only|skip|todo|concurrent|sequential|fails|failing))?\s*\("
+)
+# A "/" after one of these (or after a keyword such as `return`) starts a regular expression.
+_JS_REGEX_AFTER = frozenset("([{,;:=!&|?+-*%<>~^")
+_JS_REGEX_KEYWORDS = frozenset(
+    {"return", "typeof", "case", "in", "of", "new", "delete", "void", "throw", "yield"}
+)
+_JS_COMPARE = re.compile(
+    r"(?<![\w$.])(?:assert|t)\s*\.\s*(?P<method>equal|strictEqual|deepEqual|deepStrictEqual|notEqual|"
+    r"notStrictEqual|notDeepEqual|notDeepStrictEqual|match|doesNotMatch|is|not|same|notSame)\s*\("
+)
+_JS_EXPECT = re.compile(r"(?<![\w$.])expect\s*\(")
+_JS_MATCHER = re.compile(
+    r"\s*(?:\.\s*(?:not|resolves|rejects)\s*)*\.\s*(?P<matcher>toBe|toEqual|toStrictEqual|toMatch|"
+    r"toContain|toContainEqual|toHaveLength|toBeCloseTo|toHaveProperty|toMatchObject|toThrow|"
+    r"toThrowError|toHaveBeenCalledWith)\s*\("
+)
+
+
+def _js_scan(text: str) -> tuple[str, str]:
+    """(``text`` with comments, string contents and regex literals blanked to spaces, ``text``
+    with only its comments blanked), both as long as ``text`` with every newline kept. Brackets
+    and calls found in the first are code; the second is what a body is compared by."""
+    blank: list[str] = []
+    kept: list[str] = []
+    n, i = len(text), 0
+    last = ""  # the last code character that is not white space
+    while i < n:
+        match = _JS_SPECIAL.search(text, i)
+        if match is None:
+            blank.append(text[i:])
+            kept.append(text[i:])
+            break
+        at, token = match.start(), match.group()
+        if at > i:
+            chunk = text[i:at]
+            blank.append(chunk)
+            kept.append(chunk)
+            stripped = chunk.rstrip()
+            last = stripped[-1] if stripped else last
+        if token in ("//", "/*"):
+            if token == "//":
+                end = text.find("\n", at)
+                end = n if end < 0 else end
+            else:
+                end = text.find("*/", at + 2)
+                end = n if end < 0 else end + 2
+            spaces = _NOT_NEWLINE.sub(" ", text[at:end])
+            blank.append(spaces)
+            kept.append(spaces)
+            i = end
+            continue
+        if token == "/" and not _js_regex_starts(text, at, last):
+            blank.append("/")
+            kept.append("/")
+            last, i = "/", at + 1
+            continue
+        end = max(_js_literal_end(text, at), at + 1)
+        blank.append(token + _NOT_NEWLINE.sub(" ", text[at + 1 : end]))
+        kept.append(text[at:end])
+        last, i = token, end
+    return "".join(blank), "".join(kept)
+
+
+_JS_SPECIAL = re.compile(r"//|/\*|['\"`/]")
+_NOT_NEWLINE = re.compile(r"[^\n]")
+_JS_STRING_END = {
+    '"': re.compile(r'(?:\\.|[^"\\\n])*(?:"|$)', re.M),
+    "'": re.compile(r"(?:\\.|[^'\\\n])*(?:'|$)", re.M),
+}
+_BRACKET = re.compile(r"[()\[\]{}]")
+_ARGUMENT_BREAK = re.compile(r"[()\[\]{},]")
+
+
+def _js_regex_starts(text: str, i: int, last: str) -> bool:
+    if not last or last in _JS_REGEX_AFTER:
+        return True
+    word = re.search(r"([A-Za-z_$][\w$]*)\s*$", text[max(0, i - 20) : i])
+    return bool(word) and word.group(1) in _JS_REGEX_KEYWORDS
+
+
+def _js_literal_end(text: str, i: int) -> int:
+    """``i`` at a quote, backtick or regex slash: the index just past the literal. A template
+    literal's ``${…}`` parts are skipped whole; a string or regex ends at its line's end."""
+    quote, n = text[i], len(text)
+    if quote in _JS_STRING_END:
+        return _JS_STRING_END[quote].match(text, i + 1).end()
+    j = i + 1
+    in_class = False
+    while j < n:
+        c = text[j]
+        if c == "\\":
+            j += 2
+            continue
+        if quote == "`":
+            if c == "`":
+                return j + 1
+            if c == "$" and text.startswith("${", j):
+                depth, j = 0, j + 1
+                while j < n:
+                    if text[j] in "'\"`":
+                        j = _js_literal_end(text, j)
+                        continue
+                    if text[j] == "{":
+                        depth += 1
+                    elif text[j] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    j += 1
+            j += 1
+            continue
+        if c == "\n":
+            return j  # an unterminated regex ends at its line
+        if c == "[":
+            in_class = True
+        elif c == "]":
+            in_class = False
+        elif c == "/" and not in_class:
+            j += 1
+            while j < n and text[j].isalpha():
+                j += 1  # the flags
+            return j
+        j += 1
+    return n
+
+
+def _js_close(blank: str, i: int) -> int:
+    """``i`` at an opening bracket of the blanked text: the index of its closing one."""
+    depth = 0
+    for match in _BRACKET.finditer(blank, i):
+        if match.group() in "([{":
+            depth += 1
+        else:
+            depth -= 1
+            if depth == 0:
+                return match.start()
+    return len(blank) - 1
+
+
+def _js_lines(code: str) -> tuple[str, ...]:
+    return tuple(line.strip() for line in code.splitlines() if line.strip())
+
+
+def _js_tests(text: str) -> dict[str, list[tuple[str, str]]]:
+    """title -> [(the call's blanked text after the title, the same with comments only blanked)],
+    for every test call whose first argument is a literal title, in order."""
+    blank, kept = _js_scan(text)
+    out: dict[str, list[tuple[str, str]]] = {}
+    for match in _JS_TEST_CALL.finditer(blank):
+        opening = match.end() - 1
+        k = opening + 1
+        while k < len(text) and text[k].isspace():
+            k += 1
+        if k >= len(text) or text[k] not in "'\"`":
+            continue
+        end = _js_literal_end(text, k)
+        title = text[k + 1 : end - 1]
+        close = _js_close(blank, opening)
+        out.setdefault(title, []).append((blank[end:close], kept[end:close]))
+    return out
+
+
+def _js_arguments(blank: str, kept: str, opening: int) -> list[str]:
+    """The arguments of the call whose ``(`` is at ``opening``, each with its white space folded."""
+    args, depth, start = [], 0, opening + 1
+    for match in _ARGUMENT_BREAK.finditer(blank, opening):
+        c, at = match.group(), match.start()
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(kept[start:at])
+                break
+        elif depth == 1:
+            args.append(kept[start:at])
+            start = at + 1
+    return [" ".join(arg.split()) for arg in args if arg.strip()]
+
+
+def _js_checks(segment: tuple[str, str]) -> dict[str, frozenset[str]]:
+    """A test body's comparisons: subject -> every expected value it is asserted against
+    (``assert.equal(actual, expected)``, ``t.is(actual, expected)``, ``expect(actual).toBe(x)``)."""
+    blank, kept = segment
+    checks: dict[str, set[str]] = {}
+    for match in _JS_COMPARE.finditer(blank):
+        args = _js_arguments(blank, kept, match.end() - 1)
+        if len(args) >= 2:
+            checks.setdefault(args[0], set()).add(f"{match.group('method')} {args[1]}")
+    for match in _JS_EXPECT.finditer(blank):
+        opening = match.end() - 1
+        subject = _js_arguments(blank, kept, opening)
+        matcher = _JS_MATCHER.match(blank, _js_close(blank, opening) + 1)
+        if subject and matcher:
+            expected = _js_arguments(blank, kept, matcher.end() - 1)
+            checks.setdefault(subject[0], set()).add(f"{matcher.group('matcher')} {' , '.join(expected)}")
+    return {subject: frozenset(values) for subject, values in checks.items()}
+
+
+def _js_identifiers(code: str) -> frozenset[str]:
+    return frozenset(re.findall(r"[A-Za-z_$][\w$]*", code))
+
+
+def _js_edited(path: str, before: str, after: str) -> list[Weakening]:
+    """Expected values changed in, and edits to, tests that exist on both sides."""
+    old, new = _js_tests(before), _js_tests(after)
+    out: list[Weakening] = []
+    for title, calls in old.items():
+        for was_segment, now_segment in zip(calls, new.get(title, []), strict=False):
+            was, became = _js_lines(was_segment[1]), _js_lines(now_segment[1])
+            if was == became:
+                continue
+            before_checks, after_checks = _js_checks(was_segment), _js_checks(now_segment)
+            moved = [
+                s for s, values in before_checks.items() if s in after_checks and values - after_checks[s]
+            ]
+            if moved:
+                gone = sorted(before_checks[moved[0]] - after_checks[moved[0]])[0].split(" ", 1)[-1]
+                came = sorted(after_checks[moved[0]] - before_checks[moved[0]])
+                detail = f"expected `{_clip(gone)}` dropped"
+                if came:
+                    detail = f"expected `{_clip(gone)}` -> `{_clip(came[0].split(' ', 1)[-1])}`"
+                out.append(Weakening(path, title, "expected-changed", detail))
+            out.append(
+                Weakening(
+                    path,
+                    title,
+                    "test-changed",
+                    _EDITED_ADDED if _within_order(was, became) else _EDITED_CHANGED,
+                    _js_identifiers(was_segment[0]) - _js_identifiers(now_segment[0]),
+                )
+            )
     return out
 
 
 def weakenings(path: str, before: str, after: str | None) -> list[Weakening] | None:
     """How the change weakened an existing test file (``after`` None: deleted). None:
-    cannot tell (unparsable, unsupported language)."""
+    cannot tell (unparsable, unsupported language). An edit inside an existing test is not a
+    weakening: ``changes`` reports those too."""
+    found = changes(path, before, after)
+    return None if found is None else [item for item in found if item.kind != "test-changed"]
+
+
+def changes(path: str, before: str, after: str | None) -> list[Weakening] | None:
+    """``weakenings``, and every existing test whose body the change edited (``test-changed``)."""
     lower = path.lower()
     if after is None:
         return [Weakening(path, "", "file-deleted", "test file deleted")]
@@ -670,7 +1053,10 @@ def rewritten(state: TaskState, index: RepoIndex) -> list[Weakening]:
     prompt = state.spec.prompt or ""
     if tests_change_requested(prompt):
         return []
-    return [item for item in _found(state, index, prompt) if item.kind != "import-extended"]
+    # An edit inside an existing test is not a rewrite: it answers to test pressure on its own.
+    return [
+        item for item in _found(state, index, prompt) if item.kind not in ("import-extended", "test-changed")
+    ]
 
 
 def concerns(state: TaskState, index: RepoIndex) -> list:
@@ -702,12 +1088,17 @@ def _found(state: TaskState, index: RepoIndex, prompt: str) -> list[Weakening]:
     for path, (before, after) in texts.items():
         if before is None or not scanner.is_test_path(path):
             continue
-        weakened = weakenings(path, before, after)
+        weakened = changes(path, before, after)
         for item in weakened or ():
             if item.kind in ("deleted", "file-deleted") and _went_with_code(
                 item, before, before_all, after_all, targets
             ):
                 continue
+            if item.kind == "test-changed" and (
+                _went_with_code(item, before, before_all, after_all, targets)
+                or _named_or_removed(item, targets, code_before, code_after)
+            ):
+                continue  # the test followed code the request renames, or code the session removed
             if item.kind in _MODULE_KINDS and (
                 _named_or_removed(item, targets, code_before, code_after)
                 or any(_gone(name, index.root) for name in item.names if "." in name)  # moved (H10)
@@ -731,24 +1122,80 @@ def _concern(arbiter, state, prompt, found, requested, kept, pressure, failed) -
 
     asked = pressure and not claims.red_phase_requested(prompt)
     early = _failed_earlier(state, until=state.first_change_seq or 0)
+    # Edits inside existing tests answer to their own rule and speak in their own words (day 3).
+    edited = [item for item in found if item.kind == "test-changed"]
     found = [
         item
         for item in found
-        if item.kind not in _MODULE_KINDS
-        or (
-            not requested
-            and _failed(item, failed)
-            and (asked or (item.kind == "module-level" and _failed(item, early)))
+        if item.kind != "test-changed"
+        and (
+            item.kind not in _MODULE_KINDS
+            or (
+                not requested
+                and _failed(item, failed)
+                and (asked or (item.kind == "module-level" and _failed(item, early)))
+            )
         )
     ]
-    if not found:
-        return []
+    out = []
     speaking = [
         item
         for item in found
         if not requested
         and (item.always or kept or item.kind in _MODULE_KINDS or (pressure and _failed(item, failed)))
     ]
+    if found:
+        out.append(_weakened_concern(arbiter, found, speaking))
+    told = {(item.path, item.test) for item in speaking}
+    edits = _speaking_edits(arbiter, prompt, edited, requested, kept, asked, failed, told)
+    if edits:
+        out.append(_edited_concern(arbiter, edits, kept))
+    return out
+
+
+def _speaking_edits(arbiter, prompt, edited, requested, kept, asked, failed, told) -> list[Weakening]:
+    """The edits inside existing tests that speak (see the module doc): never when the request
+    asked for test changes; under its "leave the tests alone", always; otherwise under the
+    request's own test pressure, unexcused, in a test file that failed in this task. A test the
+    weakening concern already names is not named twice."""
+    if requested:
+        return []
+    excused = bool(arbiter._EXCUSED.search(prompt or ""))
+    return [
+        item
+        for item in edited
+        if (item.path, item.test) not in told and (kept or (asked and not excused and _failed(item, failed)))
+    ]
+
+
+def _edited_concern(arbiter, edits: list[Weakening], kept: bool) -> object:
+    shown = edits[:4]
+    listing = "\n".join(f'  - {item.path}: "{_clip(item.test, 80)}" ({item.detail})' for item in shown)
+    more = f"\n  - and {len(edits) - len(shown)} more" if len(edits) > len(shown) else ""
+    where = (
+        "although the request asked you to leave the tests alone"
+        if kept
+        else "in a test file that was failing when you were asked to make it pass"
+    )
+    text = (
+        f"{arbiter.EDITED_LEAD}, {where}:\n"
+        f"{listing}{more}\n"
+        "Those tests are the yardstick the request asks you to meet: they stay exactly as they were, "
+        "even to add checks."
+    )
+    finding = arbiter.finding(
+        ReasonCategory.TEST_WEAKENING,
+        Severity.HIGH,
+        summary=f"{len(edits)} existing test(s) edited under test pressure",
+        detail="; ".join(f"{item.path}::{item.test}: {item.detail}" for item in edits[:8]),
+        evidence=[
+            EvidenceRef(source="filesystem", path=item.path, symbol=item.test or None) for item in shown
+        ],
+    )
+    return arbiter.Concern(ReasonCategory.TEST_WEAKENING, text, finding)
+
+
+def _weakened_concern(arbiter, found: list[Weakening], speaking: list[Weakening]) -> object:
     shown = (speaking or found)[:4]
     listing = "\n".join(f"  - {item.describe()}" for item in shown)
     more = (
@@ -770,7 +1217,7 @@ def _concern(arbiter, state, prompt, found, requested, kept, pressure, failed) -
             EvidenceRef(source="filesystem", path=item.path, symbol=item.test or None) for item in shown
         ],
     )
-    return [arbiter.Concern(ReasonCategory.TEST_WEAKENING, text, finding, can_speak=bool(speaking))]
+    return arbiter.Concern(ReasonCategory.TEST_WEAKENING, text, finding, can_speak=bool(speaking))
 
 
 def _went_with_code(item: Weakening, before: str, before_all: str, after_all: str, targets: set[str]) -> bool:
@@ -841,17 +1288,22 @@ def _failed(item: Weakening, failed: tuple[set[str], set[str]]) -> bool:
     ids, files = failed
     if item.test:
         name = item.test.rsplit("::", 1)[-1]
-        if any(test.split("::")[-1].split("[", 1)[0] == name and item.path in test for test in ids):
+        # A node:test id is `path::title`, and a title may hold "[" or "::": compared whole too.
+        if any(
+            item.path in test
+            and (test.endswith("::" + item.test) or test.split("::")[-1].split("[", 1)[0] == name)
+            for test in ids
+        ):
             return True
         # An id without its file (some runners report the bare name): the name alone, exactly.
         # Not a substring: `test_totals` is not `tests/test_totals.py::test_totals_currency`
         # (audit of 66e1617, M10).
         if any("::" not in test and test.split("[", 1)[0] in (name, item.test) for test in ids):
             return True
-    return (
-        any(
-            item.path == path or item.path.endswith("/" + path) or path.endswith("/" + item.path)
-            for path in files
-        )
-        and not item.test
+    in_file = any(
+        item.path == path or item.path.endswith("/" + path) or path.endswith("/" + item.path)
+        for path in files
     )
+    # A test-level weakening needs that very test's failure. An edit inside an existing test
+    # (day 3) is judged by its file's: node:test, for one, names no test ids.
+    return in_file and (not item.test or item.kind == "test-changed")
