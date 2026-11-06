@@ -45,7 +45,7 @@ from truthstone.intent.models import TaskSpec
 from truthstone.repo import symbols_ts
 from truthstone.repo.gitinfo import repository_root
 from truthstone.repo.index import IndexDelta, RepoIndex
-from truthstone.validate import checks
+from truthstone.validate import checks, untracked_state
 from truthstone.verify import arbiter, completion_gate, runners, static
 
 log = logging.getLogger(__name__)
@@ -721,6 +721,13 @@ class Guard:
             task_id = task_id or memory_task_id()
             event.task_id = task_id
             state = ws.begin_task(task_id, spec, event.session_id)
+            if state is not None:
+                # The ignored local files as the task found them, for the Stop-time check of a
+                # command that rewrites one (validate/untracked_state.py). Taken on the worker:
+                # off the prompt's clock, and drained before any later event is judged, so before
+                # any tool of the task runs (WP9). Never raises; no snapshot is silence.
+                exclude = tuple(ws.settings.index.exclude_dirs)
+                ws.defer_call(functools.partial(untracked_state.remember, state, ws.index.root, exclude))
 
         notes, findings = self._prompt_notes(event, ws, spec, index)
         if previous is not None and state is not None:
