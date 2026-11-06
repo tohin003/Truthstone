@@ -27,7 +27,25 @@ A sentence is **kept** when the after-text has the same sentence, or one that sh
 marker and keeps most of its content words (renames, rewording, reflowing and moving it to
 another changed file all keep it). It is **removed** when nothing like it survives, and
 **qualified** when its counterpart adds an exception ("except", "unless", "other than",
-...) or changes a number the rule states. Adding normative text is never a finding.
+...) or changes a number the rule states. Adding a rule is never a finding.
+
+Rules without a marker word (day 3)
+-----------------------------------
+A rule moved to make a test pass does not always carry a marker, so three more shapes count:
+
+* **A documentation file is the spec itself.** In a README or a docs page (not a change log,
+  which is history) every sentence counts, marker or not: "An invoice number is the year
+  followed by a four-digit counter" states a rule as plainly as "must" does. Such a sentence
+  is kept only when a changed file still has it, or one that keeps most of its content words
+  (``DOC_KEEP_OVERLAP``); otherwise it was **rewritten**, and its closest new sentence is
+  shown beside it.
+* **A contract stated as what a call raises.** "Raises QueueFull when the queue is full" is a
+  rule too, but refactors reword and drop such docstring sentences routinely, so for these
+  markers (``CONTRACT_MARKERS``) only an added exception counts ("... unless the caller
+  forces it"), never a removal.
+* **An exception added beside a kept rule.** The rule stays word for word, and a new sentence
+  next to it restates it with an exception ("Guests may also ...; other accounts are
+  rejected."): the rule is **excepted**, the added sentence shown beside it.
 
 Precision, by construction
 --------------------------
@@ -60,6 +78,7 @@ __all__ = [
     "eroded",
     "is_doc_path",
     "is_docstring_source",
+    "is_prose_spec",
     "normative_markers",
     "sentences_of",
     "test_pressure_requested",
@@ -79,10 +98,15 @@ _MARKER = re.compile(
     r"(?P<at_least>at\s+least)|(?P<at_most>at\s+most)|(?P<no_more_than>no\s+more\s+than)|"
     r"(?P<guarantee>guarantee[sd]?)|(?P<invariant>invariants?)|"
     r"(?P<reject>rejects?|rejected)|(?P<refuse>refuses?|refused)|"
-    r"(?P<forbidden>forbidden|prohibited|not\s+(?:allowed|permitted))"
+    r"(?P<forbidden>forbidden|prohibited|not\s+(?:allowed|permitted))|"
+    r"(?P<raises>raises?|throws?)"
     r")\b",
     re.IGNORECASE,
 )
+# What a call raises or throws is a contract, but refactors reword and drop such docstring
+# sentences routinely: for a sentence whose only markers are these, only an added exception
+# (a "qualified" verdict) counts, never a removal (day 3).
+CONTRACT_MARKERS = frozenset({"raises"})
 
 # Words that, added to a kept rule, turn it into a rule with an exception.
 _QUALIFIER = re.compile(
@@ -251,6 +275,15 @@ def is_doc_path(path: str) -> bool:
 
 def is_docstring_source(path: str) -> bool:
     return path.lower().endswith(_PY_SUFFIXES + _JS_SUFFIXES)
+
+
+_LOG = re.compile(r"^(?:changelog|changes|history|news|release[-_ ]?notes|releases)(?:\.|$)", re.IGNORECASE)
+
+
+def is_prose_spec(path: str) -> bool:
+    """A documentation file whose every sentence is part of the spec: a README or a docs
+    page, not a change log or release notes (history, rewritten as a matter of course)."""
+    return is_doc_path(path) and not _LOG.match(PurePosixPath(path).name)
 
 
 # -- sentences ----------------------------------------------------------------------------
@@ -433,14 +466,29 @@ def _owners(path: str, text: str) -> set[str] | None:
 # -- erosion ---------------------------------------------------------------------------------
 
 KEEP_OVERLAP = 0.6  # share of the rule's content words a counterpart must keep
+# A documentation file's sentence without a marker is kept only by a closer rewording: with no
+# marker to pair on, a counterpart must keep this share of its content words (day 3).
+DOC_KEEP_OVERLAP = 0.8
+# The closest new sentence is shown beside a rewritten one when it shares this much of it.
+SHOWN_OVERLAP = 0.3
+# An added sentence restates a kept rule when this share of its own content words is the rule's.
+ADDED_OVERLAP = 0.5
+# Words that make an added sentence an exception to a rule it restates ("Other accounts are
+# rejected.", "Guests may also ...", day 3).
+_EXCEPTION = re.compile(
+    r"\b(?:others?|except|excepting|unless|also|only\s+(?:for|when|if)|but\s+not)\b", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True, slots=True)
 class Erosion:
     path: str
     sentence: Sentence
-    kind: str  # "removed" | "qualified"
-    counterpart: str = ""  # the qualified version, when there is one
+    # "removed" | "qualified" | "rewritten" (a documentation sentence without a marker) |
+    # "excepted" (kept, with an exception added beside it)
+    kind: str
+    # The new wording: the qualified or rewritten version, or the exception added beside it.
+    counterpart: str = ""
 
     @property
     def where(self) -> str:
@@ -456,10 +504,12 @@ class _Pool:
 
     exact: set[str] = field(default_factory=set)
     by_marker: dict[str, list[Sentence]] = field(default_factory=dict)
+    every: list[tuple[Sentence, frozenset[str]]] = field(default_factory=list)  # with content words
 
     def add(self, sentences: Iterable[Sentence]) -> None:
         for sentence in sentences:
             self.exact.add(_norm(sentence.text))
+            self.every.append((sentence, _content(sentence.text)))
             for marker in sentence.markers:
                 self.by_marker.setdefault(marker, []).append(sentence)
 
@@ -485,9 +535,10 @@ def eroded(
     after: dict[str, str | None],
     targets: Iterable[str] = (),
 ) -> list[Erosion]:
-    """Normative sentences of the ``before`` texts that the ``after`` texts removed or
-    qualified. ``after[path]`` is None for a deleted file. ``targets`` are identifiers the
-    request renames or removes: a rule naming one went with it. Never raises."""
+    """Rules of the ``before`` texts that the ``after`` texts removed, qualified, rewrote (a
+    documentation sentence) or excepted (an exception added beside it). ``after[path]`` is None
+    for a deleted file. ``targets`` are identifiers the request renames or removes: a rule
+    naming one went with it. Never raises."""
     try:
         return _eroded(before, after, set(targets))
     except Exception:  # noqa: BLE001 - an integrity check never fails the hook
@@ -517,9 +568,11 @@ def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[s
         if old_sentences is None or path not in after_sentences:
             continue
         owners_after = _owners(path, new) if is_docstring_source(path) else None
+        prose = is_prose_spec(path)
         for sentence in old_sentences:
             markers = sentence.markers
-            if not markers or _norm(sentence.text) in pool.exact:
+            normative = markers - CONTRACT_MARKERS
+            if (not markers and not prose) or _norm(sentence.text) in pool.exact:
                 continue
             if owners_after is not None and sentence.owner not in owners_after:
                 continue  # the function or class it documented is gone: it went with its code
@@ -532,10 +585,62 @@ def _eroded(before: dict[str, str], after: dict[str, str | None], targets: set[s
                 _mentions(before_text_all, token) and not _mentions(after_text_all, token) for token in tokens
             ):
                 continue  # names code the session removed or renamed
-            verdict, counterpart = _counterpart(sentence, markers, pool)
-            if verdict == "kept":
-                continue
+            if normative or not prose:
+                verdict, counterpart = _counterpart(sentence, markers, pool)
+                if verdict == "kept" or (not normative and verdict != "qualified"):
+                    continue  # a contract sentence counts only with an exception added
+            else:
+                verdict, counterpart = _rewritten(sentence, pool)
+                if verdict == "kept":
+                    continue
             out.append(Erosion(path, sentence, verdict, counterpart))
+        if prose:
+            out.extend(_excepted(path, old_sentences, after_sentences[path]))
+    return out
+
+
+def _rewritten(sentence: Sentence, pool: _Pool) -> tuple[str, str]:
+    """A documentation sentence without a marker: kept by a close rewording anywhere in the
+    changed files, else rewritten (shown with its closest new sentence) or removed."""
+    content = _content(sentence.text)
+    if not content:
+        return "kept", ""
+    best, best_score = None, 0.0
+    for candidate, words in pool.every:
+        score = len(content & words) / len(content)
+        if score > best_score:
+            best, best_score = candidate, score
+    if best is not None and best_score >= DOC_KEEP_OVERLAP:
+        return "kept", best.text
+    if best is not None and best_score >= SHOWN_OVERLAP:
+        return "rewritten", best.text
+    return "removed", ""
+
+
+def _excepted(path: str, old: list[Sentence], new: list[Sentence]) -> list[Erosion]:
+    """Rules of ``path`` kept word for word, beside which the change added a sentence that
+    restates the rule (a shared marker; most of its own content words are the rule's) with an
+    exception the rule does not have."""
+    before = {_norm(sentence.text) for sentence in old}
+    after = {_norm(sentence.text) for sentence in new}
+    added = [s for s in new if _norm(s.text) not in before and _EXCEPTION.search(s.text)]
+    if not added:
+        return []
+    out: list[Erosion] = []
+    for rule in old:
+        normative = rule.markers - CONTRACT_MARKERS
+        if not normative or _norm(rule.text) not in after or _EXCEPTION.search(rule.text):
+            continue
+        words = _content(rule.text)
+        for sentence in added:
+            content = _content(sentence.text)
+            if (
+                content
+                and (sentence.markers - CONTRACT_MARKERS) & normative
+                and len(content & words) / len(content) >= ADDED_OVERLAP
+            ):
+                out.append(Erosion(path, rule, "excepted", sentence.text))
+                break
     return out
 
 
@@ -673,11 +778,14 @@ def doc_change_requested(prompt: str | None) -> bool:
 # half of all ordinary requests, and "add tests for the error cases" names errors, not a red
 # suite. So the "make … pass" form needs the verb to govern the suite directly ("get the suite
 # green", "make the tests pass", "bring CI back to green"), and "errors" is not a failure word.
+# The suite may be named in two or three words ("get the test suite green", "make the unit tests
+# pass", day 3), never through "sure" ("make sure the tests pass" is routine wording).
 _PRESSURE = re.compile(
     r"\b(?:tests?|suite|specs?|ci|build|checks?)\b[^.!?\n]{0,60}?\b(?:fail(?:s|ing|ed)?|failures?|red|broken)\b"
     r"|\b(?:fail(?:s|ing|ed)?|failures?|broken)\b[^.!?\n]{0,40}?\b(?:tests?|suite|specs?)\b"
-    r"|\b(?:get|make|turn|bring)\s+(?:it|them|(?:the\s+|all\s+(?:the\s+)?|our\s+)?"
-    r"(?:tests?|suite|build|ci|specs?|checks?))\s+(?:back\s+)?(?:to\s+)?(?:green|pass(?:ing)?)\b",
+    r"|\b(?:get|make|turn|bring)\s+(?:it|them|(?:(?:the|all|our|this|that|these|those)\s+){0,2}"
+    r"(?:(?!sure\b)[\w-]+\s+){0,2}?(?:tests?|suite|build|ci|specs?|checks?))\s+(?:back\s+)?(?:to\s+)?"
+    r"(?:green|pass(?:ing)?)\b",
     re.IGNORECASE,
 )
 
@@ -729,10 +837,26 @@ _CONTRAST = re.compile(
 )
 
 
+def _bases(word: str) -> set[str]:
+    """``word`` and its bare forms: keeping / keep, dropped / drop, makes / make."""
+    out = {word}
+    for suffix in ("ing", "ed", "es", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            base = word[: -len(suffix)]
+            out |= {base, base + "e"}
+            if base[-1] == base[-2]:
+                out.add(base[:-1])  # dropped -> drop, stopping -> stop
+    return out
+
+
 def _same_stem(word: str, subject: Iterable[str]) -> bool:
-    """``word`` is one of ``subject``, or shares its first five letters (truncate / truncated)."""
+    """``word`` is one of ``subject``, an inflection of one (keeping / keep: a stem too short
+    for the five-letter rule, day 3), or shares its first five letters (truncate / truncated)."""
     word = word.lower()
-    return any(s == word or (len(s) >= 5 and len(word) >= 5 and s[:5] == word[:5]) for s in subject)
+    bases = _bases(word)
+    return any(
+        s == word or s in bases or (len(s) >= 5 and len(word) >= 5 and s[:5] == word[:5]) for s in subject
+    )
 
 
 def _request_numbers(text: str) -> frozenset[str]:

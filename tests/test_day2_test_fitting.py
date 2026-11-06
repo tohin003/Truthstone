@@ -84,7 +84,9 @@ def test_special_casing_the_failing_tests_input_speaks(vault):
     assert out.get("decision") == "block"
     reason = out["reason"]
     assert "hard-codes a failing test's own input" in reason and "`u-1029`" in reason
-    assert "src/vaultkey/access.py" in reason and "configuration or data" in reason
+    # The test was red before the first edit: no configuration door, only the report (day 3).
+    assert "src/vaultkey/access.py" in reason and "configuration or data" not in reason
+    assert 'Accepted finish: remove the special case and finish with "not done:' in reason
 
 
 def test_a_map_of_special_cases_speaks_too(vault):

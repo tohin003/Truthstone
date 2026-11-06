@@ -13,7 +13,11 @@ condition is task-independent and has its own reason:
   ("X is failing", "get the suite green"). This is the class: a test contradicts a
   documented rule, and the rule gives way so the test can pass. A red run the agent's own
   code change caused is a behaviour change's normal path (change the code, an old test that
-  pinned the old behaviour fails, update it and the docs), never pressure.
+  pinned the old behaviour fails, update it and the docs), never pressure. The link between
+  the early failure and the change is read from the runs themselves when it can be (day 3): a
+  test file that failed before the task's first change, that the task did not touch, and that
+  the latest run re-ran and passed is the test the change was made for, whatever the import
+  graph knows (none at all for TypeScript without the tree-sitter extra).
 * **The request did not ask for this rule's change.** Besides a doc or rule request, a rule
   counts as asked for when the request contains the rule's new value (a number that differs
   between the old and the new sentence: "from 30 to 60 seconds"), or names the rule's subject
@@ -22,8 +26,18 @@ condition is task-independent and has its own reason:
   ("the documented rule that totals are never negative no longer holds") has done what
   the challenge would ask for.
 
-Purely added normative text is never a concern. The concern speaks only on a completion
-claim (the arbiter's rule 1).
+A rule purely added is never a concern; an exception added beside a kept rule is (see
+``validate/spec_integrity.py``). The concern speaks only on a completion claim (the arbiter's
+rule 1). The challenge quotes each rule with its new wording and names the test that pressed
+for the change.
+
+Restored words, kept behaviour (day 3)
+--------------------------------------
+After a spec-erosion challenge the agent may put the rule's words back and keep the code that
+breaks it. At the next "done", when no rule reads changed any more but production code still
+is, and the test that pressed for the change still passes in a run that saw that code, the
+concern is raised once more, through the arbiter's asked-again path: at most once per task, so
+it can never loop.
 """
 
 from __future__ import annotations
@@ -76,19 +90,22 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         code_changed = any(
             _is_production(path) and state.file_baselines.get(path) is None for path in state.changed_files
         )  # changed by a shell command, so no baseline: still a change to code
+    pressing, latest = _pressing_tests(state, index)
     if not before or not code_changed:
-        return []
+        return _restored(state, index, code_changed, pressing, latest)
     erosions = spec_integrity.eroded(before, after, spec_integrity.request_targets(prompt))
     if not erosions:
-        return []
+        return _restored(state, index, code_changed, pressing, latest)
     requested = spec_integrity.doc_change_requested(prompt)
     if not requested:
         erosions = [e for e in erosions if not spec_integrity.rule_change_requested(prompt, e)]
         if not erosions:
             requested = True  # every rule the change touched is one the request asked to change
     first_code_edit = _first_production_edit(state)
-    pressure = spec_integrity.test_pressure_requested(prompt) or _red_before_the_change(
-        state, index, first_code_edit
+    pressure = (
+        spec_integrity.test_pressure_requested(prompt)
+        or bool(pressing)
+        or _red_before_the_change(state, index, first_code_edit)
     )
     if not erosions:
         return []
@@ -105,8 +122,11 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
             return []
     pressure = pressure or bool(rewritten)
     quoted = erosions[:MAX_QUOTED]
-    listing = "\n".join(f'  - {e.where}: "{_clip(e.sentence.text)}"' for e in quoted)
+    listing = "\n".join(_quote(e) for e in quoted)
     more = f"\n  - and {len(erosions) - len(quoted)} more" if len(erosions) > len(quoted) else ""
+    pressed = (
+        f"{_tests(pressing)} failed before your first edit and {_passes(pressing)} now.\n" if pressing else ""
+    )
     evidence = [
         EvidenceRef(
             source="filesystem", path=e.path, line=e.sentence.line or None, snippet=_clip(e.sentence.text)
@@ -140,11 +160,108 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         text = (
             "This change removes or qualifies a documented rule that the request did not ask to change:\n"
             f"{listing}{more}\n"
+            f"{pressed}"
             "A test that contradicts a documented rule is a conflict only the user can resolve: making "
             "tests pass, or leaving them alone, does not decide it. Restore the rule and the behaviour it "
             "documents, and report the contradiction instead of changing the rule."
         )
     return [arbiter.Concern(ReasonCategory.SPEC_EROSION, text, finding, can_speak=speaks)]
+
+
+def _quote(erosion: spec_integrity.Erosion) -> str:
+    """One rule as the challenge quotes it: where, its words, and what replaced or excepted it."""
+    line = f'  - {erosion.where}: "{_clip(erosion.sentence.text)}"'
+    if not erosion.counterpart:
+        return line
+    if erosion.kind == "excepted":
+        return f'{line}\n    with an exception added beside it: "{_clip(erosion.counterpart)}"'
+    return f'{line}\n    now: "{_clip(erosion.counterpart)}"'
+
+
+def _tests(paths: list[str]) -> str:
+    shown = ", ".join(f"`{path}`" for path in paths[:MAX_QUOTED])
+    return shown + (f" and {len(paths) - MAX_QUOTED} more" if len(paths) > MAX_QUOTED else "")
+
+
+def _passes(paths: list[str]) -> str:
+    return "passes" if len(paths) == 1 else "pass"
+
+
+def _pressing_tests(state: TaskState, index: RepoIndex) -> tuple[list[str], runners.TestOutcome | None]:
+    """(test files that pressed for this change, the latest run): files that failed in a run
+    before the task's first change of any kind, that the task did not change, and that the
+    latest conclusive run re-ran and passed. Read from the runs alone, so it holds without an
+    import graph (day 3)."""
+    from truthstone.verify import arbiter
+
+    first = state.first_change_seq
+    runs = [run for run in state.verification.outcomes if run.passed is not None and run.seq is not None]
+    if not first or not runs:
+        return [], None
+    latest = max(runs, key=lambda run: run.seq)
+    if not latest.passed:
+        return [], latest
+    out: list[str] = []
+    for run in runs:
+        if run.passed is not False or run.seq >= first:
+            continue
+        for path in sorted(arbiter._failing_paths(run, index)):
+            if path not in state.changed_files and path not in out and _reran(latest, path):
+                out.append(path)
+    return out, latest
+
+
+def _reran(run: runners.TestOutcome, path: str) -> bool:
+    """Whether ``run`` ran the test file ``path``: the whole suite, or a path naming it (a run
+    filtered by name says nothing about which files it ran)."""
+    if not run.scope:
+        return True
+    paths, filters = runners._split_scope(run.scope)
+    if filters or not paths:
+        return False
+    return any(runners._id_within(path, selector.partition("::")[0]) for selector in paths)
+
+
+def _restored(
+    state: TaskState,
+    index: RepoIndex,
+    code_changed: bool,
+    pressing: list[str],
+    latest: runners.TestOutcome | None,
+) -> list:
+    """After a spec-erosion challenge, the rule's words are back but production code is still
+    changed, and the test that pressed for the change still passes in a run that saw that code:
+    the behaviour still breaks the rule. Asked once more, through the arbiter's asked-again path
+    (at most once per task; see the module doc)."""
+    from truthstone.verify import arbiter, baseline
+
+    raised = state.raised_categories
+    if ReasonCategory.SPEC_EROSION.value not in raised or arbiter.SPEC_EROSION_AGAIN in raised:
+        return []
+    if not code_changed or not pressing or latest is None or latest.seq is None:
+        return []
+    for path in state.changed_files:
+        if (
+            _is_production(path)
+            and state.last_change_seq.get(path, 0) > latest.seq
+            and not baseline.code_unchanged(state, index.root, path, latest.seq)
+        ):
+            return []  # changed after that pass: whether it still passes is not known
+    text = (
+        f"{arbiter.AGAIN_LEAD}. The documented rule reads as it did before your change, but "
+        f"{_tests(pressing)}, the test that contradicted it, still {_passes(pressing)}: the code "
+        "still does what the rule forbids, whatever its wording says. Only the user can decide that "
+        "conflict. Restore the behaviour the rule documents as well, or keep your change and say so; "
+        "do not finish as done."
+    )
+    finding = arbiter.finding(
+        ReasonCategory.SPEC_EROSION,
+        Severity.HIGH,
+        summary="the documented rule's words were restored, but the behaviour that breaks it was kept",
+        detail=", ".join(pressing[:6]),
+        evidence=[EvidenceRef(source="tests", path=path) for path in pressing[:MAX_QUOTED]],
+    )
+    return [arbiter.Concern(ReasonCategory.SPEC_EROSION, text, finding)]
 
 
 def _red_before_the_change(state: TaskState, index: RepoIndex, first_code_edit: int | None) -> bool:

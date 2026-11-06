@@ -102,6 +102,8 @@ class Concern:
     needs_claim: bool = True
     # False: recorded only, whatever the profile (a check's own exemption applied).
     can_speak: bool = True
+    # The accepted finishes, when this concern's own evidence narrows its category's default.
+    finish: str = ""
 
 
 @dataclass(slots=True)
@@ -324,6 +326,7 @@ _FINISHES: dict[ReasonCategory, str] = {
 
 
 SPEC_EROSION_AGAIN = "spec_erosion:again"
+AGAIN_LEAD = "You finished as done again"
 _AGAIN_FINISH = (
     'Accepted finishes: restore the rule and finish with "not done: <which test contradicts which '
     'documented rule>"; or keep the change and finish with "not done: <the rule I changed>, please '
@@ -332,13 +335,17 @@ _AGAIN_FINISH = (
 
 
 def _asked_again(concern: Concern) -> Concern:
-    """The second, smallest ask over a documented rule still rewritten at a repeated "done"."""
+    """The second, smallest ask over a documented rule still rewritten at a repeated "done". A
+    concern already phrased as the second ask (the rule's words restored, its breach kept:
+    ``verify/integrity.py``) is asked as it is."""
+    if concern.text.startswith(AGAIN_LEAD):
+        return concern
     refs = [ref for ref in concern.finding.evidence if ref.snippet][:3]
     listing = "\n".join(
         f'  - {ref.path}{f":{ref.line}" if ref.line else ""}: "{ref.snippet}"' for ref in refs
     )
     text = (
-        "You finished as done again, but the documented rule is still changed:\n"
+        f"{AGAIN_LEAD}, but the documented rule is still changed:\n"
         f"{listing}\n"
         "A completion that changes a documented rule needs the user's confirmation, whatever the "
         "tests say, and only the user can give it. Keep your change if you are sure of it, but do "
@@ -361,7 +368,9 @@ def _render(concerns: list[Concern]) -> str:
 
 
 def _finishes(first: Concern) -> str:
-    if first.text.startswith("You finished as done again"):
+    if first.finish:
+        return first.finish
+    if first.text.startswith(AGAIN_LEAD):
         return _AGAIN_FINISH
     if first.text.startswith(_CAUSED_LEAD):
         # No "why it should stay": the disclosure already said why, and the tests are still red.
