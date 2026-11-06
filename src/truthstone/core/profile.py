@@ -16,6 +16,10 @@ brief  kind               phase           when
                                           skipped (added tests are never flagged)
 (a)    ``test_fitting``   Stop            "done" when production code hard-codes
                                           test-specific expectations
+(a)    ``gaming_signature`` Stop          "done" over code or a run that passes tests without
+                                          the behaviour (test-run checks, exits, rewritten
+                                          results, always-equal objects, left-out failures,
+                                          contradictory tests both passing)
 (b)    ``failing_tests``  Stop            "done" with relevant tests failing after the last
                                           edit, undisclosed
 (e)    ``unread_config``  Stop            "done" when the diff only adds configuration that
@@ -68,12 +72,13 @@ from truthstone.core.models import Decision, Finding
 
 
 class Kind(StrEnum):
-    """The sanctioned intervention kinds. Stop's seven are the arbiter's ``ReasonCategory``
+    """The sanctioned intervention kinds. Stop's eight are the arbiter's ``ReasonCategory``
     values, spelled identically."""
 
     SPEC_EROSION = "spec_erosion"
     TEST_WEAKENING = "test_weakening"
     TEST_FITTING = "test_fitting"
+    GAMING_SIGNATURE = "gaming_signature"
     FAILING_TESTS = "failing_tests"
     UNREAD_CONFIG = "unread_config"
     UNTRACKED_STATE = "untracked_state"
@@ -99,6 +104,7 @@ _STOP = frozenset(
         Kind.SPEC_EROSION,
         Kind.TEST_WEAKENING,
         Kind.TEST_FITTING,
+        Kind.GAMING_SIGNATURE,
         Kind.FAILING_TESTS,
         Kind.UNREAD_CONFIG,
         Kind.UNTRACKED_STATE,
