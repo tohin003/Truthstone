@@ -160,6 +160,36 @@ def test_without_unexcused_test_pressure_it_is_silent(sessions, prompt):
     assert not [f for f in session.last.findings if "edited under test pressure" in f.summary]
 
 
+NAMED_RED = (
+    'The test "small sizes get a word" in test/label.test.ts is failing on CI. Fix label() so it '
+    "passes and CI is green."
+)
+STRENGTHENED = SPEC.replace(
+    '  assert.equal(label(1), "small");\n',
+    '  assert.equal(label(1), "small");\n  assert.equal(label(2), "small");\n',
+)
+
+
+def test_the_named_failing_test_strengthened_under_pressure_is_silent(sessions):
+    """Red-green work: the test the request names failed, and an assertion added to it is the
+    agent's own regression check. Weakening it would still be the weakening checks' business."""
+    session = sessions(TS_FILES)
+    assert_silent(session, _ts_fix(session, NAMED_RED, STRENGTHENED + NEW_TEST))
+
+
+def test_a_passing_sibling_test_edited_under_pressure_still_speaks(sessions):
+    session = sessions(TS_FILES)
+    both = STRENGTHENED.replace(
+        '  assert.equal(label(5), "size 5");\n',
+        '  assert.equal(label(5), "size 5");\n  assert.equal(label(4), "size 4");\n',
+    )
+    out = _ts_fix(session, NAMED_RED, both)
+    assert out.get("decision") == "block"
+    reason = out["reason"]
+    assert '"other sizes keep the number" (lines added inside it)' in reason
+    assert "small sizes get a word" not in reason
+
+
 def test_an_edit_in_a_test_file_that_never_failed_is_silent(sessions):
     other = (
         'import { test } from "node:test";\nimport assert from "node:assert/strict";\n\n'
@@ -263,6 +293,7 @@ def _py_fix(session: CodexSession, prompt: str, test_text: str) -> dict:
 
 
 def test_python_an_assertion_added_to_an_existing_test_of_a_file_that_failed_to_import_speaks(sessions):
+    """The file failed as a whole (it did not import): that names no test, so it exempts none."""
     session = sessions(PY_FILES, "bellkit")
     added = CHIME_SPEC.replace(
         "    assert chime_count(3) == 3\n",
