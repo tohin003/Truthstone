@@ -42,6 +42,7 @@ from truthstone.core.taskstate import TaskState
 from truthstone.daemon import degraded
 from truthstone.intent import premise
 from truthstone.intent.models import TaskSpec
+from truthstone.planning import integrity as integrity_note
 from truthstone.repo import symbols_ts
 from truthstone.repo.gitinfo import repository_root
 from truthstone.repo.index import IndexDelta, RepoIndex
@@ -138,6 +139,8 @@ class Workspace:
         self.premises_noted: dict[str, set[str]] = {}
         # Task id -> the deny its first file edit gets after a premise note (T4), once.
         self.premise_holds: dict[str, str] = {}
+        # Sessions already given the integrity note (``[notes] integrity``): once per session.
+        self.integrity_noted: set[str] = set()
         # Shell commands' changes, each holding its place on its task's timeline until a
         # sweep of the tree attributes them (G5).
         self.shell = shellchanges.ShellChanges()
@@ -367,6 +370,7 @@ class Workspace:
         self._session_tasks.pop(session_id, None)
         self.session_waivers.discard(session_id)
         self.premises_noted.pop(session_id, None)
+        self.integrity_noted.discard(session_id)
         self.shell.forget_session(session_id)
 
     def carry_waiver(self, session_id: str, spec: TaskSpec) -> None:
@@ -765,6 +769,13 @@ class Guard:
                 findings.append(finding)
                 if event.task_id:
                     ws.premise_holds[event.task_id] = found.hold
+        if profile.active(self.settings).allows(EventType.USER_PROMPT, profile.INTEGRITY_NOTE):
+            # Once per session: the rule and the honest way out, before any work (opt-in).
+            session = event.session_id or ""
+            if session not in ws.integrity_noted:
+                ws.integrity_noted.add(session)
+                notes.append(integrity_note.NOTE)
+                findings.append(integrity_note.finding())
         if profile.active(self.settings).allows(EventType.USER_PROMPT, profile.PLANNING_NOTE):
             budget = planning.render(spec, index)
             if budget:
