@@ -250,10 +250,12 @@ def _t5_run(tmp_path: Path) -> Path:
     return _write_run(tmp_path, "t5", cells, ["on", "observe"])
 
 
-def test_g27_the_t5_statistic_is_the_users_choice_and_the_registered_one_stays_reported(tmp_path):
+def test_g27_t5_judges_the_per_pair_median_and_reports_the_pooled_one(tmp_path):
     run = _t5_run(tmp_path)
     wide = {"t5_upper": 10.0}  # the point estimates are what this test pins
-    registered = acceptance.gate([run], acceptance.GateThresholds(**wide), resamples=200)["targets"]["T5"]
+    registered = acceptance.gate([run], acceptance.GateThresholds(t5_stat=0, **wide), resamples=200)[
+        "targets"
+    ]["T5"]
     assert registered["verdict"] == "FAIL" and registered["why"].startswith("tokens 1.51x")
     per_pair = acceptance.gate([run], acceptance.GateThresholds(t5_stat=1, **wide), resamples=200)
     t5 = per_pair["targets"]["T5"]
@@ -262,6 +264,6 @@ def test_g27_the_t5_statistic_is_the_users_choice_and_the_registered_one_stays_r
     silent = acceptance.gate([run], acceptance.GateThresholds(t5_stat=2, **wide), resamples=200)
     t5 = silent["targets"]["T5"]
     assert t5["verdict"] == "pass" and t5["why"].startswith("pooled median, silent pairs, tokens 1.01x")
-    assert acceptance.GateThresholds().t5_stat == 0  # the registered statistic stays the default
+    assert acceptance.GateThresholds().t5_stat == 1  # G27: the user chose option A
     with pytest.raises(ValueError):
         acceptance.gate([run], acceptance.GateThresholds(t5_stat=3), resamples=50)

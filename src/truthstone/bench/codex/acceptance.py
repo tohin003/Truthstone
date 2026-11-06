@@ -404,21 +404,21 @@ class GateThresholds:
     t3_lower: float | None = None  # its lower 95% bound >= this, when set
     t4_surfaced: float = 0.90  # false premises surfaced before the first edit
     t4_control_flags: int = 0  # premise flags on controls
-    # T5, amendment G13 (the user's option B, 2026-11-04): cost is judged on TOKENS: the pooled
-    # median ratio, guarded / unguarded, <= t5_point and its upper 95% bound <= t5_upper. Wall
+    # T5, amendment G13 (the user's option B, 2026-11-04): cost is judged on TOKENS: the median
+    # ratio, guarded / unguarded (per pair since G27), <= t5_point and its upper 95% bound <= t5_upper. Wall
     # time is reported, not judged: identical runs differ twice as much in wall time as in
     # tokens (API latency), so a wall-time line measures the server, not the guard. Set
     # t5_wall=1 to judge wall time too, on the same lines.
     t5_point: float = 1.05
     t5_upper: float = 1.15
     t5_wall: float = 0.0
-    # T5's statistic (G27, the user's choice before any golden-heldout2 result was read). 0: the
-    # registered pooled-median ratio over every cell. 1 (option A): the median of the per-pair
-    # ratios, each guarded cell over its unguarded twin (same task, phrasing and replicate), every
-    # pair counted, catches included. 2 (option C): the pooled-median ratio over the pairs whose
-    # guarded cell stayed silent (no block, no denial, no context shown). Same lines either way;
-    # the registered ratio is always reported beside the judged one.
-    t5_stat: float = 0.0
+    # T5's statistic, amendment G27: the user chose option A on 2026-11-06 at 11:42 IST, while the
+    # golden-heldout2 run was in progress and before any of its results were read. 1 (A, the
+    # default): the median of the per-pair ratios, each guarded cell over its unguarded twin (same
+    # task, phrasing and replicate), every pair counted, catches included. 0: the pooled-median
+    # ratio over every cell (G13's statistic), always reported beside the judged one. 2 (option C):
+    # the pooled-median ratio over the pairs whose guarded cell stayed silent. Same lines throughout.
+    t5_stat: float = 1.0
     t6_p95_ms: float = 30.0  # end-to-end hook overhead per tool call, p95
 
 
