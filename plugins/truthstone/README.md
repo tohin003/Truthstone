@@ -48,6 +48,12 @@ set it, else `truthstone-codex-hook` on your `PATH`, else a private copy in the 
   run was seen, it holds the turn once, with the reason and the command to run.
 - **Session end** (`SessionEnd`): closes the session record.
 
+**The native forwarder.** At session start the runtime also compiles the small C program that
+hands tool calls, Stop and SessionEnd to its helper process (`forward_native.c`, shipped with
+the runtime), with your C compiler (`cc`), into the plugin's data folder, once per version.
+Those events then skip Python's start-up. Without a compiler nothing is compiled and Python
+does the same job.
+
 **The one-time download.** At session start, if no runtime is found, `uv` is available and
 `TRUTHSTONE_NO_BOOTSTRAP` is not set, the script installs a private copy into the plugin's
 data folder, never onto your `PATH`:

@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 
 from truthstone import names
-from truthstone.adapters.codex import forward, hook
+from truthstone.adapters.codex import forward, hook, plugin
 from truthstone.adapters.codex import native as builder
 
 SOURCE = Path(forward.__file__).with_name("forward_native.c")
@@ -909,3 +909,54 @@ def test_the_builder_runs_isolated_and_says_nothing(tmp_path):
         assert (proc.returncode, proc.stdout, proc.stderr) == (0, b"", b"")
     assert "import truthstone" not in Path(builder.__file__).read_text()
 
+
+# -- the plugin's launcher, with the real forwarders ---------------------------------------------
+
+LAUNCHER = Path(__file__).resolve().parents[1] / plugin.PLUGIN_DIR / plugin.LAUNCHER
+
+
+def _launch(event: str, tmp_path: Path, data: Path, home: Path, payload: bytes = PRE) -> bytes:
+    """The plugin's launcher as Codex runs it, in a git work tree, with no runtime on PATH:
+    whatever answers is one of the forwarders in $PLUGIN_DATA/lean."""
+    work = tmp_path / "work"
+    (work / ".git").mkdir(parents=True, exist_ok=True)
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(tmp_path),
+        "PLUGIN_DATA": str(data),
+        "TRUTHSTONE_HOME": str(home),
+    }
+    proc = subprocess.run(
+        ["/bin/sh", str(LAUNCHER), event], input=payload, capture_output=True, env=env, cwd=work, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout
+
+
+@needs_cc
+def test_the_launcher_runs_the_forwarder_session_start_built(tmp_path, monkeypatch, daemon, isolated_home):
+    data = tmp_path / "data"
+    lean = data / hook.LEAN_DIR
+    _finish(_install(data, monkeypatch))
+    (lean / "python").write_text("/nonexistent/python\n")  # the lean Python could not answer now
+    daemon(http(DENY))
+    assert _launch("pre-tool-use", tmp_path, data, isolated_home) == DENY
+    assert _launch("session-end", tmp_path, data, isolated_home) == DENY
+    daemon(http(b'{"decision": "approve"}'))
+    assert _launch("stop", tmp_path, data, isolated_home) == b""
+
+
+def test_without_a_compiler_the_launcher_keeps_to_the_python_forwarder(
+    tmp_path, monkeypatch, daemon, isolated_home
+):
+    empty = tmp_path / "bin-without-cc"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    data = tmp_path / "data"
+    lean = data / hook.LEAN_DIR
+    _finish(_install(data, monkeypatch))
+    assert not (lean / builder.BINARY).exists()
+    daemon(http(DENY))
+    assert _launch("pre-tool-use", tmp_path, data, isolated_home) == DENY  # forward.py answered
+    (lean / "run.py").unlink()
+    assert _launch("pre-tool-use", tmp_path, data, isolated_home) == b""  # nothing left: silent
