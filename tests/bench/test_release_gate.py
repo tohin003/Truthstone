@@ -37,6 +37,53 @@ def test_the_hook_timer_passes_everything_through_and_records_the_wall_time(tmp_
     assert proc.returncode == 3 and proc.stdout == "payload\narg=pre-tool-use\n"  # untouched
     row = json.loads((trace / "guard-timing.jsonl").read_text())
     assert row["event"] == "pre-tool-use" and row["exit"] == 3 and row["ms"] > 0
+    assert row["route"] == "runner"
+
+
+@pytest.mark.skipif(shutil.which("cc") is None, reason="needs a C compiler")
+def test_g24_the_timer_starts_the_native_forwarder_itself_for_the_hot_events(tmp_path):
+    """The launcher's hot path with no shell in between: what T6 times is the shipped forwarder."""
+    timer = guards.build_hook_timer(tmp_path / "state")
+    assert timer is not None
+    runner = tmp_path / "runner"
+    runner.write_text('#!/bin/sh\necho "runner:$1"\nexit 3\n')
+    runner.chmod(0o755)
+    data = tmp_path / "plugin data"
+    (data / "lean").mkdir(parents=True)
+    native = data / "lean" / "forward-native"
+    native.write_text('#!/bin/sh\ncat\nprintf "native:%s" "$*"\nexit 5\n')
+    native.chmod(0o755)
+    trace = tmp_path / "trace"
+    trace.mkdir()
+    env = {
+        "PATH": "/usr/bin:/bin",
+        guards.ENV_HOOK_RUNNER: str(runner),
+        "HOOK_TRACE_DIR": str(trace),
+        "PLUGIN_DATA": str(data),
+    }
+
+    def call(event: str) -> subprocess.CompletedProcess:
+        return subprocess.run([str(timer), event], input="p\n", capture_output=True, text=True, env=env)
+
+    hot = call("pre-tool-use")
+    assert hot.returncode == 0 and hot.stdout == "p\nnative:--timeout 4"  # the launcher's exit 0 stands
+    assert call("session-end").stdout == "p\nnative:--timeout 2"
+    assert call("stop").stdout == "p\nnative:--timeout 4"
+    lifecycle = call("session-start")
+    assert lifecycle.returncode == 3 and lifecycle.stdout == "runner:session-start\n"
+    assert call("user-prompt-submit").stdout == "runner:user-prompt-submit\n"
+    native.chmod(0o644)  # not executable: the runner (the lean Python forwarder, or the runtime)
+    assert call("post-tool-use").stdout == "runner:post-tool-use\n"
+    native.unlink()
+    native.mkdir()  # not a regular file
+    assert call("post-tool-use").stdout == "runner:post-tool-use\n"
+    native.rmdir()
+    env.pop("PLUGIN_DATA")
+    assert call("pre-tool-use").stdout == "runner:pre-tool-use\n"
+    rows = [json.loads(line) for line in (trace / "guard-timing.jsonl").read_text().splitlines()]
+    assert [r["route"] for r in rows] == ["native"] * 3 + ["runner"] * 5
+    assert [r["exit"] for r in rows] == [5] * 3 + [3] * 5
+    assert all(r["ms"] > 0 for r in rows)
 
 
 def test_the_gate_reads_one_line_per_target(tmp_path):

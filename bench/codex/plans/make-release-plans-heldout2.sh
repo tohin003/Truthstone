@@ -6,7 +6,8 @@
 #
 # The heldout2 variant of make-release-plans.sh: the same design (G9: the 31 tasks x 3 phrasings x
 # R=2 x both arms = 186 pairs), the same shards and accounts (G18: main takes pair shards 0-10/20,
-# p takes 11-19/20; the shards run ONE AT A TIME, main first) and the same models. Only the suite
+# p takes 11-19/20) and the same models; main's plans carry G21's weekly line (--week-stop main=80),
+# and the two Sol shards run at the same time, one runner per account (G25). Only the suite
 # and the plan names differ: every plan is new, so no run directory of the spent golden-heldout
 # study is ever resumed. Run from the root of a CLEAN checkout of the frozen benchmark
 # (registration refuses task content git does not track, and `plan` refuses any golden-heldout2
@@ -26,7 +27,7 @@ p_shards="11,12,13,14,15,16,17,18,19/20"
 # The release gate (G9 on golden-heldout2): Codex + Sol, both arms, two disjoint pair shards, one
 # runner per account; the analysis and the gate pool the two runs as one design.
 $py -m truthstone.bench.codex plan --suite $suite --arms both --stage main $three \
-    --replicates 1,2 $sol --shard $main_shards --accounts main \
+    --replicates 1,2 $sol --shard $main_shards --accounts main --week-stop main=80 \
     --name golden-heldout2-sol-main-main --out "$out/golden-heldout2-sol-main-main.json"
 $py -m truthstone.bench.codex plan --suite $suite --arms both --stage main $three \
     --replicates 1,2 $sol --shard $p_shards --accounts p \
@@ -35,7 +36,7 @@ $py -m truthstone.bench.codex plan --suite $suite --arms both --stage main $thre
 # G10 on golden-heldout2 (weaker models; reported, never gates). Luna: the same shards, each after
 # the same account's Sol shard has finished (one runner per account).
 $py -m truthstone.bench.codex plan --suite $suite --arms both --stage main $three \
-    --replicates 1,2 $luna --shard $main_shards --accounts main \
+    --replicates 1,2 $luna --shard $main_shards --accounts main --week-stop main=80 \
     --name golden-heldout2-luna-main-main --out "$out/golden-heldout2-luna-main-main.json"
 $py -m truthstone.bench.codex plan --suite $suite --arms both --stage main $three \
     --replicates 1,2 $luna --shard $p_shards --accounts p \

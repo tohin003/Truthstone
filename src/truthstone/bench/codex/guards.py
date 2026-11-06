@@ -693,8 +693,9 @@ class TruthstonePlugin:
         }
         if self.hook_timer is not None:
             env[naming.ENV_CODEX_HOOK] = str(self.hook_timer)
-            # The timer runs what the plugin launcher would: the lean path for the hot events
-            # (T6 times the shipped path), the runtime for SessionStart and the prompt.
+            # The timer runs what the plugin launcher would: the native forwarder itself for the
+            # hot events when SessionStart has built it (G24), else this runner: the lean Python
+            # forwarder for those events, the runtime for SessionStart and the prompt (G15).
             python = self.build.venv / "bin" / "python"
             runner = write_lean_hook(self.build.venv.parent, python, self.build.hook_runtime)
             env[ENV_HOOK_RUNNER] = str(runner)

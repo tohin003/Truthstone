@@ -41,6 +41,8 @@ def test_the_shards_and_accounts_are_the_registered_ones():
         assert "--replicates 1,2" in command
     for shard, account in (("$main_shards", "main"), ("$p_shards", "p")):
         assert sum(f"--shard {shard} --accounts {account}" in c for c in commands) == 2
+    for command in commands:  # G21: main's plans carry the final run's weekly line, no other does
+        assert ("--week-stop main=80" in command) == ("--accounts main " in command)
     assert _var(heldout2, "suite") == "golden-heldout2"
     assert _var(heldout2, "sol") == _var(original, "sol") and _var(heldout2, "luna") == _var(original, "luna")
 
