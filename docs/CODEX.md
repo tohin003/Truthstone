@@ -486,12 +486,15 @@ to back; cold is after a 2 s idle pause, as after the model's thinking.
 | benchmark runner (`dash`) → native forwarder | 4.7 ms | 5.0 ms | 16.8 ms | 29.0 ms |
 | benchmark runner (`dash`) → lean Python forwarder | 15.2 ms | 16.2 ms | 43.0 ms | 47.6 ms |
 
-The native forwarder alone never took more than 25 ms cold (max 24.2 ms). Behind the runner, 13
-of 200 cold runs took 25–53 ms, recurring about every 136 s: two cold process starts in a row
-are exposed twice to whatever else wakes the machine. Shell start alone, cold (N = 20, 1 s
-pauses): `/bin/sh` (bash 3.2 on macOS) 12.5 ms p50 / 14.4 ms p95, `dash` 5.6 / 7.2 ms,
-`/usr/bin/true` 5.5 / 6.3 ms. The plugin's launcher runs under `/bin/sh` before any forwarder,
-so in real use the hot path also pays bash's start.
+A second run, with the order rotated every iteration (N = 60 per path; its two runner paths
+both reached the native forwarder, because SessionStart's build had landed in both data
+folders), gave the same medians. Pooled cold: the native forwarder 11.6 ms p50 / 13.6 ms p95,
+1 of 260 runs over 25 ms (31.3 ms); behind the runner 16.8 / 28.8 ms (N = 320), 19 runs (5.9%)
+at 25–55 ms, so that p95 sits on the edge of a tail; the lean Python forwarder 39.0 / 43.2 ms.
+Two cold process starts in a row are exposed twice to whatever else wakes the machine. Shell
+start alone, cold (N = 20, 1 s pauses): `/bin/sh` (bash 3.2 on macOS) 12.5 ms p50 / 14.4 ms
+p95, `dash` 5.6 / 7.2 ms, `/usr/bin/true` 5.5 / 6.3 ms. The plugin's launcher runs under
+`/bin/sh` before any forwarder, so in real use the hot path also pays bash's start.
 
 **Cold start of the plugin's bootstrap.** With no runtime installed, an empty uv cache and
 an empty `$PLUGIN_DATA`, the first SessionStart took **2.45 s**: uv resolved and installed
