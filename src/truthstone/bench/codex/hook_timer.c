@@ -43,13 +43,17 @@ static int native_forwarder(const char *event, char *path, size_t size) {
 }
 
 /* Replaces this process with the forwarder (the launcher's --timeout budget: 2 s for
- * session-end, else 4 s) or with the runner; returns only when neither could start. */
+ * session-end, 12 s for stop, else 4 s) or with the runner; returns only when neither could start. */
 static void run(int native, char *forwarder, const char *event, const char *runner, char **argv) {
     if (native) {
         char flag[] = "--timeout";
-        char budget[] = "4";
+        char budget[3] = "4";
         if (strcmp(event, "session-end") == 0) {
             budget[0] = '2';
+        } else if (strcmp(event, "stop") == 0) {
+            budget[0] = '1';
+            budget[1] = '2';
+            budget[2] = '\0';
         }
         char *args[] = {forwarder, flag, budget, NULL};
         execv(forwarder, args);

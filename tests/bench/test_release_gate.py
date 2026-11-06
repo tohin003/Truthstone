@@ -68,7 +68,7 @@ def test_g24_the_timer_starts_the_native_forwarder_itself_for_the_hot_events(tmp
     hot = call("pre-tool-use")
     assert hot.returncode == 0 and hot.stdout == "p\nnative:--timeout 4"  # the launcher's exit 0 stands
     assert call("session-end").stdout == "p\nnative:--timeout 2"
-    assert call("stop").stdout == "p\nnative:--timeout 4"
+    assert call("stop").stdout == "p\nnative:--timeout 12"
     lifecycle = call("session-start")
     assert lifecycle.returncode == 3 and lifecycle.stdout == "runner:session-start\n"
     assert call("user-prompt-submit").stdout == "runner:user-prompt-submit\n"

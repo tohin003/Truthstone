@@ -181,7 +181,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:00f944768153881a36011e4e0f7acfed65585f2341cd6afbe4db1ea837b703dc"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:6f1033164af8c2f780482378b104b378f981aaef16a8a71dbcddba8b5a198460"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
@@ -345,7 +345,7 @@ class TestLauncherHotPath:
         write_exe(tmp_path / "bin" / plugin.RUNTIME_COMMAND, FAKE_RUNTIME)
         lean = _lean(tmp_path)
         result = launch(event, tmp_path, stdin='{"x":1}')
-        budget = "2" if event == "session-end" else "4"
+        budget = {"session-end": "2", "stop": "12"}.get(event, "4")
         assert result.returncode == 0
         assert result.stdout == f"lean:-I -S {lean / 'run.py'} --timeout {budget}|{{\"x\":1}}".encode()
 
@@ -396,12 +396,12 @@ class TestLauncherNativePath:
         _lean(tmp_path)
         _native(tmp_path)
         result = launch(event, tmp_path, stdin='{"x":1}')
-        budget = "2" if event == "session-end" else "4"
+        budget = {"session-end": "2", "stop": "12"}.get(event, "4")
         assert (result.returncode, result.stdout) == (0, f'native:--timeout {budget}|{{"x":1}}'.encode())
 
     def test_without_the_lean_python_the_native_forwarder_still_answers(self, tmp_path):
         _native(tmp_path)
-        assert launch("stop", tmp_path, stdin="{}").stdout == b"native:--timeout 4|{}"
+        assert launch("stop", tmp_path, stdin="{}").stdout == b"native:--timeout 12|{}"
 
     @pytest.mark.parametrize("event", ["session-start", "user-prompt-submit"])
     def test_lifecycle_events_never_take_it(self, tmp_path, event):
