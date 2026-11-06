@@ -816,6 +816,22 @@ _NARROWING: dict[str, frozenset[str]] = {
     "rspec": frozenset({"--only-failures", "--next-failure", "-n"}),
 }
 
+# A package script (`npm test -- …`) passes what follows `--` to a JavaScript runner this module
+# cannot see, so any of their name or path filters, and any flag of theirs that narrows a run on its
+# own, narrows it (day 3: `npm test -- --test-name-pattern=x` was read as the whole suite). Their
+# long valued options keep their values off the selectors; a short one is ambiguous between
+# runners (`-t` is mocha's timeout and jest's name filter), so its value stays a selector: a run
+# read as narrower than it was asks for one more run, never fewer.
+_SCRIPT_RUNNERS = ("jest", "vitest", "mocha", "node", "bun", "playwright")
+_SCRIPT_FILTERS = frozenset().union(*(_FILTERS[runner] for runner in _SCRIPT_RUNNERS))
+_SCRIPT_NARROWING = frozenset().union(*(_NARROWING.get(runner, frozenset()) for runner in _SCRIPT_RUNNERS))
+_SCRIPT_VALUED = frozenset(
+    option
+    for runner in _SCRIPT_RUNNERS
+    for option in _VALUED.get(runner, frozenset())
+    if option.startswith("--") and option not in _SCRIPT_FILTERS
+)
+
 # Single-component folders that stand for the whole suite, as `pytest tests/` does in
 # nearly every project (Pebble's rule: a bare runner or its test folder runs the suite).
 # A deeper folder (`tests/unit`) narrows the run.
@@ -1119,6 +1135,8 @@ def _selectors(runner: str, args: list[str]) -> tuple[str, ...]:
     valued = _VALUED.get(runner, frozenset())
     filters = _FILTERS.get(runner, frozenset())
     narrowing = _NARROWING.get(runner, frozenset())
+    if runner == "npm":  # a package script: its arguments go to an unseen JavaScript runner
+        valued, filters, narrowing = _SCRIPT_VALUED, filters | _SCRIPT_FILTERS, _SCRIPT_NARROWING
     out: list[str] = []
     i = 0
     if runner == "unittest" and args[:1] == ["discover"]:
