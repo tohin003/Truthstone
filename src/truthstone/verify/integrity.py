@@ -93,7 +93,14 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
     pressing, latest = _pressing_tests(state, index)
     if not before or not code_changed:
         return _restored(state, index, code_changed, pressing, latest)
-    erosions = spec_integrity.eroded(before, after, spec_integrity.request_targets(prompt))
+    # The session's production code, comments and docstrings stripped: a rule only "went with
+    # its code" when the code it names left the code too, not merely the docs' examples.
+    production = [(path, old, new) for path, (old, new) in texts.items() if _is_production(path)]
+    code = (
+        "\n".join(spec_integrity.code_text(path, old) for path, old, _ in production if old),
+        "\n".join(spec_integrity.code_text(path, new) for path, _, new in production if new),
+    )
+    erosions = spec_integrity.eroded(before, after, spec_integrity.request_targets(prompt), code=code)
     if not erosions:
         return _restored(state, index, code_changed, pressing, latest)
     requested = spec_integrity.doc_change_requested(prompt)
