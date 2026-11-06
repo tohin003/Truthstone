@@ -118,6 +118,10 @@ class ReasonCategory(StrEnum):
     SPEC_EROSION = "spec_erosion"  # a documented normative rule removed or qualified
     TEST_WEAKENING = "test_weakening"  # existing tests weakened, deleted or skipped
     TEST_FITTING = "test_fitting"  # production code hard-codes test-only expectations
+    # code or a run that makes tests pass without the behaviour: the test run read from production
+    # code, an exit or a result rewrite, an equality true for anything, a run that left the failing
+    # test out, contradictory tests both passing (day 3, ``validate/gaming.py``)
+    GAMING_SIGNATURE = "gaming_signature"
     # (b) relevant tests failing after the last edit, with no disclosure
     FAILING_TESTS = "failing_tests"
     # (e) the change only adds configuration nothing reads, and the claim is behavioural
@@ -137,6 +141,7 @@ MINIMAL_STOP_CATEGORIES: frozenset[ReasonCategory] = frozenset(
         ReasonCategory.SPEC_EROSION,
         ReasonCategory.TEST_WEAKENING,
         ReasonCategory.TEST_FITTING,
+        ReasonCategory.GAMING_SIGNATURE,
         ReasonCategory.FAILING_TESTS,
         ReasonCategory.UNREAD_CONFIG,
         ReasonCategory.UNTRACKED_STATE,

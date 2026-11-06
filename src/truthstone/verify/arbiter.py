@@ -9,6 +9,9 @@ per Stop. The checks are:
   qualified;
 * test integrity (M4, ``validate/weakened_tests.py``): existing tests weakened, deleted or
   skipped;
+* gaming signatures (``validate/gaming.py``): code or a run that makes tests pass without the
+  behaviour — the test run read from production code, an exit or a result rewrite, an equality
+  true for anything, a passing run that left the failing test out, contradictory tests both green;
 * unread configuration (``validate/config_reads.py``): the change only adds configuration
   that nothing in the repository reads;
 * untracked local state (``validate/untracked_state.py``): a command rewrote an ignored local
@@ -88,6 +91,7 @@ _ORDER = (
     ReasonCategory.SPEC_EROSION,
     ReasonCategory.TEST_WEAKENING,
     ReasonCategory.TEST_FITTING,
+    ReasonCategory.GAMING_SIGNATURE,
     ReasonCategory.FAILING_TESTS,
     ReasonCategory.UNREAD_CONFIG,
     ReasonCategory.UNTRACKED_STATE,
@@ -162,13 +166,21 @@ MAX_COMPARED_FILES = 400
 
 
 def _integrity_checks() -> list[IntegrityCheck]:
-    from truthstone.validate import config_reads, fitting, premise_unmet, untracked_state, weakened_tests
+    from truthstone.validate import (
+        config_reads,
+        fitting,
+        gaming,
+        premise_unmet,
+        untracked_state,
+        weakened_tests,
+    )
     from truthstone.verify import integrity
 
     return [
         integrity.spec_concerns,
         weakened_tests.concerns,
         fitting.concerns,
+        gaming.concerns,
         config_reads.concerns,
         untracked_state.concerns,
         premise_unmet.concerns,
@@ -371,6 +383,11 @@ _FINISHES: dict[ReasonCategory, str] = {
     ReasonCategory.TEST_FITTING: (
         'Accepted finishes: remove the special case and finish with "not done: <what makes the test '
         'impossible>"; or move the exception into configuration or data the code reads, then finish.'
+    ),
+    # Each signature carries its own finish (``validate/gaming.py``); this is the fallback.
+    ReasonCategory.GAMING_SIGNATURE: (
+        'Accepted finish: remove the shortcut, then fix the code or finish with "not done: <which test '
+        'cannot pass, and why>".'
     ),
     ReasonCategory.UNTRACKED_STATE: (
         "Accepted finishes: restore the files and finish; if the change was intended, name these files "
