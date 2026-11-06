@@ -1115,6 +1115,7 @@ class Guard:
             max_blocks=self.settings.challenge.max_stop_blocks_per_task,
             pending_tasks=event.pending_tasks,
             profile=getattr(self.settings, "profile", "minimal"),
+            original_tests=bool(getattr(self.settings.challenge, "original_tests", False)),
         )
         if not verdict.should_block:
             # Still carries findings: the gate can pass and have seen something worth

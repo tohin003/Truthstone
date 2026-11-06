@@ -346,6 +346,12 @@ class ChallengeSettings(BaseModel):
     max_stop_blocks_per_task: int = Field(2, ge=0)
     # Below this severity nothing is ever surfaced to the agent.
     min_severity: str = "medium"
+    # The original-tests check at Stop (``validate/original_tests.py``): existing tests the task
+    # rewrote are run as they were, in a sandboxed copy, and an assertion failure for inputs the
+    # request never mentions holds the "done". It runs repository code, and a request that changes
+    # behaviour in prose (a limit, a unit, an error turned into a value) names none of the inputs
+    # its updated tests use, so it is off until that is settled.
+    original_tests: bool = False
 
     @field_validator("min_severity")
     @classmethod
