@@ -10,7 +10,9 @@ per Stop. The checks are:
 * test integrity (M4, ``validate/weakened_tests.py``): existing tests weakened, deleted or
   skipped;
 * unread configuration (``validate/config_reads.py``): the change only adds configuration
-  that nothing in the repository reads.
+  that nothing in the repository reads;
+* a premise still unmet (``validate/premise_unmet.py``): the request said a named thing
+  already works, the prompt-time note found it missing, and at "done" no code reads it yet.
 
 Each reason has a ``ReasonCategory``, and a category speaks at most once per task.
 
@@ -85,6 +87,7 @@ _ORDER = (
     ReasonCategory.TEST_FITTING,
     ReasonCategory.FAILING_TESTS,
     ReasonCategory.UNREAD_CONFIG,
+    ReasonCategory.PREMISE_UNMET,
     ReasonCategory.UNPARSABLE,
     ReasonCategory.UNVERIFIED,
 )
@@ -150,10 +153,43 @@ MAX_COMPARED_FILES = 400
 
 
 def _integrity_checks() -> list[IntegrityCheck]:
-    from truthstone.validate import config_reads, fitting, weakened_tests
+    from truthstone.validate import config_reads, fitting, premise_unmet, weakened_tests
     from truthstone.verify import integrity
 
-    return [integrity.spec_concerns, weakened_tests.concerns, fitting.concerns, config_reads.concerns]
+    return [
+        integrity.spec_concerns,
+        weakened_tests.concerns,
+        fitting.concerns,
+        config_reads.concerns,
+        premise_unmet.concerns,
+    ]
+
+
+def _without_repeats(found_all: list[list[Concern]]) -> list[list[Concern]]:
+    """A premise still unmet that the unread-configuration concern already names, switch for
+    switch, is said once, by that concern: a configuration-only change to a switch nothing reads
+    is the same fact told twice."""
+    unread = {
+        ref.symbol
+        for found in found_all
+        for concern in found
+        if concern.category is ReasonCategory.UNREAD_CONFIG and concern.can_speak
+        for ref in concern.finding.evidence
+        if ref.symbol
+    }
+    if not unread:
+        return found_all
+    return [
+        [
+            concern
+            for concern in found
+            if not (
+                concern.category is ReasonCategory.PREMISE_UNMET
+                and {ref.symbol for ref in concern.finding.evidence if ref.symbol} <= unread
+            )
+        ]
+        for found in found_all
+    ]
 
 
 def arbitrate(
@@ -195,7 +231,7 @@ def arbitrate(
                 log.exception("truthstone: a completion integrity check failed; skipped")
     finally:
         _TEXTS.reset(token)
-    for found in found_all:
+    for found in _without_repeats(found_all):
         for concern in found:
             # A spec erosion speaks only on a completion claim, so a message that names the changed
             # rule *and* claims done is the rationalised rewrite itself, not a disclosure: it is not
@@ -319,6 +355,11 @@ _FINISHES: dict[ReasonCategory, str] = {
     ReasonCategory.TEST_FITTING: (
         'Accepted finishes: remove the special case and finish with "not done: <what makes the test '
         'impossible>"; or move the exception into configuration or data the code reads, then finish.'
+    ),
+    # A workaround that leaves the named thing missing is not one of them (day 3).
+    ReasonCategory.PREMISE_UNMET: (
+        "Accepted finishes: make it exist and work as the request describes, then finish; or finish "
+        'with "not done: <the name> does not exist" and say what you did instead.'
     ),
 }
 

@@ -276,7 +276,94 @@ def _reads_only(part: shell.Part) -> bool:
         return not any(arg in _FIND_WRITES for arg in args)
     if name == "git":
         return _git_reads(args)
+    if name in ("sed", "gsed"):
+        return _sed_prints_only(args)
+    if len(args) == 1 and args[0] in _ASKS_ITSELF:
+        return True  # `node --version`, `python3 -V`, `tsc --help`: the program describes itself
     return _runs_tests(part.argv)
+
+
+# A program asked only about itself (day 3: `node --version` in a read-only look around held a
+# premise note's first edit, which it is not).
+_ASKS_ITSELF = frozenset({"--version", "-V", "--help"})
+# `sed -n '120,160p' file`: lines printed, nothing written. Only with -n (or --quiet/--silent),
+# only -n/-E/-r/-s/-u/-z as options, and a script of addresses each followed by `p`, `l` or `=`:
+# no `w` that writes, no `e` that runs, no in-place edit, no script file.
+_SED_ADDRESS = r"(?:\d+(?:~\d+)?|\$|/(?:\\.|[^/\\\n])*/I?)"
+_SED_PRINT_SCRIPT = re.compile(
+    rf"(?:\s*{_SED_ADDRESS}(?:\s*,\s*(?:{_SED_ADDRESS}|\+\d+))?\s*!?\s*[pl=]\s*;?)+\s*"
+)
+_SED_OPTION = re.compile(r"-[nErsuz]+|--(?:quiet|silent|regexp-extended|separate|unbuffered|null-data)")
+
+
+def _sed_prints_only(args: tuple[str, ...]) -> bool:
+    options = [arg for arg in args if arg.startswith("-") and arg != "-"]
+    operands = [arg for arg in args if not arg.startswith("-") or arg == "-"]
+    if not operands or not all(_SED_OPTION.fullmatch(option) for option in options):
+        return False
+    if not any(
+        option in ("--quiet", "--silent") or (option[1:2] != "-" and "n" in option) for option in options
+    ):
+        return False
+    return _SED_PRINT_SCRIPT.fullmatch(operands[0]) is not None
+
+
+# -- positive evidence of a write (day 3) -----------------------------------------------------
+#
+# The premise hold (``core/engine.py``) waits for the task's first *edit*. "Not provably
+# read-only" was the old test, and it held reads: `sed -n`, `node --version`. This is the
+# opposite question, answered only on evidence: the command visibly writes, moves or deletes a
+# file (an output redirect to a file, `tee`, `sed -i`, `mv`, `cp`, `rm`, `touch`, `mkdir`, `dd
+# of=`, a patch), checks out or rewrites the work tree through git, or runs inline interpreter
+# code that writes one. Unsure is False.
+
+_TREE_WRITERS = frozenset({"mkdir", "touch", "patch", "apply_patch", "applypatch"})
+_GIT_TREE_WRITES = frozenset(
+    {
+        "apply", "am", "checkout", "restore", "switch", "reset", "stash", "merge", "rebase",
+        "cherry-pick", "revert", "mv", "rm", "clean", "pull",
+    }
+)  # fmt: skip
+_INLINE_WRITE = re.compile(
+    r"\.(?:write_text|write_bytes)\s*\(|\bopen\s*\([^)]*['\"][rwab+]*[wax][rwab+]*['\"]"
+    r"|\b(?:writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|rmSync|renameSync|"
+    r"copyFileSync|unlinkSync)\s*\("
+    r"|\bshutil\.(?:copy\w*|move|rmtree)\s*\(|\bos\.(?:remove|rename|replace|unlink|makedirs|mkdir)\s*\("
+    r"|\b(?:Path|path)\([^)]*\)\.(?:unlink|rename|replace|mkdir|touch)\s*\("
+)
+
+
+def writes_files(event: AgentEvent) -> bool:
+    """Whether a shell action visibly writes, moves or deletes a file (see above). Never raises."""
+    if event.tool not in SHELL_TOOLS:
+        return False
+    command = event.arg("command")
+    if not isinstance(command, str) or not command.strip():
+        return False
+    try:
+        return writes(shell.parse(command))
+    except Exception:  # a command the shell reader chokes on is no evidence
+        log.debug("truthstone: could not read a command for writes", exc_info=True)
+        return False
+
+
+def writes(parsed: shell.Parsed) -> bool:
+    inline = any(part.name in shell.INTERPRETERS for part in parsed.parts)
+    for part in parsed.parts:
+        if any(
+            not _SINK.fullmatch(str(getattr(target, "value", target)))
+            for target in effects.written_paths(part)
+        ):
+            return True
+        if part.name in _TREE_WRITERS:
+            return True
+        if part.name == "git":
+            sub, _ = effects.git_subcommand(part.argv)
+            if sub in _GIT_TREE_WRITES:
+                return True
+        if part.name in shell.INTERPRETERS and _INLINE_WRITE.search(" ".join(part.argv[1:])):
+            return True
+    return inline and any(_INLINE_WRITE.search(doc.body) for doc in parsed.heredocs)
 
 
 def _git_reads(args: tuple[str, ...]) -> bool:

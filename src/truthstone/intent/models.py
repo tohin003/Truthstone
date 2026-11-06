@@ -103,6 +103,11 @@ class TaskSpec(BaseModel):
     # An earlier prompt in this session waived running tests, and nothing since asked
     # for tests (G6: a waiver lasts for the session, not just one prompt).
     session_waiver: bool = False
+    # The names this request says already exist or work that the prompt-time premise note found
+    # missing (M8), or that an earlier prompt of the session noted and this one asserts again.
+    # Stored with the task, so a task rebuilt after a restart keeps them (R14); a completion
+    # claim is checked against them (``validate/premise_unmet.py``, day 3).
+    premises: list[str] = Field(default_factory=list)
 
     @property
     def resolved_targets(self) -> list[Target]:

@@ -69,8 +69,11 @@ def test_a_name_the_request_asserts_and_nothing_has_is_noted(tmp_path, prompt, n
     found = _check(_repo(tmp_path), prompt)
     assert [a.name for a in found.missing] == [name]
     assert found.note == (
-        f"`{name}` appears nowhere in this repository; the behaviour the request assumes may not exist — "
-        "verify before building on it, and tell the user if it doesn't."
+        f"`{name}` appears nowhere in this repository, so what the request says already works is not "
+        "there. Tell the user before you change anything. Then either build "
+        f"`{name}` itself so that it works as the request describes, and say that you added it; or "
+        f'finish with "not done: `{name}` does not exist". Doing the job another way while `{name}` '
+        "stays missing is not what was asked."
     )
     finding = found.finding()
     assert finding is not None and finding.subject == "false_premise" and "premise" in finding.subject
@@ -104,8 +107,11 @@ def test_a_switch_said_to_work_already_that_only_non_code_mentions_is_noted(tmp_
     found = _check(_repo(tmp_path, extra), ALREADY)
     assert [a.name for a in found.missing] == ["ACME_TRACE"]
     assert found.note == (
-        f"`ACME_TRACE` appears only in {where}, and no code in this repository reads it; the behaviour the "
-        "request assumes may not exist — verify before building on it, and tell the user if it doesn't."
+        f"`ACME_TRACE` appears only in {where}, and no code in this repository reads it, so what the request "
+        "says already works is not there. Tell the user before you change anything. Then either build what "
+        "reads `ACME_TRACE` so that it works as the request describes, and say that you added it; or finish "
+        'with "not done: nothing reads `ACME_TRACE`". Doing the job another way while nothing reads '
+        "`ACME_TRACE` is not what was asked."
     )
 
 
@@ -321,8 +327,11 @@ def test_the_first_edit_after_a_premise_note_is_held_once(session):
     assert reason == (
         "Truthstone: before editing: the request assumes `ACME_TRACE`, but it appears nowhere in this "
         'repository (see the note above). First tell the user so in a message (e.g. "`ACME_TRACE` '
-        "doesn't exist in this repository\"); then continue only if the change still makes sense."
+        "doesn't exist in this repository\"). Then either build `ACME_TRACE` itself as the request "
+        'describes, or finish with "not done: `ACME_TRACE` does not exist"; a workaround that leaves '
+        "`ACME_TRACE` missing is not done."
     )
+    assert "continue only if" not in reason
     assert send(_tool(repo, "apply_patch", _ci_patch(repo))) == {}  # re-issued: proceeds
 
 

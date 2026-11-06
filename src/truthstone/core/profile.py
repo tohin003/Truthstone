@@ -20,6 +20,8 @@ brief  kind               phase           when
                                           edit, undisclosed
 (e)    ``unread_config``  Stop            "done" when the diff only adds configuration that
                                           nothing outside configuration reads
+(d)    ``premise_unmet``  Stop            "done" while a name the prompt-time note found
+                                          missing is still read by no code
 (c)    ``signoff``        before a tool   an irreversible or destructive action needs the
                                           developer's sign-off (A1: never rationed)
 (d)    ``false_premise``  prompt          the prompt asserts a named identifier exists or
@@ -64,7 +66,7 @@ from truthstone.core.models import Decision, Finding
 
 
 class Kind(StrEnum):
-    """The sanctioned intervention kinds. Stop's five are the arbiter's ``ReasonCategory``
+    """The sanctioned intervention kinds. Stop's six are the arbiter's ``ReasonCategory``
     values, spelled identically."""
 
     SPEC_EROSION = "spec_erosion"
@@ -72,6 +74,7 @@ class Kind(StrEnum):
     TEST_FITTING = "test_fitting"
     FAILING_TESTS = "failing_tests"
     UNREAD_CONFIG = "unread_config"
+    PREMISE_UNMET = "premise_unmet"
     SIGNOFF = "signoff"
     FALSE_PREMISE = "false_premise"
 
@@ -88,7 +91,14 @@ FULL = "full"
 PROFILES = (MINIMAL, FULL)
 
 _STOP = frozenset(
-    {Kind.SPEC_EROSION, Kind.TEST_WEAKENING, Kind.TEST_FITTING, Kind.FAILING_TESTS, Kind.UNREAD_CONFIG}
+    {
+        Kind.SPEC_EROSION,
+        Kind.TEST_WEAKENING,
+        Kind.TEST_FITTING,
+        Kind.FAILING_TESTS,
+        Kind.UNREAD_CONFIG,
+        Kind.PREMISE_UNMET,
+    }
 )
 # The minimal profile: per phase, the only kinds that reach the agent.
 MINIMAL_ALLOWED: dict[EventType, frozenset[str]] = {
