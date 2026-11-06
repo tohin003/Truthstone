@@ -259,6 +259,36 @@ class TestSelectors:
     def test_what_narrows_a_run(self, command, selectors):
         assert commands.test_invocation(command).selectors == selectors
 
+    # Day 3: what follows `--` goes to a JavaScript runner the package script hides, and a filter
+    # of any of them narrows the run (`npm test -- --test-name-pattern=x` read as the whole suite
+    # let a filtered green run close an earlier red one).
+    @pytest.mark.parametrize(
+        ("command", "selectors"),
+        [
+            ("npm test -- --test-name-pattern=renewals", ("--test-name-pattern=renewals",)),
+            ('npm test -- -t "due dates"', ("-t=due dates",)),
+            ("pnpm test -- --grep fees", ("--grep=fees",)),
+            ("npm run test -- --testNamePattern=fees", ("--testNamePattern=fees",)),
+            ("npm test -- --test-only", ("--test-only",)),
+            ("npm test -- --reporter=dot", ()),
+            ("npm test -- --test-reporter spec", ()),
+            ("npm test -- --coverage", ()),
+        ],
+    )
+    def test_a_filter_after_the_double_dash_narrows_a_package_script(self, command, selectors):
+        assert commands.test_invocation(command).selectors == selectors
+
+    def test_a_filtered_green_package_run_does_not_cover_a_red_full_run(self):
+        from tests.test_audit_stop_kit import node_spec
+
+        red = node_spec(3, 1, [("test/a.test.ts", "renewals")])
+        full = runners.outcome_from_result("npm test", {"stdout": red, "exit_code": None})
+        narrow = runners.outcome_from_result(
+            "npm test -- --test-name-pattern=renewals", {"stdout": node_spec(1), "exit_code": None}
+        )
+        assert full.passed is False and narrow.passed is True
+        assert not runners.covers(narrow, full)
+
 
 class TestSplitter:
     def test_quotes_and_operators(self):
