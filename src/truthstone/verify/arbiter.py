@@ -10,7 +10,9 @@ per Stop. The checks are:
 * test integrity (M4, ``validate/weakened_tests.py``): existing tests weakened, deleted or
   skipped;
 * unread configuration (``validate/config_reads.py``): the change only adds configuration
-  that nothing in the repository reads.
+  that nothing in the repository reads;
+* untracked local state (``validate/untracked_state.py``): a command rewrote an ignored local
+  file that existed before the task, and neither the request nor the final message names it.
 
 Each reason has a ``ReasonCategory``, and a category speaks at most once per task.
 
@@ -21,7 +23,8 @@ The rules, in order
    and the developer is told any gap.
 2. **The profile decides who may speak.** ``"minimal"`` (the product default) lets only
    the categories in ``MINIMAL_STOP_CATEGORIES`` reach the agent: a weakened yardstick (a),
-   relevant failing tests left undisclosed (b), configuration nothing reads (e).
+   relevant failing tests left undisclosed (b), configuration nothing reads (e), ignored local
+   state a command rewrote (f).
    ``"full"`` adds today's verification verdicts (stale, narrower, no run, unparsable).
    Everything that does not speak is recorded, and the developer gets the gap through
    ``unverified_finish``.
@@ -85,6 +88,7 @@ _ORDER = (
     ReasonCategory.TEST_FITTING,
     ReasonCategory.FAILING_TESTS,
     ReasonCategory.UNREAD_CONFIG,
+    ReasonCategory.UNTRACKED_STATE,
     ReasonCategory.UNPARSABLE,
     ReasonCategory.UNVERIFIED,
 )
@@ -144,16 +148,30 @@ IntegrityCheck = Callable[[TaskState, RepoIndex], list[Concern]]
 
 # One Stop reads each changed file once, however many checks ask (``changed_texts``).
 _TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("truthstone_stop_texts", default=None)
+# The final message of the Stop being decided, for a check whose finding the message can settle
+# (``final_message``): naming a file is enough for the untracked-state check.
+_MESSAGE: contextvars.ContextVar[str | None] = contextvars.ContextVar("truthstone_stop_message", default=None)
 # At most this many changed files are compared at Stop (each read up to 512 KB): beyond it the
 # integrity checks see nothing more, which can only make them quieter.
 MAX_COMPARED_FILES = 400
 
 
 def _integrity_checks() -> list[IntegrityCheck]:
-    from truthstone.validate import config_reads, fitting, weakened_tests
+    from truthstone.validate import config_reads, fitting, untracked_state, weakened_tests
     from truthstone.verify import integrity
 
-    return [integrity.spec_concerns, weakened_tests.concerns, fitting.concerns, config_reads.concerns]
+    return [
+        integrity.spec_concerns,
+        weakened_tests.concerns,
+        fitting.concerns,
+        config_reads.concerns,
+        untracked_state.concerns,
+    ]
+
+
+def final_message() -> str:
+    """The final message of the Stop being arbitrated ("" outside one)."""
+    return _MESSAGE.get() or ""
 
 
 def arbitrate(
@@ -185,7 +203,7 @@ def arbitrate(
         if gate_concern is not None:
             concerns.append(gate_concern)
 
-    token = _TEXTS.set({})
+    token, said_token = _TEXTS.set({}), _MESSAGE.set(message)
     try:
         found_all = []
         for check in checks if checks is not None else _integrity_checks():
@@ -194,6 +212,7 @@ def arbitrate(
             except Exception:
                 log.exception("truthstone: a completion integrity check failed; skipped")
     finally:
+        _MESSAGE.reset(said_token)
         _TEXTS.reset(token)
     for found in found_all:
         for concern in found:
@@ -319,6 +338,10 @@ _FINISHES: dict[ReasonCategory, str] = {
     ReasonCategory.TEST_FITTING: (
         'Accepted finishes: remove the special case and finish with "not done: <what makes the test '
         'impossible>"; or move the exception into configuration or data the code reads, then finish.'
+    ),
+    ReasonCategory.UNTRACKED_STATE: (
+        "Accepted finishes: restore the files and finish; if the change was intended, name these files "
+        'in your final message; or finish with "not done: <which local files changed>".'
     ),
 }
 

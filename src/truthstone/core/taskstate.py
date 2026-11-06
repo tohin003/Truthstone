@@ -70,6 +70,10 @@ class TaskState:
     # number (G2b, bounded): a file edited after the pass whose code is unchanged — a
     # comment, formatting — keeps the pass.
     pass_fingerprints: dict[str, dict[int, str]] = field(default_factory=dict)
+    # The ignored local files that existed when the task began (``validate/untracked_state.py``):
+    # an ``IgnoredSnapshot``, or None when none could be taken. The store does not keep it, so a
+    # task rebuilt after a restart has none and the check it serves stays silent (R14).
+    ignored_snapshot: object | None = None
 
     def next_seq(self) -> int:
         self.seq += 1
