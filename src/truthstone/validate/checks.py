@@ -347,6 +347,41 @@ def writes_files(event: AgentEvent) -> bool:
         return False
 
 
+def writes_inside(event: AgentEvent, root: str | Path) -> bool:
+    """``writes_files``, less a command whose every visible write lands outside ``root``
+    (``pytest -q | tee /tmp/run.log``, ``> /tmp/out.txt``): it changes nothing of the repository
+    (day 3). A tree writer, a git work-tree write or inline interpreter code still counts: their
+    targets are not read here. Never raises."""
+    if not writes_files(event):
+        return False
+    try:
+        parsed = shell.parse(event.arg("command"))
+        inline = any(part.name in shell.INTERPRETERS for part in parsed.parts)
+        if inline and any(_INLINE_WRITE.search(doc.body) for doc in parsed.heredocs):
+            return True
+        base = Path(root).resolve()
+        for part in parsed.parts:
+            if part.name in _TREE_WRITERS or (
+                part.name in shell.INTERPRETERS and _INLINE_WRITE.search(" ".join(part.argv[1:]))
+            ):
+                return True
+            if part.name == "git" and effects.git_subcommand(part.argv)[0] in _GIT_TREE_WRITES:
+                return True
+            for target in effects.written_paths(part):
+                value = str(getattr(target, "value", target))
+                if _SINK.fullmatch(value):
+                    continue
+                path = Path(value).expanduser()
+                if "$" in value or "`" in value or not path.is_absolute():
+                    return True  # relative to the repository, or not known: inside
+                if path.resolve(strict=False).is_relative_to(base):
+                    return True
+        return False
+    except Exception:  # a command the shell reader chokes on: as writes_files said
+        log.debug("truthstone: could not read a command's write targets", exc_info=True)
+        return True
+
+
 def writes(parsed: shell.Parsed) -> bool:
     inline = any(part.name in shell.INTERPRETERS for part in parsed.parts)
     for part in parsed.parts:

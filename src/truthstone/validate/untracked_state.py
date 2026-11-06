@@ -23,6 +23,13 @@ Deleted and new ignored files are listed as context and never reported on their 
 ignored output is an ordinary request. Where an original went (a rotated log) is found by its
 digest among the ignored files there now.
 
+Not the class (day 3, the control audit): a file a command only appended to (its old bytes are
+still its first bytes: a log the app or the tests write to lost nothing); a file named as a cache
+(``rates-cache.json``); documentation build output (``docs/_build``, ``site/``) and the build
+output a ``tsconfig.json`` declares (``outDir``, ``declarationDir``); and a generated file whose
+first lines say not to edit it (setuptools-scm's version file, codegen output). Running the
+tests, the docs build or the CLI rewrites those as a matter of course.
+
 Silence
 -------
 No git, a git that does not answer in time, more ignored files or bytes than the caps, an
@@ -37,6 +44,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import stat
 import subprocess
 import time
@@ -54,7 +62,16 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-__all__ = ["IgnoredFile", "IgnoredSnapshot", "concerns", "ignored_files", "named", "remember", "snapshot"]
+__all__ = [
+    "IgnoredFile",
+    "IgnoredSnapshot",
+    "concerns",
+    "declared_outputs",
+    "ignored_files",
+    "named",
+    "remember",
+    "snapshot",
+]
 
 MAX_FILES = 2_000  # ignored files recorded at most; with more, nothing is recorded
 MAX_FILE_BYTES = 1_000_000  # larger files are not recorded
@@ -114,9 +131,27 @@ _SKIP_DIRS = frozenset(
         "vendor",
         ".idea",
         ".vscode",
+        # documentation builds: sphinx, mkdocs, jekyll, docusaurus, storybook (day 3)
+        "_build",
+        "site",
+        "_site",
+        ".docusaurus",
+        "storybook-static",
     }
 )
 _SKIP_DIR_SUFFIXES = (".egg-info", ".dist-info")
+# A file named as a cache (`rates-cache.json`, `http_cache.sqlite`), like the cache folders above.
+_CACHE_NAME = re.compile(r"(?:^|[._-])cache(?:[._-]|$)", re.IGNORECASE)
+# A generated file says not to edit it in its first lines: setuptools-scm ("don't change, don't
+# track in version control"), codegen ("DO NOT EDIT", "@generated").
+_GENERATED = re.compile(
+    rb"\bdo\s+not\s+(?:edit|modify|change|make\s+(?:direct\s+)?changes)\b|\bdon'?t\s+(?:edit|modify|change)\b"
+    rb"|@generated\b",
+    re.IGNORECASE,
+)
+_GENERATED_HEAD = 400  # bytes read for the banner
+# A tsconfig's declared build output: the first folder of `outDir` / `declarationDir`.
+_TS_OUTPUT = re.compile(r'"(?:outDir|declarationDir)"\s*:\s*"(?:\./)?([^"/]+)')
 # Files a test or a tool run rewrites as a matter of course.
 _SKIP_NAMES = frozenset(
     {
@@ -159,7 +194,25 @@ def _skipped(path: str, exclude: frozenset[str]) -> bool:
     if any(part in _SKIP_DIRS or part in exclude or part.endswith(_SKIP_DIR_SUFFIXES) for part in parts[:-1]):
         return True
     name = parts[-1] if parts else ""
-    return name in _SKIP_NAMES or name.startswith(".coverage.") or name.endswith(_SKIP_SUFFIXES)
+    return (
+        name in _SKIP_NAMES
+        or name.startswith(".coverage.")
+        or name.endswith(_SKIP_SUFFIXES)
+        or _CACHE_NAME.search(name) is not None
+    )
+
+
+def declared_outputs(root: Path) -> tuple[str, ...]:
+    """The build output folders the project's ``tsconfig.json`` declares (``outDir``,
+    ``declarationDir``): ``lib/`` as surely as ``dist/``. Never raises; () when there is none."""
+    try:
+        full = Path(root) / "tsconfig.json"
+        if not full.is_file() or full.stat().st_size > MAX_FILE_BYTES:
+            return ()
+        text = full.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ()
+    return tuple(dict.fromkeys(m for m in _TS_OUTPUT.findall(text) if m not in (".", "..")))
 
 
 def _git_paths(root: Path, args: Iterable[str], deadline: float) -> list[str] | None:
@@ -214,8 +267,9 @@ def ignored_files(root: Path, exclude: Iterable[str] = (), deadline: float | Non
     return out if len(out) <= MAX_FILES else None
 
 
-def _digest(full: Path) -> tuple[int, int, str] | None:
-    """(size, mtime_ns, sha256) of a small regular file, or None."""
+def _digest(full: Path, skip_generated: bool = False) -> tuple[int, int, str] | None:
+    """(size, mtime_ns, sha256) of a small regular file, or None. With ``skip_generated``, None
+    for a generated file too (a do-not-edit banner in its first lines)."""
     try:
         st = full.lstat()
         if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_FILE_BYTES:
@@ -226,6 +280,8 @@ def _digest(full: Path) -> tuple[int, int, str] | None:
         return None
     if len(data) > MAX_FILE_BYTES:
         return None
+    if skip_generated and _GENERATED.search(data[:_GENERATED_HEAD]):
+        return None
     return st.st_size, st.st_mtime_ns, hashlib.sha256(data).hexdigest()
 
 
@@ -235,13 +291,13 @@ def snapshot(root: Path, exclude: Iterable[str] = ()) -> IgnoredSnapshot | None:
     started = time.monotonic()
     deadline = started + DEADLINE_S
     try:
-        listed = ignored_files(root, exclude, deadline)
+        listed = ignored_files(root, (*exclude, *declared_outputs(root)), deadline)
         if listed is None:
             return None
         files: dict[str, IgnoredFile] = {}
         hashed = 0
         for path in sorted(listed):
-            got = _digest(root / path)
+            got = _digest(root / path, skip_generated=True)
             if got is None:
                 continue
             size, mtime_ns, digest = got
@@ -306,7 +362,8 @@ def named(text: str, path: str) -> bool:
 
 
 def _changed(root: Path, path: str, before: IgnoredFile) -> bool | None:
-    """True: content changed, the file is still there. False: unchanged. None: gone or unreadable."""
+    """True: content changed, the file is still there. False: unchanged, or only appended to (its
+    old bytes are still its first bytes: nothing it held is gone). None: gone or unreadable."""
     full = root / path
     try:
         st = full.lstat()
@@ -318,10 +375,22 @@ def _changed(root: Path, path: str, before: IgnoredFile) -> bool | None:
         return False
     if st.st_size == before.size and st.st_mtime_ns == before.mtime_ns:
         return False
+    if st.st_size > before.size:
+        return not _appended(full, before)
     if st.st_size != before.size:
         return True
     now = _digest(full)
     return now is not None and now[2] != before.digest
+
+
+def _appended(full: Path, before: IgnoredFile) -> bool:
+    """Whether ``full`` starts with exactly the bytes ``before`` recorded (a log that grew)."""
+    try:
+        with open(full, "rb") as handle:
+            head = handle.read(before.size)
+    except OSError:
+        return False
+    return len(head) == before.size and hashlib.sha256(head).hexdigest() == before.digest
 
 
 def _moved_to(root: Path, before: IgnoredFile, current: set[str], exclude: set[str]) -> str:
@@ -371,7 +440,7 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
         return []
 
     settings = getattr(index, "settings", None)
-    current = ignored_files(root, getattr(settings, "exclude_dirs", ())) or set()
+    current = ignored_files(root, (*getattr(settings, "exclude_dirs", ()), *declared_outputs(root))) or set()
     new = sorted(p for p in current if p not in snap.files and p not in edited)
     lines = []
     for path in unnamed[:MAX_LISTED]:
