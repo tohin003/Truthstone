@@ -49,6 +49,9 @@ if [ -z "${TRUTHSTONE_CODEX_HOOK:-}" ] && [ -n "${PLUGIN_DATA:-}" ]; then
     lean="$PLUGIN_DATA/lean"
     budget=4
     [ "$event" = "session-end" ] && budget=2
+    # Stop may re-run original tests in a sandboxed copy (bounded at 2.5 s inside): its own
+    # budget, well under the host's 30 s Stop limit, so a loaded machine never fails it open.
+    [ "$event" = "stop" ] && budget=12
     if [ -f "$lean/forward-native" ] && [ -x "$lean/forward-native" ]; then
       "$lean/forward-native" --timeout "$budget"
       exit 0
