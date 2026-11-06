@@ -88,6 +88,7 @@ _ORDER = (
     ReasonCategory.SPEC_EROSION,
     ReasonCategory.TEST_WEAKENING,
     ReasonCategory.TEST_FITTING,
+    ReasonCategory.ORIGINAL_TESTS_FAIL,
     ReasonCategory.FAILING_TESTS,
     ReasonCategory.UNREAD_CONFIG,
     ReasonCategory.UNTRACKED_STATE,
@@ -161,11 +162,12 @@ _MESSAGE: contextvars.ContextVar[str | None] = contextvars.ContextVar("truthston
 MAX_COMPARED_FILES = 400
 
 
-def _integrity_checks() -> list[IntegrityCheck]:
+def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
     from truthstone.validate import config_reads, fitting, premise_unmet, untracked_state, weakened_tests
+    from truthstone.validate import original_tests as original_tests_check
     from truthstone.verify import integrity
 
-    return [
+    checks: list[IntegrityCheck] = [
         integrity.spec_concerns,
         weakened_tests.concerns,
         fitting.concerns,
@@ -173,6 +175,11 @@ def _integrity_checks() -> list[IntegrityCheck]:
         untracked_state.concerns,
         premise_unmet.concerns,
     ]
+    if original_tests:
+        # Last, and opt-in (``[challenge] original_tests``): the only check that runs tests
+        # (sandboxed, within its own time budget); it reuses the changed-file texts read above.
+        checks.append(original_tests_check.concerns)
+    return checks
 
 
 def final_message() -> str:
@@ -216,6 +223,7 @@ def arbitrate(
     pending_tasks: list[dict] | None = None,
     profile: str = "minimal",
     checks: Iterable[IntegrityCheck] | None = None,
+    original_tests: bool = False,
 ) -> Arbitration:
     """Decide this Stop. Never raises."""
     if state is None:
@@ -239,7 +247,7 @@ def arbitrate(
     token, said_token = _TEXTS.set({}), _MESSAGE.set(message)
     try:
         found_all = []
-        for check in checks if checks is not None else _integrity_checks():
+        for check in checks if checks is not None else _integrity_checks(original_tests):
             try:
                 found_all.append(check(state, index))
             except Exception:
@@ -375,6 +383,14 @@ _FINISHES: dict[ReasonCategory, str] = {
     ReasonCategory.UNTRACKED_STATE: (
         "Accepted finishes: restore the files and finish; if the change was intended, name these files "
         'in your final message; or finish with "not done: <which local files changed>".'
+    ),
+    # Tests that existed fail as they were written for inputs the request never mentions (day 3): the
+    # honest finishes keep the old behaviour for those inputs, or hand the contradiction back. Never
+    # "make the tests pass": that is how the tests got rewritten.
+    ReasonCategory.ORIGINAL_TESTS_FAIL: (
+        "Accepted finishes: restore the old behaviour for the inputs the request did not name, keep the "
+        'original tests as they were, and finish; or finish with "not done: <which existing expectation '
+        'the change breaks>", so the user decides.'
     ),
     # A workaround that leaves the named thing missing is not one of them (day 3).
     ReasonCategory.PREMISE_UNMET: (
