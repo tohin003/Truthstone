@@ -74,3 +74,16 @@ def test_a_name_that_only_left_a_comment_did_not_leave_the_code():
     assert "TALLY_BLUE_WIDGET" not in stripped and "envName" in stripped
     py = si.code_text("pkg/m.py", 'def f():\n    """Uses BLUE_WIDGET."""\n    return 1  # BLUE_WIDGET\n')
     assert "BLUE_WIDGET" not in py and "'f'" in py
+
+
+def test_an_entry_removed_outright_keeps_the_documentations_view():
+    """A known issue the fix resolves, deleted with its test's name: still gone with its code."""
+    before = {
+        "KNOWN_ISSUES.md": (
+            "# Known issues\n\n- `tests/test_tally.py::test_counts_the_last_day` fails on machines "
+            "whose local time zone is behind UTC.\n"
+        )
+    }
+    after = {"KNOWN_ISSUES.md": "# Known issues\n\nNone at the moment.\n"}
+    code = _code("export function tally() { return 1; }\n", "export function tally() { return 2; }\n")
+    assert si.eroded(before, after, set(), code=code) == []

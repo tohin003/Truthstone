@@ -604,15 +604,9 @@ def _eroded(
             # ("The max_items setting must be …"): the rule went with its name (audit M4).
             if tokens & targets or any(_mentions(sentence.text, target) for target in targets):
                 continue
-            if any(
-                _mentions(before_text_all, token)
-                and not _mentions(after_text_all, token)
-                # Day 3: the name left the code as well, not only the documentation. Swapping a
-                # rule's examples while rewriting it is not a rename.
-                and (code is None or (_mentions(code[0], token) and not _mentions(code[1], token)))
-                for token in tokens
-            ):
-                continue  # names code the session removed or renamed
+            vanished = [
+                t for t in tokens if _mentions(before_text_all, t) and not _mentions(after_text_all, t)
+            ]
             if normative or not prose:
                 verdict, counterpart = _counterpart(sentence, markers, pool)
                 if verdict == "kept" or (not normative and verdict != "qualified"):
@@ -621,6 +615,16 @@ def _eroded(
                 verdict, counterpart = _rewritten(sentence, pool)
                 if verdict == "kept":
                     continue
+            # A rule that names code the session removed or renamed went with that code. A rule
+            # removed outright keeps the documentation's view (a fixed known issue, a dropped
+            # feature). A rule still there in new words went with nothing unless the name left the
+            # code itself (day 3): swapping a rule's examples while rewriting it is not a rename.
+            if vanished and (
+                verdict == "removed"
+                or code is None
+                or any(_mentions(code[0], t) and not _mentions(code[1], t) for t in vanished)
+            ):
+                continue  # names code the session removed or renamed
             out.append(Erosion(path, sentence, verdict, counterpart))
         if prose:
             out.extend(_excepted(path, old_sentences, after_sentences[path]))
