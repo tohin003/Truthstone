@@ -109,6 +109,15 @@ def _shard(text: str) -> list[int]:
     return [*sorted(int(k) for k in residues.split(",")), int(n)]
 
 
+def _spent_subset(args: argparse.Namespace, frozen: str) -> bool:
+    """G26: some tasks of a spent split, for a dev check; never a main study, and the whole split
+    must still be unchanged."""
+    if suite.suite_spec(args.suite).name not in suite.SPENT or args.stage == "main" or not args.task:
+        return False
+    whole = [t for t in suite.load_suite(suite=args.suite) if t.id not in suite.DROPPED]
+    return suite.suite_digest(whole) == frozen
+
+
 def _cmd_plan(args: argparse.Namespace) -> int:
     tasks = suite.load_suite(only=args.task or None, suite=args.suite)
     dropped = [t.id for t in tasks if t.id in suite.DROPPED]
@@ -122,7 +131,7 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         print(f"refusing to register: {exc}")
         return 2
     frozen = suite.FROZEN.get(suite.suite_spec(args.suite).name) if args.suite else None
-    if frozen and suite.suite_digest(tasks) != frozen:
+    if frozen and suite.suite_digest(tasks) != frozen and not _spent_subset(args, frozen):
         print(
             f"refusing to register: {args.suite} is frozen at {frozen[:16]}... (amendment G11); "
             f"these tasks digest to {suite.suite_digest(tasks)[:16]}... (every task, unchanged)"

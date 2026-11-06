@@ -118,6 +118,26 @@ def test_the_heldout_split_is_frozen_and_plan_refuses_anything_else(splits, tmp_
     assert cli.main(argv) == 2 and not out.exists()
 
 
+def test_g26_a_dev_check_may_take_part_of_the_spent_split_never_of_the_sealed_one(splits, tmp_path):
+    from truthstone.bench.codex import cli
+    from truthstone.bench.codex.plan import Plan
+
+    def plan(split: str, stage: str):
+        task = next(t.id for t in splits[split] if t.language == "python")
+        out = tmp_path / f"{split}-{stage}.json"
+        argv = ["plan", "--suite", split, "--task", task, "--arms", "on", "--stage", stage]
+        argv += ["--phrasing", "canonical", "--replicates", "1", "--name", f"{split}-{stage}"]
+        argv += ["--out", str(out)]
+        return cli.main(argv), out, task
+
+    status, out, task = plan("golden-heldout", "pilot")
+    assert status == 0 and Plan.load(out).tasks == [task]
+    status, out, _ = plan("golden-heldout", "main")  # a main study needs every task
+    assert status == 2 and not out.exists()
+    status, out, _ = plan("golden-heldout2", "pilot")  # sealed: nothing before its release run
+    assert status == 2 and not out.exists() and "golden-heldout2" not in suite.SPENT
+
+
 def _node_available() -> bool:
     try:
         toolchain.node_version(toolchain.default_node())
