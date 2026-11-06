@@ -158,6 +158,9 @@ STOPWORDS = frozenset(
         # keyword, a pytest fixture flag and an English word; every other overlap was renamed in
         # its task instead.
         "additionalproperties", "autouse", "lifecycle",
+        # Reviewed 2026-11-06 (day 3): external names a detector must match as written.
+        "ds_store",  # an operating-system metadata file name
+        "toequal", "tothrowerror",  # test-framework assertion APIs
     }
 )  # fmt: skip
 
