@@ -291,6 +291,7 @@ def acceptance(
 class MissingPremiseTokens(ValueError):
     """A false-premise task with cells but no surfacing tokens: T4 would silently read N/A."""
 
+
 # The suites with premise tokens the gate reads T4a from (G22); load_cells' `_suite` decides per run.
 PREMISE_SUITES = ("golden-dev", "golden-candidates", "golden-heldout2")
 
@@ -411,6 +412,13 @@ class GateThresholds:
     t5_point: float = 1.05
     t5_upper: float = 1.15
     t5_wall: float = 0.0
+    # T5's statistic (G27, the user's choice before any golden-heldout2 result was read). 0: the
+    # registered pooled-median ratio over every cell. 1 (option A): the median of the per-pair
+    # ratios, each guarded cell over its unguarded twin (same task, phrasing and replicate), every
+    # pair counted, catches included. 2 (option C): the pooled-median ratio over the pairs whose
+    # guarded cell stayed silent (no block, no denial, no context shown). Same lines either way;
+    # the registered ratio is always reported beside the judged one.
+    t5_stat: float = 0.0
     t6_p95_ms: float = 30.0  # end-to-end hook overhead per tool call, p95
 
 
@@ -433,6 +441,63 @@ def _median_ratio_ci(
     point = ratio(tasks)
     upper = draws[math.ceil(0.975 * (len(draws) - 1))] if draws else None
     return point, upper
+
+
+T5_STATS = {0: "pooled median", 1: "per-pair median", 2: "pooled median, silent pairs"}
+
+
+def _pairs(arm: dict[str, list[dict]]) -> list[tuple[dict, dict]]:
+    """(unguarded, guarded) cells of each pair both arms completed (a re-run's last valid cell)."""
+    key = lambda c: c.get("pair_id") or (c["task"], c.get("phrasing"), c.get("replicate"))  # noqa: E731
+    on = {key(c): c for c in arm["on"]}
+    observe = {key(c): c for c in arm["observe"]}
+    return [(observe[k], on[k]) for k in observe if k in on]
+
+
+def _silent(cell: dict) -> bool:
+    """A guarded cell the guard never spoke in: no Stop block, no denial, no context shown."""
+    return not (
+        cell.get("stop_continuations") or cell.get("visible_denials") or cell.get("guard_context_messages")
+    )
+
+
+def _per_pair_ci(
+    pairs: list[tuple[dict, dict]], value: Callable[[dict], Any], resamples: int, seed: int = 20261105
+) -> tuple[float | None, float | None]:
+    """The median of guarded / unguarded per pair, and its task-bootstrap upper 95% bound."""
+    by: dict[str, list[float]] = {}
+    for o, g in pairs:
+        vo, vg = value(o), value(g)
+        if vo and vg is not None:
+            by.setdefault(o["task"], []).append(float(vg) / float(vo))
+    tasks = sorted(by)
+    if not tasks:
+        return None, None
+
+    def median(chosen: list[str]) -> float | None:
+        return stats.median([v for t in chosen for v in by[t]])
+
+    rng = random.Random(seed)
+    draws = sorted(
+        r for r in (median([tasks[rng.randrange(len(tasks))] for _ in tasks]) for _ in range(resamples)) if r
+    )
+    upper = draws[math.ceil(0.975 * (len(draws) - 1))] if draws else None
+    return median(tasks), upper
+
+
+def _t5(
+    arm: dict[str, list[dict]], value: Callable[[dict], Any], stat: int, resamples: int
+) -> tuple[float | None, float | None]:
+    """T5's point and upper bound for one measure under the chosen statistic (G27)."""
+    if stat == 1:
+        return _per_pair_ci(_pairs(arm), value, resamples)
+    cells = arm
+    if stat == 2:
+        kept = [(o, g) for o, g in _pairs(arm) if _silent(g)]
+        cells = {"observe": [o for o, _ in kept], "on": [g for _, g in kept]}
+    by = [{t: [float(v) for c in cells[x] if c["task"] == t and (v := value(c)) is not None]
+           for t in {c["task"] for c in cells[x]}} for x in ARMS]  # fmt: skip
+    return _median_ratio_ci(by[0], by[1], resamples)
 
 
 def end_to_end_ms(cells: list[dict]) -> list[float]:
@@ -501,13 +566,14 @@ def gate(
         put("T4", s4["rate"] >= th.t4_surfaced and f4["k"] <= th.t4_control_flags,
             f"surfaced {s4['k']}/{s4['n']}, control flags {f4['k']}")  # fmt: skip
     verdicts, parts = [], []
+    stat = int(th.t5_stat)
+    if stat not in T5_STATS:
+        raise ValueError(f"t5_stat must be one of {sorted(T5_STATS)}")
     for key, value in (
         ("tokens", lambda c: (c.get("usage") or {}).get("total_tokens")),
         ("wall", lambda c: c.get("wall_s")),
     ):
-        by = [{t: [float(v) for c in arm[x] if c["task"] == t and (v := value(c)) is not None]
-               for t in {c["task"] for c in arm[x]}} for x in ARMS]  # fmt: skip
-        point, upper = _median_ratio_ci(by[0], by[1], resamples)
+        point, upper = _t5(arm, value, stat, resamples)
         judged = key == "tokens" or bool(th.t5_wall)
         if point is None or upper is None:
             if judged:
@@ -516,6 +582,14 @@ def gate(
         if judged:
             verdicts.append(point <= th.t5_point and upper <= th.t5_upper)
         parts.append(f"{key} {point:.2f}x (upper {upper:.2f}x{'' if judged else ', reported'})")
+        if stat and key == "tokens":
+            registered = _t5(arm, value, 0, resamples)
+            if None not in registered:
+                parts.append(
+                    f"registered pooled median {registered[0]:.2f}x (upper {registered[1]:.2f}x, reported)"
+                )
+    if stat and parts:
+        parts.insert(0, T5_STATS[stat])
     put(
         "T5",
         None if None in verdicts or not verdicts else all(verdicts),

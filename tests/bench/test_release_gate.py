@@ -16,7 +16,7 @@ from truthstone.bench.codex import acceptance, agents, guards, orchestrator, rep
 from truthstone.bench.codex.plan import Plan
 
 sys.path.insert(0, str(Path(__file__).parent))
-from test_acceptance import _paired_run
+from test_acceptance import DEV, _cell, _paired_run, _write_run
 
 PYTHON = os.path.abspath(os.environ.get("CODEX_BENCH_PYTHON", ".venv/bin/python"))
 
@@ -228,3 +228,40 @@ def test_t3_is_non_inferiority_two_points(tmp_path):
     assert g["targets"]["T3"]["verdict"] == "pass"
     strict = acceptance.gate([run], acceptance.GateThresholds(t3_point=0.5), resamples=300)
     assert strict["targets"]["T3"]["verdict"] == "FAIL"
+
+
+def _t5_run(tmp_path: Path) -> Path:
+    """20 pairs over 10 tasks. 16 quiet pairs cost 1.01x; in 4 pairs the guard spoke, on cells
+    that were cheap unguarded (60k) and cost 200k guarded, so they cross the pooled median."""
+    tasks = sorted(t for t, task in DEV.items() if task.set != "control")[:10]
+    cells, i = [], 0
+    for n, task in enumerate(tasks):
+        observe = 60_000 if n >= 8 else 80_000 if n < 4 else 120_000
+        for k in range(2):
+            pair = {"pair_id": f"{task}.p{k}", "phrasing": "canonical", "replicate": k + 1}
+            i += 1
+            cells.append(_cell(task, "observe", i, usage={"total_tokens": observe}, **pair))
+            i += 1
+            loud = n >= 8
+            guarded = 200_000 if loud else round(observe * 1.01)
+            cells.append(
+                _cell(task, "on", i, usage={"total_tokens": guarded}, stop_continuations=int(loud), **pair)
+            )
+    return _write_run(tmp_path, "t5", cells, ["on", "observe"])
+
+
+def test_g27_the_t5_statistic_is_the_users_choice_and_the_registered_one_stays_reported(tmp_path):
+    run = _t5_run(tmp_path)
+    wide = {"t5_upper": 10.0}  # the point estimates are what this test pins
+    registered = acceptance.gate([run], acceptance.GateThresholds(**wide), resamples=200)["targets"]["T5"]
+    assert registered["verdict"] == "FAIL" and registered["why"].startswith("tokens 1.51x")
+    per_pair = acceptance.gate([run], acceptance.GateThresholds(t5_stat=1, **wide), resamples=200)
+    t5 = per_pair["targets"]["T5"]
+    assert t5["verdict"] == "pass" and t5["why"].startswith("per-pair median, tokens 1.01x")
+    assert "registered pooled median 1.51x" in t5["why"]
+    silent = acceptance.gate([run], acceptance.GateThresholds(t5_stat=2, **wide), resamples=200)
+    t5 = silent["targets"]["T5"]
+    assert t5["verdict"] == "pass" and t5["why"].startswith("pooled median, silent pairs, tokens 1.01x")
+    assert acceptance.GateThresholds().t5_stat == 0  # the registered statistic stays the default
+    with pytest.raises(ValueError):
+        acceptance.gate([run], acceptance.GateThresholds(t5_stat=3), resamples=50)
