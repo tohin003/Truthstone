@@ -1,4 +1,5 @@
-"""T6 times the shipped path: the hook timer's runner takes the plugin launcher's lean path."""
+"""T6 times the shipped path: the hook timer's runner takes the plugin launcher's hot path, the
+native forwarder first, then the lean Python one, then the runtime."""
 
 from __future__ import annotations
 
@@ -21,19 +22,58 @@ def _run(hook: Path, event: str, env: dict) -> subprocess.CompletedProcess:
     return subprocess.run([str(hook), event], input=b"{}", capture_output=True, env=env, timeout=30)
 
 
-def test_hot_events_take_the_lean_forwarder_and_the_rest_the_runtime(tmp_path: Path):
-    data = tmp_path / "plugin-data"
-    (data / "lean").mkdir(parents=True)
-    (data / "lean" / "forward.py").write_text(
-        "def run(args, stdin, stdout):\n    stdout.write(b'lean:' + ' '.join(args).encode())\n    return 2\n"
+def _lean(data: Path) -> Path:
+    """What SessionStart leaves in $PLUGIN_DATA/lean, as stand-ins that show their arguments and
+    exit 2: the lean Python runner, and the native forwarder."""
+    lean = data / "lean"
+    lean.mkdir(parents=True)
+    (lean / "run.py").write_text(
+        "import sys\nsys.stdout.write('lean:' + ' '.join(sys.argv[1:]))\nraise SystemExit(2)\n"
     )
+    native = lean / "forward-native"
+    native.write_text('#!/bin/sh\nprintf "native:%s" "$*"\nexit 2\n')
+    native.chmod(0o755)
+    return lean
+
+
+def test_hot_events_take_the_native_forwarder_then_the_lean_python_and_the_rest_the_runtime(tmp_path: Path):
+    data = tmp_path / "plugin-data"
+    lean = _lean(data)
     hook = guards.write_lean_hook(tmp_path, Path(sys.executable), _runtime_stub(tmp_path))
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PLUGIN_DATA": str(data)}
     hot = _run(hook, "pre-tool-use", env)
-    assert hot.returncode == 0 and hot.stdout == b"lean:--timeout 4"  # always exits 0, like the launcher
+    assert hot.returncode == 0 and hot.stdout == b"native:--timeout 4"  # always exits 0, like the launcher
+    assert _run(hook, "session-end", env).stdout == b"native:--timeout 2"
+    (lean / "forward-native").chmod(0o644)  # not executable: the lean Python forwarder
+    python = _run(hook, "post-tool-use", env)
+    assert python.returncode == 0 and python.stdout == b"lean:--timeout 4"
+    (lean / "forward-native").unlink()
     assert _run(hook, "session-end", env).stdout == b"lean:--timeout 2"
     assert _run(hook, "session-start", env).stdout.strip() == b"runtime:session-start"
     assert _run(hook, "user-prompt-submit", env).stdout.strip() == b"runtime:user-prompt-submit"
+
+
+def test_lifecycle_events_never_take_a_forwarder(tmp_path: Path):
+    data = tmp_path / "plugin-data"
+    _lean(data)
+    hook = guards.write_lean_hook(tmp_path, Path(sys.executable), _runtime_stub(tmp_path))
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PLUGIN_DATA": str(data)}
+    for event in ("session-start", "user-prompt-submit", ""):
+        assert _run(hook, event, env).stdout.strip() == f"runtime:{event}".encode()
+
+
+def test_paths_are_quoted_for_the_shell(tmp_path: Path):
+    odd = tmp_path / "it's a dir"
+    odd.mkdir()
+    data = odd / "plugin data"
+    (data / "lean").mkdir(parents=True)
+    (data / "lean" / "run.py").write_text("print('lean')\n")
+    python = odd / "py thon"
+    python.symlink_to(sys.executable)
+    hook = guards.write_lean_hook(odd, python, _runtime_stub(odd))
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PLUGIN_DATA": str(data)}
+    assert _run(hook, "stop", env).stdout == b"lean\n"
+    assert _run(hook, "session-start", env).stdout.strip() == b"runtime:session-start"
 
 
 def test_without_the_lean_forwarder_everything_goes_to_the_runtime(tmp_path: Path):
@@ -50,7 +90,9 @@ def test_the_runner_is_rewritten_only_when_it_changes(tmp_path: Path):
     mtime = first.stat().st_mtime_ns
     assert guards.write_lean_hook(tmp_path, Path(sys.executable), runtime).stat().st_mtime_ns == mtime
     assert os.access(first, os.X_OK)
-    assert first.read_text().startswith(f"#!{sys.executable} -IS\n")
+    shell = next(s for s in guards.LEAN_HOOK_SHELLS if os.path.exists(s))
+    assert first.read_text().startswith(f"#!{shell}\n")  # dash where there is one: the cheapest start
+    assert subprocess.run([shell, "-n", str(first)], capture_output=True).returncode == 0
 
 
 def test_a_developer_only_notice_is_not_the_agents():

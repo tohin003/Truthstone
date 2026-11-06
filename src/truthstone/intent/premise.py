@@ -71,8 +71,8 @@ TAIL = (
 # The deny for the first file edit after a note (T4): a careful agent can read the note and
 # still edit first; the user hears about the missing behaviour before anything is built on it.
 HOLD = (
-    "Truthstone: before editing: the request assumes {what} (see the note above). Tell the user what "
-    "you found first; then continue only if the change still makes sense."
+    "Truthstone: before editing: the request assumes {what} (see the note above). First tell the user "
+    "so in a message ({say}); then continue only if the change still makes sense."
 )
 
 
@@ -244,7 +244,7 @@ class Premise:
     @property
     def hold(self) -> str:
         """The deny for the task's first file edit (T4): the note may have gone unheeded."""
-        clauses = []
+        clauses, says = [], []
         for a in self.missing[:3]:
             files = self.only_in.get(a.name)
             if files:
@@ -252,9 +252,14 @@ class Premise:
                 clauses.append(
                     f"`{a.name}`, but it appears only in {listed}, and no code in this repository reads it"
                 )
+                says.append(f"nothing in this repository reads `{a.name}`")
             else:
                 clauses.append(f"`{a.name}`, but it appears nowhere in this repository")
-        return HOLD.format(what="; and ".join(clauses)) if clauses else ""
+                says.append(f"`{a.name}` doesn't exist in this repository")
+        if not clauses:
+            return ""
+        # The fact to state, in so many words: the user hears it before anything is built on it.
+        return HOLD.format(what="; and ".join(clauses), say='e.g. "' + "; ".join(says) + '"')
 
     def finding(self) -> Finding | None:
         if not self.missing:
@@ -377,7 +382,43 @@ def _window(before: str) -> str:
     return " ".join(_WORD.findall(before)[-4:])
 
 
-def _asserted(sentence: str, offset: int, name: str, kind: str = "name") -> bool:
+# A file of the project's own configuration the request names ("in app.toml", "to
+# config/rates.json"). A tool's (tsconfig, package.json, pyproject, lint and test-runner
+# configs: `_TOOL_OWNED`) is not the project's.
+_CONFIG_FILE = re.compile(
+    r"(?<![\w@/.-])((?:[\w.-]+/)*[\w.-]*\.(?:toml|json|jsonc|ya?ml|ini|cfg|conf|env|properties))(?![\w/-])",
+    re.IGNORECASE,
+)
+# A clause that conditions present behaviour on a name: "… appends one when `x = true` is set".
+_CONDITION = re.compile(r"\b(?:when|whenever|if|once)\b", re.IGNORECASE)
+# A request that builds the behaviour: then a key it names is the plan, not a premise.
+_BUILDS = re.compile(
+    r"\b(?:implement\w*|introduc\w*|add\s+support|support\s+for|should|must|needs?\s+to|has\s+to|"
+    r"have\s+to|new|build\w*|teach|wire\s+up|hook\s+up|make\s+(?:it|sure))\b",
+    re.IGNORECASE,
+)
+
+
+def _named_for_project_config(prompt: str, sentence: str, offset: int) -> bool:
+    """A key the request ties to a file of the project's own configuration, in a clause that
+    says what the project does when it is set: "the report gets a summary line when `summary =
+    true` is under [report] in app.toml: switch it on". Such a request asserts that the
+    project reads the key, with "already" or without, so a key the repository has nowhere is
+    a false premise. Never a tool's configuration (its keys are the tool's: tsconfig,
+    package.json, pyproject, lint and test-runner configs), and never in a request that builds
+    the behaviour ("should", "implement", "new" ...)."""
+    files = [match.group(1) for match in _CONFIG_FILE.finditer(sentence)]
+    if not files or any(_tool_owned(path) for path in files):
+        return False
+    lead = sentence[_clause_start(sentence, offset) : offset]
+    if not _CONDITION.search(lead[-160:]):
+        return False
+    return _BUILDS.search(prompt) is None
+
+
+def _asserted(
+    sentence: str, offset: int, name: str, kind: str = "name", prompt: str | None = None
+) -> bool:
     """Whether this sentence asserts that ``name`` (at ``offset``) is already there.
 
     Switching a setting on ("enable X", "turn X on") asserts only an environment switch — the
@@ -422,6 +463,8 @@ def _asserted(sentence: str, offset: int, name: str, kind: str = "name") -> bool
         return _EXISTING_BEHAVIOUR.search(clause) is not None
     if _EXISTING_BEHAVIOUR.search(clause):
         return True  # "X currently …", "the X setting is supposed to …": in X's own clause
+    if kind in ("name", "env") and _named_for_project_config(prompt or sentence, sentence, offset):
+        return True  # "… appends one when `x = true` is under [export] in app.toml: switch it on"
     return kind == "env" and _SWITCH_ON.search(sentence) is not None
 
 
@@ -435,7 +478,7 @@ def assertions(prompt: str) -> list[Assertion]:
         for offset, candidate in _candidates(sentence):
             if candidate.kind == "flag" and tool_named and not existing:
                 continue  # another program's switch, unless the request says it works today
-            if _asserted(sentence, offset, candidate.name, candidate.kind):
+            if _asserted(sentence, offset, candidate.name, candidate.kind, prompt):
                 candidate.existing = existing
                 out.setdefault(candidate.name, candidate)
             elif _CREATES.search(_window(sentence[:offset])):

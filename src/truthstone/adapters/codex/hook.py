@@ -12,7 +12,9 @@ is built to cost as little as a process can:
 * no ``/health`` probe before a tool call; a dead PID in the handshake is skipped for free
   and anything else that goes wrong simply means "no decision".
 * at SessionStart in a plugin session it also puts that forwarder, and this interpreter, in
-  the plugin's data directory, where the launcher runs it with ``-I -S`` for the hot events.
+  the plugin's data directory, where the launcher runs it with ``-I -S`` for the hot events;
+  and it starts the background build of the same forwarder in C (``forward_native.c``,
+  ``native.py``), which the launcher prefers once it is there.
 
 Lifecycle work happens only where a process spawn is invisible: ``session-start`` starts
 the daemon if needed, and ``user-prompt-submit`` revives it once if it died. If neither
@@ -252,14 +254,21 @@ LEAN_RUNNER = (
 
 def install_lean(data_dir: str) -> bool:
     """Put the lean forwarder and this interpreter where the plugin launcher looks for them
-    (``$PLUGIN_DATA/lean``), so its hot events run ``python -I -S run.py`` (WP9). Each
-    SessionStart refreshes them, so they never outlive the runtime by more than a session.
-    Only for an absolute data directory; never raises."""
+    (``$PLUGIN_DATA/lean``), so its hot events run ``python -I -S run.py`` (WP9), and start
+    the background build of the native forwarder there (``native.py``), which the launcher
+    prefers once it is in place. Each SessionStart refreshes them, so they never outlive the
+    runtime by more than a session. Only for an absolute data directory, and only into a real
+    directory of this user's (made 0700, never through a symlink); never raises, never waits
+    for the build."""
     if not data_dir or not os.path.isabs(data_dir) or not sys.executable:
         return False
+    from truthstone.adapters.codex import native
+
     try:
         lean = os.path.join(data_dir, LEAN_DIR)
         os.makedirs(lean, mode=0o700, exist_ok=True)
+        if not native.private_dir(lean):
+            return False
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "forward.py"), "rb") as fh:
             code = fh.read()
         # The forwarder first, the interpreter last: the launcher checks for all three.
@@ -268,6 +277,7 @@ def install_lean(data_dir: str) -> bool:
         _replace(os.path.join(lean, "python"), (sys.executable + "\n").encode())
     except OSError:
         return False
+    native.start(lean)
     return True
 
 

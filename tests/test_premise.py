@@ -320,8 +320,8 @@ def test_the_first_edit_after_a_premise_note_is_held_once(session):
     reason = _denied(send(_tool(repo, "apply_patch", _ci_patch(repo))))
     assert reason == (
         "Truthstone: before editing: the request assumes `ACME_TRACE`, but it appears nowhere in this "
-        "repository (see the note above). Tell the user what you found first; then continue only if the "
-        "change still makes sense."
+        'repository (see the note above). First tell the user so in a message (e.g. "`ACME_TRACE` '
+        "doesn't exist in this repository\"); then continue only if the change still makes sense."
     )
     assert send(_tool(repo, "apply_patch", _ci_patch(repo))) == {}  # re-issued: proceeds
 
@@ -419,3 +419,63 @@ def test_a_held_edit_still_records_the_file_as_the_task_found_it(session):
 )
 def test_a_tools_own_flag_is_not_a_premise(tmp_path, prompt):
     assert not _check(_repo(tmp_path), prompt).missing
+
+
+# -- a key named for the project's own config file, in a present-behaviour condition -----------
+
+
+@pytest.mark.parametrize(
+    "prompt, name",
+    [
+        (
+            "Ops wants a summary at the end of the report. acme appends one when `summary_line = true` "
+            "is under `[report]` in acme.toml: switch it on.",
+            "summary_line",
+        ),
+        (
+            "Upstream caps retries at five. acme caps the backoff when the settings file has "
+            '`maxBackoffMs`: add `"maxBackoffMs": 500` to config/acme.json.',
+            "maxBackoffMs",
+        ),
+    ],
+)
+def test_a_key_the_request_says_the_project_reads_from_its_own_config_is_a_premise(tmp_path, prompt, name):
+    """No "already": the request still says what the project does when the key is set, in a
+    file of its own configuration, and the key exists nowhere."""
+    found = _check(_repo(tmp_path), prompt)
+    assert [a.name for a in found.missing] == [name]
+    assert found.note.startswith(f"`{name}` appears nowhere in this repository")
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        # a tool's configuration: its keys are the tool's
+        "The compiler rejects implicit any when `noImplicitAny` is on in tsconfig.json: switch it on.",
+        "pytest stops early when `maxfail_count = 1` is under `[tool.pytest]` in pyproject.toml: turn it on.",
+        "The linter skips vendored code when `ignore_vendored` is set in setup.cfg: switch it on.",
+        # the request builds the behaviour
+        "When `summary_line = true` is set in acme.toml the report should end with a summary; implement it.",
+        "Add a new `summary_line` key to acme.toml; when it is true, the report appends a summary.",
+        # no condition: a plain edit
+        "Set `summary_line = true` under `[report]` in acme.toml.",
+        # no config file named
+        "acme appends a summary when `summary_line` is true: switch it on.",
+    ],
+)
+def test_a_tool_key_a_build_request_or_a_plain_edit_is_not(tmp_path, prompt):
+    assert not _check(_repo(tmp_path), prompt).missing
+
+
+def test_a_project_config_key_that_exists_resolves(tmp_path):
+    repo = _repo(tmp_path, {"acme/report.py": "SUMMARY = CONFIG['summary_line']\n"})
+    prompt = "acme appends one when `summary_line = true` is under `[report]` in acme.toml: switch it on."
+    assert not _check(repo, prompt).missing
+
+
+def test_the_hold_names_the_fact_to_state_for_a_switch_nobody_reads(tmp_path):
+    found = premise.Premise(
+        missing=[premise.Assertion("ACME_TRACE", "env", ("ACME_TRACE",), existing=True)],
+        only_in={"ACME_TRACE": ["docs/ops.md"]},
+    )
+    assert 'e.g. "nothing in this repository reads `ACME_TRACE`"' in found.hold

@@ -190,9 +190,11 @@ def test_as_launched_it_runs_isolated_and_a_repository_module_cannot_shadow_one(
 
 
 def test_session_start_installs_the_forwarder_and_its_python_for_the_launcher(tmp_path, monkeypatch):
-    from truthstone.adapters.codex import hook
+    from truthstone.adapters.codex import hook, native
 
     data = tmp_path / "plugin-data"
+    builds: list[str] = []
+    monkeypatch.setattr(native, "start", lambda lean, python=None: builds.append(lean))
     monkeypatch.setenv("PLUGIN_DATA", str(data))
     monkeypatch.setattr(hook, "_lifecycle", lambda: (None, hook.UNGUARDED_NOTICE, None))
     start = {"hook_event_name": "SessionStart", "session_id": "s", "cwd": str(tmp_path), "source": "startup"}
@@ -202,12 +204,14 @@ def test_session_start_installs_the_forwarder_and_its_python_for_the_launcher(tm
     assert (lean / "forward.py").read_bytes() == FORWARD.read_bytes()
     assert (lean / "python").read_text() == sys.executable + "\n"
     assert str(lean) in (lean / "run.py").read_text()
+    assert builds == [str(lean)]  # and the native forwarder's build starts (test_codex_native.py)
     assert not hook.install_lean("relative/data")  # only an absolute data directory
 
 
-def test_the_installed_runner_forwards_isolated_from_its_cached_module(tmp_path, daemon):
-    from truthstone.adapters.codex import hook
+def test_the_installed_runner_forwards_isolated_from_its_cached_module(tmp_path, daemon, monkeypatch):
+    from truthstone.adapters.codex import hook, native
 
+    monkeypatch.setattr(native, "start", lambda lean, python=None: None)  # the Python path only
     deny = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny"}}
     daemon(deny)
     assert hook.install_lean(str(tmp_path / "data"))

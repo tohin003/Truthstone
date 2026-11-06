@@ -9,8 +9,8 @@
 # Lookup order: $TRUTHSTONE_CODEX_HOOK, then `truthstone-codex-hook` on PATH, then a private copy in
 # Codex's per-plugin data directory ($PLUGIN_DATA), which the session-start hook installs
 # with uv on first use (set TRUTHSTONE_NO_BOOTSTRAP=1 to prevent that). The events that only
-# forward (tool calls, Stop, SessionEnd) take a shorter way when the runtime has left one:
-# the lean forwarder in $PLUGIN_DATA/lean, under the runtime's own Python with -I -S.
+# forward (tool calls, Stop, SessionEnd) take a shorter way when the runtime has left one in
+# $PLUGIN_DATA/lean: its native forwarder, else its lean forwarder under its own Python.
 #
 # It does nothing at all outside a git work tree, and when TRUTHSTONE_DISABLE is set.
 # It always exits 0. Codex reads exit code 2 as "block this", and a launcher problem must
@@ -36,17 +36,24 @@ until [ -e "$d/.git" ]; do
   d="${d%/*}"
 done
 
-# The hot path. The session-start hook puts the runtime's lean forwarder and its Python in
-# $PLUGIN_DATA/lean; they run with -I -S: no site, nothing from the working directory on
-# sys.path, builtin modules only. An explicit $TRUTHSTONE_CODEX_HOOK is always honoured
-# instead, and anything missing falls through to the runtime below.
+# The hot path. The session-start hook leaves the runtime's forwarders in $PLUGIN_DATA/lean:
+# forward-native, the forwarder compiled from the runtime's own C source when there is a C
+# compiler; and the lean Python forwarder with its interpreter, run with -I -S (no site,
+# nothing from the working directory on sys.path, builtin modules only). The first one there
+# answers; either is run, never exec'd, so this script's own exit 0 stands. An explicit
+# $TRUTHSTONE_CODEX_HOOK is always honoured instead, and anything missing falls through to
+# the runtime below.
 if [ -z "${TRUTHSTONE_CODEX_HOOK:-}" ] && [ -n "${PLUGIN_DATA:-}" ]; then
   case "$event" in
   pre-tool-use|post-tool-use|stop|subagent-stop|session-end)
     lean="$PLUGIN_DATA/lean"
+    budget=4
+    [ "$event" = "session-end" ] && budget=2
+    if [ -f "$lean/forward-native" ] && [ -x "$lean/forward-native" ]; then
+      "$lean/forward-native" --timeout "$budget"
+      exit 0
+    fi
     if [ -r "$lean/run.py" ] && [ -r "$lean/python" ] && read -r py <"$lean/python" && [ -x "$py" ]; then
-      budget=4
-      [ "$event" = "session-end" ] && budget=2
       "$py" -I -S "$lean/run.py" --timeout "$budget"
       exit 0
     fi
