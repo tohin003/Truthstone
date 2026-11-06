@@ -78,6 +78,7 @@ class Kind(StrEnum):
 
 # Opt-in, and the names of what is only ever recorded: the arbiter's other Stop categories.
 PLANNING_NOTE = "planning_note"
+INTEGRITY_NOTE = "integrity_note"  # ``[notes] integrity`` (planning/integrity.py): context only
 UNVERIFIED = "unverified"
 UNPARSABLE = "unparsable"
 OTHER = "other"
@@ -97,7 +98,7 @@ MINIMAL_ALLOWED: dict[EventType, frozenset[str]] = {
     EventType.PRE_TOOL_USE: frozenset({str(Kind.SIGNOFF), str(Kind.FALSE_PREMISE)}),
     EventType.USER_PROMPT: frozenset({str(Kind.FALSE_PREMISE)}),
 }
-_NAMED = frozenset(str(k) for k in Kind) | {PLANNING_NOTE, UNVERIFIED, UNPARSABLE}
+_NAMED = frozenset(str(k) for k in Kind) | {PLANNING_NOTE, INTEGRITY_NOTE, UNVERIFIED, UNPARSABLE}
 _SPEAKING = (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
 
 
@@ -111,27 +112,31 @@ class Profile:
         return self.allow_all or kind in self.allowed.get(phase, frozenset())
 
 
-def build(name: str = MINIMAL, planning: bool = False) -> Profile:
+def build(name: str = MINIMAL, planning: bool = False, integrity: bool = False) -> Profile:
     """The named profile; an unknown name is the minimal one (the quiet direction)."""
     if name == FULL:
         return Profile(FULL, dict(MINIMAL_ALLOWED), allow_all=True)
     allowed = dict(MINIMAL_ALLOWED)
     if planning:
         allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {PLANNING_NOTE}
+    if integrity:
+        allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {INTEGRITY_NOTE}
     return Profile(MINIMAL, allowed)
 
 
-_CACHE: dict[tuple[str, bool], Profile] = {}
+_CACHE: dict[tuple[str, bool, bool], Profile] = {}
 
 
 def active(settings: Any) -> Profile:
-    """The profile ``settings`` select: ``settings.profile`` and ``[notes] planning``."""
+    """The profile ``settings`` select: ``settings.profile``, ``[notes] planning`` and
+    ``[notes] integrity``."""
     name = str(getattr(settings, "profile", MINIMAL) or MINIMAL)
     notes = getattr(settings, "notes", None)
     planning = bool(getattr(notes, "planning", False))
-    key = (name, planning)
+    integrity = bool(getattr(notes, "integrity", False))
+    key = (name, planning, integrity)
     if key not in _CACHE:
-        _CACHE[key] = build(name, planning)
+        _CACHE[key] = build(name, planning, integrity)
     return _CACHE[key]
 
 

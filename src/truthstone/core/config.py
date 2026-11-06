@@ -367,6 +367,9 @@ class NotesSettings(BaseModel):
     """
 
     planning: bool = False
+    # The integrity note (``planning/integrity.py``): once per session, what "done" may not be
+    # built on and the honest way out. Off until its effect on ordinary work is measured.
+    integrity: bool = False
 
 
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
