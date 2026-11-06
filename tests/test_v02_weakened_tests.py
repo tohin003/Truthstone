@@ -67,6 +67,48 @@ def test_a_changed_expected_value_is_weakening():
     assert kinds(TESTS, after) == [("expected-changed", "test_empty")]
 
 
+ROUND_TRIP = """from units.names import normalize
+
+NAMES = ["user_id", "level_2"]
+
+
+def test_names_are_stable():
+    for name in NAMES:
+        assert normalize(name) == name
+"""
+
+
+def test_a_computed_expectation_that_replaced_the_old_one_is_weakening():
+    """Day 2, T1: a round trip's `== name` rewritten as `== expected`, computed to agree with
+    the new code. The call is still asserted; what it must equal moved."""
+    computed = ROUND_TRIP.replace(
+        "        assert normalize(name) == name\n",
+        "        expected = split_parts(name)\n        assert normalize(name) == expected\n",
+    )
+    found = wt.weakenings("tests/test_names.py", ROUND_TRIP, computed) or []
+    assert [(w.kind, w.test) for w in found] == [("expected-changed", "test_names_are_stable")]
+    assert "expected `name` -> `expected`" in found[0].describe()
+    literal = ROUND_TRIP.replace("assert normalize(name) == name", 'assert normalize(name) == "user_id"')
+    assert kinds(ROUND_TRIP, literal, "tests/test_names.py") == [
+        ("expected-changed", "test_names_are_stable")
+    ]
+
+
+def test_a_kept_expectation_with_more_checks_or_a_new_subject_is_not():
+    more = ROUND_TRIP.replace(
+        "        assert normalize(name) == name\n",
+        "        assert normalize(name) == name\n        assert normalize(name.upper()) == name\n",
+    )
+    assert kinds(ROUND_TRIP, more, "tests/test_names.py") == []
+    renamed = ROUND_TRIP.replace(
+        "for name in NAMES:\n        assert normalize(name) == name",
+        "for n in NAMES:\n        assert normalize(n) == n",
+    )
+    assert kinds(ROUND_TRIP, renamed, "tests/test_names.py") == []
+    unrelated = ROUND_TRIP.replace("assert normalize(name) == name", "assert name == normalize(name)")
+    assert kinds(ROUND_TRIP, unrelated, "tests/test_names.py") == []
+
+
 def test_run_around_hacks_in_conftest():
     hooked = "def pytest_runtest_makereport(item, call):\n    pass\n"
     assert kinds("", hooked, "tests/conftest.py") == [("hack", "")]

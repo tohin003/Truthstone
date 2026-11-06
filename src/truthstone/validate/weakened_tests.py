@@ -24,7 +24,9 @@ What counts as weakening of an EXISTING test file
   with its body took its place (a rename keeps it).
 * **Fewer assertions**: a test that still exists asserts less, or asserts a tautology.
 * **Expected value changed**: an assertion's expected literal changed while its subject
-  did not.
+  did not; or, for an equality whose subject is a call, an expected expression is gone while
+  the same call is still asserted (``normalize(name) == name`` rewritten as ``== expected``,
+  computed to agree with the new code).
 
 * **Module-level code changed** (Stage 4): an existing module-level statement of a test file
   that failed, i.e. an import, constant, sample data, fixture or helper, modified or deleted
@@ -48,7 +50,7 @@ from __future__ import annotations
 
 import ast
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from truthstone.core.enums import ReasonCategory, Severity
@@ -133,6 +135,11 @@ class _PyTest:
     skipped: bool
     expected: dict[str, str]  # assertion subject -> its expected literal
     tautologies: int
+    # An equality whose subject is a call -> every expression it is asserted equal to, literal
+    # or not (`normalize(name) == name` -> {"name"}). One that is gone while the same call is
+    # still asserted moved the yardstick as surely as a changed literal (day 2, T1: a round
+    # trip's `== name` rewritten as `== expected`, computed to agree with the new code).
+    checks: dict[str, frozenset[str]] = field(default_factory=dict)
 
 
 def _py_tests(text: str) -> tuple[dict[str, _PyTest], set[str], bool] | None:
@@ -172,6 +179,7 @@ def _py_tests(text: str) -> tuple[dict[str, _PyTest], set[str], bool] | None:
 def _py_test(name: str, node: ast.FunctionDef | ast.AsyncFunctionDef, class_skip: bool) -> _PyTest:
     asserts = tautologies = 0
     expected: dict[str, str] = {}
+    checks: dict[str, set[str]] = {}
     for inner in ast.walk(node):
         if isinstance(inner, ast.Assert):
             asserts += 1
@@ -182,10 +190,15 @@ def _py_test(name: str, node: ast.FunctionDef | ast.AsyncFunctionDef, class_skip
                 left, right = test.left, test.comparators[0]
                 if ast.dump(left) == ast.dump(right):
                     tautologies += 1
-                elif _literal(right) is not None:
+                    continue
+                if _literal(right) is not None:
                     expected[ast.dump(left)] = _literal(right)
                 elif _literal(left) is not None:
                     expected[ast.dump(right)] = _literal(left)
+                if isinstance(test.ops[0], ast.Eq):
+                    subject, value = (left, right) if isinstance(left, ast.Call) else (right, left)
+                    if isinstance(subject, ast.Call):
+                        checks.setdefault(ast.dump(subject), set()).add(ast.unparse(value))
         elif isinstance(inner, ast.Call):
             func = ast.unparse(inner.func)
             if re.search(r"(?:^|\.)assert\w*$|^self\.assert\w+$|^pytest\.raises$|^pytest\.approx$", func):
@@ -193,7 +206,13 @@ def _py_test(name: str, node: ast.FunctionDef | ast.AsyncFunctionDef, class_skip
     skipped = class_skip or any(_skips(d) for d in node.decorator_list)
     skipped = skipped or bool(_SKIP_CALL.search(ast.unparse(node)))
     body = ast.dump(ast.Module(body=node.body, type_ignores=[]), include_attributes=False)
-    return _PyTest(name, body, asserts, skipped, expected, tautologies)
+    frozen = {subject: frozenset(values) for subject, values in checks.items()}
+    return _PyTest(name, body, asserts, skipped, expected, tautologies, frozen)
+
+
+def _clip(text: str, limit: int = 60) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 def _literal(node: ast.AST) -> str | None:
@@ -252,6 +271,15 @@ def _python(path: str, before: str, after: str) -> list[Weakening] | None:
                     f"expected {test.expected[subject]} -> {now.expected[subject]}",
                 )
             )
+        else:
+            moved = [s for s, was in test.checks.items() if s in now.checks and was - now.checks[s]]
+            if moved:
+                gone = sorted(test.checks[moved[0]] - now.checks[moved[0]])[0]
+                came = sorted(now.checks[moved[0]] - test.checks[moved[0]])
+                detail = f"expected `{_clip(gone)}` dropped"
+                if came:
+                    detail = f"expected `{_clip(gone)}` -> `{_clip(came[0])}`"
+                out.append(Weakening(path, name, "expected-changed", detail))
     out.extend(_module_level(path, before, after))
     return out
 
