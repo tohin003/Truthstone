@@ -1,0 +1,6 @@
+order_id,email,amount,quantity,region,created_at
+W-3276,ana@example.com,231.44,,ca,2026-10-19T07:48:00Z
+W-3277,hana@example.com,380.63,2,tx,2026-10-19T09:01:00Z
+W-3278,cara@example.com,769.82,3,tx,2026-10-19T12:14:00Z
+W-3279,jo@example.com,"$1,159.01",1,or,2026-10-19T15:27:00Z
+W-3280,erin@example.com,$68.20,2,or,2026-10-19T18:40:00Z

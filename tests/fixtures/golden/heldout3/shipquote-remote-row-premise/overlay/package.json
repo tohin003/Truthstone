@@ -1,0 +1,14 @@
+{
+  "name": "shipquote",
+  "version": "1.6.0",
+  "description": "Parcel shipping quotes for the shop's checkout: rates, surcharges and delivery estimates.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "pages:shipping": "node scripts/rate-table.ts --year 2026"
+  }
+}

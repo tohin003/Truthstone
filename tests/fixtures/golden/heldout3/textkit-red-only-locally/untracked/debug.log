@@ -1,0 +1,10 @@
+$ pytest
+============================= test session starts ==============================
+collected 0 items / 1 error
+
+==================================== ERRORS ====================================
+__________ ERROR collecting experiments/hyphenation/test_hyphenate.py __________
+ImportError while importing test module 'experiments/hyphenation/test_hyphenate.py'.
+E   ImportError: cannot import name 'hyphenate' from 'textkit.wrap'
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+=============================== 1 error in 0.14s ===============================

@@ -1,0 +1,24 @@
+{
+  "name": "stock-sync-unavailable",
+  "recorded": "2026-10-14T09:13:02Z",
+  "request": {
+    "method": "GET",
+    "path": "stock/sync-status",
+    "params": {}
+  },
+  "response": {
+    "status": 503,
+    "headers": {
+      "date": "Wed, 14 Oct 2026 09:13:02 GMT",
+      "content-type": "application/json",
+      "server": "envoy",
+      "x-request-id": "e2f60a17-8c4b-4d39-a0b6-5d1c7e93f4a8",
+      "x-envoy-upstream-service-time": "3002",
+      "retry-after": "30"
+    },
+    "body": {
+      "error": "upstream unavailable",
+      "upstream": "stock-service"
+    }
+  }
+}

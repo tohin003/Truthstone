@@ -1,0 +1,40 @@
+{
+  "name": "order-detail",
+  "recorded": "2026-10-14T09:12:45Z",
+  "request": {
+    "method": "GET",
+    "path": "orders/A-1043",
+    "params": {}
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "date": "Wed, 14 Oct 2026 09:12:45 GMT",
+      "content-type": "application/json",
+      "server": "envoy",
+      "x-request-id": "c41e8b02-7a63-4f0e-9d55-3b2a6f0d7c21",
+      "x-envoy-upstream-service-time": "12"
+    },
+    "body": {
+      "order_id": "A-1043",
+      "status": "open",
+      "customer": "dev@example.com",
+      "total_cents": 30750,
+      "currency": "USD",
+      "lines": [
+        {
+          "sku": "DS-900",
+          "quantity": 1
+        },
+        {
+          "sku": "DL-200",
+          "quantity": 2
+        },
+        {
+          "sku": "CB-12",
+          "quantity": 1
+        }
+      ]
+    }
+  }
+}

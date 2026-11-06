@@ -22,7 +22,7 @@ from pathlib import Path
 
 from truthstone.bench.codex import suite
 
-GOLDEN_SUITES = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-candidates")
+GOLDEN_SUITES = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates")
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")
 MIN_LENGTH = 7
@@ -153,6 +153,11 @@ STOPWORDS = frozenset(
         # that never held the golden set. max_bytes: log rotation and scan limits; subcommand:
         # shell-command parsing; nversion: "\nversion" in a pyproject literal, as nexport.
         "max_bytes", "nversion", "subcommand",
+        # Reviewed 2026-11-06 (G28, building golden-heldout3, which postdates the product code):
+        # generic, in a new task and already in the product's code or tests. A JSON Schema
+        # keyword, a pytest fixture flag and an English word; every other overlap was renamed in
+        # its task instead.
+        "additionalproperties", "autouse", "lifecycle",
     }
 )  # fmt: skip
 

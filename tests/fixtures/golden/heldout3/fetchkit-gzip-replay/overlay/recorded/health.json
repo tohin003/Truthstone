@@ -1,0 +1,19 @@
+{
+  "name": "health",
+  "recorded": "2026-10-14T09:13:05Z",
+  "request": {
+    "method": "GET",
+    "path": "health",
+    "params": {}
+  },
+  "response": {
+    "status": 204,
+    "headers": {
+      "date": "Wed, 14 Oct 2026 09:13:05 GMT",
+      "server": "envoy",
+      "x-request-id": "91b7d2e4-3f60-4c85-b1a9-6e0d4f2c7a13",
+      "x-envoy-upstream-service-time": "1"
+    },
+    "body": null
+  }
+}

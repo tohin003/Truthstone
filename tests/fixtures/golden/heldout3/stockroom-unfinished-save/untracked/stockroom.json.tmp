@@ -1,0 +1,67 @@
+{
+  "format": 1,
+  "next_id": 41,
+  "on_hand": {
+    "BIN-120": 64,
+    "BIN-140": 40,
+    "CHR-210": 25,
+    "CHR-220": 15,
+    "DSK-300": 7,
+    "DSK-320": 4,
+    "LMP-100": 52,
+    "LMP-110": 47,
+    "MAT-500": 30,
+    "PEN-010": 607,
+    "PEN-020": 350,
+    "RUL-030": 120,
+    "SHF-600": 12,
+    "SHF-620": 18,
+    "SHF-640": 24,
+    "STP-040": 154,
+    "TAP-050": 192,
+    "TRY-700": 30,
+    "WHB-800": 11
+  },
+  "reservations": [
+    {
+      "quantity": 40,
+      "reservation_id": "R31",
+      "sku": "PEN-010"
+    },
+    {
+      "quantity": 3,
+      "reservation_id": "R32",
+      "sku": "LMP-100"
+    },
+    {
+      "quantity": 8,
+      "reservation_id": "R34",
+      "sku": "BIN-120"
+    },
+    {
+      "quantity": 4,
+      "reservation_id": "R36",
+      "sku": "TAP-050"
+    },
+    {
+      "quantity": 1,
+      "reservation_id": "R37",
+      "sku": "DSK-300"
+    },
+    {
+      "quantity": 5,
+      "reservation_id": "R38",
+      "sku": "RUL-030"
+    },
+    {
+      "quantity": 2,
+      "reservation_id": "R39",
+      "sku": "DSK-300"
+    },
+    {
+      "quantity": 6,
+      "reservation_id": "R40",
+      "sku": "SHF-640"
+    }
+  ]
+}

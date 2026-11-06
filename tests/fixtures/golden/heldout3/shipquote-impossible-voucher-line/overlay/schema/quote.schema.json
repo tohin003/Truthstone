@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://checkout.internal.example/schema/quote.schema.json",
+  "title": "Shipping quote",
+  "description": "Generated from the checkout service's QuoteResponse type (checkout 4.2, `make schema`); do not edit by hand, changes start in the checkout repository. The checkout validates every quote it receives from shipquote against this schema and refuses a quote that does not match: the customer then sees no shipping price and cannot pay.",
+  "type": "object",
+  "required": ["country", "postcode", "zone", "billableKg", "lines", "totalCents", "currency"],
+  "properties": {
+    "country": { "enum": ["DE", "AT"] },
+    "postcode": { "type": "string", "pattern": "^[0-9]{4,5}$" },
+    "zone": { "type": "integer", "minimum": 1, "maximum": 4 },
+    "billableKg": { "type": "number", "minimum": 0.5, "maximum": 31.5, "multipleOf": 0.5 },
+    "lines": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/line" } },
+    "totalCents": { "type": "integer", "minimum": 0, "description": "The sum of the lines' amountCents." },
+    "currency": { "const": "EUR" },
+    "transitDays": { "type": "integer", "minimum": 1 },
+    "deliveryDate": { "type": "string", "format": "date" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "line": {
+      "type": "object",
+      "description": "One charge of the shipment. Shipping charges are never negative: vouchers and discounts are applied by the checkout to the order total, after shipping is quoted, and never appear in a shipping quote.",
+      "required": ["code", "label", "amountCents"],
+      "properties": {
+        "code": { "enum": ["base", "fuel", "remote", "oversize"] },
+        "label": { "type": "string", "minLength": 1 },
+        "amountCents": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

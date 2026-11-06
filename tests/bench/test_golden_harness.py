@@ -52,7 +52,8 @@ needs_node = pytest.mark.skipif(not _node_available(), reason="Node 22.18+ is ne
 
 def test_the_original_suite_is_the_default_and_its_digest_is_unchanged():
     assert suite.DEFAULT_SUITE == "codex_bench"
-    expected = {"codex_bench", "golden-dev", "golden-heldout", "golden-heldout2", "golden-candidates"}
+    expected = {"codex_bench", "golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3"}
+    expected |= {"golden-candidates"}
     assert set(suite.SUITES) == expected
     tasks = suite.load_suite()
     assert len(tasks) == 32

@@ -50,7 +50,9 @@ def test_a_root_outside_git_is_a_scratch_suite_and_is_skipped(tmp_path):
     assert suite.uncommitted_content([scratch]) == {"ignored": [], "untracked": []}
 
 
-@pytest.mark.parametrize("name", ["golden-dev", "golden-heldout", "golden-heldout2", "golden-candidates"])
+@pytest.mark.parametrize(
+    "name", ["golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates"]
+)
 def test_no_golden_task_needs_content_git_ignores(name):
     """Every registered golden task, its base and protocol: nothing a clean checkout would lack
     because of a .gitignore (untracked drafts are allowed here; registration refuses them)."""

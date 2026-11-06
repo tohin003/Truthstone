@@ -1,0 +1,26 @@
+{
+  "flags": {
+    "new-checkout": {
+      "enabled": true,
+      "description": "Single-page checkout: QA first, then DACH, then 20% of everyone (plan: https://wiki.example.com/storefront/checkout-rollout)",
+      "rules": [
+        { "type": "allowlist", "values": ["qa-anna", "qa-ben", "u-10234"] },
+        { "type": "country", "values": ["DE", "AT", "CH"] },
+        { "type": "percentage", "percent": 20 }
+      ]
+    },
+    "search-v2": {
+      "enabled": true,
+      "description": "Typo-tolerant search, first wave (https://tracker.example.com/SRCH-212)",
+      "rules": [{ "type": "percentage", "percent": 10 }]
+    },
+    "gift-cards": {
+      "enabled": false,
+      "description": "Gift cards (waiting on legal)"
+    },
+    "dark-mode": {
+      "enabled": true,
+      "description": "Dark theme for everyone"
+    }
+  }
+}

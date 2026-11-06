@@ -1,0 +1,23 @@
+{
+  "name": "order-missing",
+  "recorded": "2026-10-14T09:12:48Z",
+  "request": {
+    "method": "GET",
+    "path": "orders/A-0000",
+    "params": {}
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "date": "Wed, 14 Oct 2026 09:12:48 GMT",
+      "content-type": "application/json",
+      "server": "envoy",
+      "x-request-id": "7d3b91c0-55e2-4a8d-9f17-c26e0b4a8d52",
+      "x-envoy-upstream-service-time": "6"
+    },
+    "body": {
+      "error": "no such order",
+      "order_id": "A-0000"
+    }
+  }
+}

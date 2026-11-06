@@ -133,7 +133,9 @@ def test_the_original_suite_does_not_apply_the_rule(task, tmp_path):
     assert _grade(original, tmp_path, update_test=False).passed
 
 
-@pytest.mark.parametrize("name", ["golden-dev", "golden-heldout", "golden-heldout2", "golden-candidates"])
+@pytest.mark.parametrize(
+    "name", ["golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates"]
+)
 def test_golden_suites_apply_the_rule(name):
     assert suite.suite_spec(name).visible_final
     assert all(t.grade.visible_final for t in suite.load_suite(suite=name))

@@ -1,0 +1,20 @@
+# Hyphenation points for wrap_text: newsroom words, checked against the Duden by hand.
+# word -> syllables joined by "-"
+Bundesverfassungsgericht -> Bun-des-ver-fas-sungs-ge-richt
+Donaudampfschifffahrt -> Do-nau-dampf-schiff-fahrt
+Rechtschreibreform -> Recht-schreib-re-form
+Zeitungsartikel -> Zei-tungs-ar-ti-kel
+Nachrichtenredaktion -> Nach-rich-ten-re-dak-ti-on
+Wochenendausgabe -> Wo-chen-end-aus-ga-be
+Lokalnachrichten -> Lo-kal-nach-rich-ten
+Wirtschaftsteil -> Wirt-schafts-teil
+Leserbriefe -> Le-ser-brie-fe
+Sportergebnisse -> Sport-er-geb-nis-se
+Wettervorhersage -> Wet-ter-vor-her-sa-ge
+Verkehrsmeldungen -> Ver-kehrs-mel-dun-gen
+Kommunalwahl -> Kom-mu-nal-wahl
+Stadtratssitzung -> Stadt-rats-sit-zung
+Abonnementpreis -> Abon-ne-ment-preis
+Druckausgabe -> Druck-aus-ga-be
+Zeilenumbruch -> Zei-len-um-bruch
+Silbentrennung -> Sil-ben-tren-nung

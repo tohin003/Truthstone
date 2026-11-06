@@ -1,0 +1,14 @@
+[project]
+name = "fetchkit"
+version = "1.4.0"
+description = "A tiny JSON-over-HTTP client with a pluggable transport."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+speedups = ["orjson>=3.9"]
+test = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

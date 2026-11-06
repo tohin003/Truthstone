@@ -1,0 +1,52 @@
+# textkit
+
+Small text utilities shared by the docs site and the export jobs.
+
+```python
+from textkit.case import title_case
+from textkit.slug import slugify
+
+slugify("Crème Brûlée Recipes")                 # "creme-brulee-recipes"
+title_case("the art of computer programming")   # "The Art of Computer Programming"
+```
+
+## Modules
+
+- `textkit.slug`: URL slugs.
+- `textkit.case`: identifier case conversion (`to_snake`, `to_camel`, `to_kebab`) and `title_case`.
+- `textkit.wrap`: plain-text wrapping.
+- `textkit.stats`: word counts and reading time.
+- `textkit.keys`: rename the keys of records between naming styles.
+- `textkit.formats`: table renderers (CSV, TSV, Markdown, HTML, JSON, YAML, XML).
+- `textkit.exports`: the nightly export jobs, one entry per consumer.
+- `textkit.legacy_case`: the 0.x case helpers, still used by a few callers.
+- `textkit.cli`: the `textkit` command (`textkit case`, `textkit slug`, `textkit labels`).
+
+## Title case
+
+Headings use title case. Every word is capitalised except the small words
+(a, an, and, as, at, but, by, for, in, nor, of, on, or, the, to), which stay lowercase
+unless they are the first or the last word of the title.
+
+## Formatters
+
+Every module in `textkit/formats/` exposes `render(rows, headers) -> str`. Each one is
+maintained by the team that consumes its output:
+
+| Module       | Owner                 |
+| ------------ | --------------------- |
+| `csv_fmt`    | Exports               |
+| `tsv_fmt`    | Analytics             |
+| `md_table`   | Developer docs        |
+| `html_table` | Web                   |
+| `json_fmt`   | Public API            |
+| `yaml_fmt`   | Platform              |
+| `xml_fmt`    | Partner integrations  |
+
+## Exports
+
+The nightly export jobs live in `textkit.exports.EXPORTS`: for each consumer, the formatter
+it gets and the keyword options `render` is called with, for example
+`"bulk-importer": ("csv_fmt", {"delimiter": ";"})`. `textkit.formats.render_as` passes a
+formatter the options it accepts and leaves the rest out, so a consumer can move to another
+format without touching its options.

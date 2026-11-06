@@ -1,0 +1,19 @@
+// Storefront flags for the staging stack.
+// Owners: the storefront team (#storefront-flags).
+{
+  "flags": {
+    "new-checkout": {
+      "enabled": true, // ramping up, see the rollout plan
+      "description": "Single-page checkout",
+      "rules": [
+        /* QA accounts first */
+        { "type": "allowlist", "values": ["qa-anna", "qa-ben"] },
+        { "type": "percentage", "percent": 20 } // then a fifth of everyone
+      ]
+    },
+    /*
+     * Off on staging until the new palette lands.
+     */
+    "dark-mode": { "enabled": false }
+  }
+}

@@ -1,0 +1,10 @@
+[project]
+name = "ledger"
+version = "0.5.0"
+description = "Small invoicing helpers: money, tax, discounts, invoices, lifecycle events and CSV export."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

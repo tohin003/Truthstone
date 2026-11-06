@@ -1,0 +1,15 @@
+[project]
+name = "ledger"
+version = "0.4.2"
+description = "Small invoicing helpers: money, tax, discounts, invoices, subscriptions and CSV export."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "calendar: the exhaustive calendar sweep over ledger.periods (slow; run with `pytest -m calendar`)",
+]
+# The calendar sweep takes about ten seconds, so the everyday run leaves it out.
+addopts = "-m 'not calendar'"
