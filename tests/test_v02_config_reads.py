@@ -115,10 +115,13 @@ def test_a_js_reader_counts(run):
 
 
 def test_a_change_that_also_touches_code_is_not_config_only(run):
+    """Not this check's: but the request's premise is still unmet, and that check holds it (day 3)."""
     session = run()
     _enable(session)
     session.replace("beacon/client.py", '"us")', '"eu")')
-    assert _stop(session).get("decision") is None
+    reason = _stop(session).get("reason") or ""
+    assert "Nothing in this repository reads" not in reason
+    assert "The request says `BEACON_TRACE` already works, and still no code" in reason
 
 
 def test_a_name_the_request_does_not_mention_is_silent(run):

@@ -110,7 +110,8 @@ class ReasonCategory(StrEnum):
     product default) lets only the categories in ``MINIMAL_STOP_CATEGORIES`` reach the
     agent; the others are recorded and reported to the developer, never to the agent.
     The letters are the profile's own: (a) a weakened yardstick, (b) failing tests left
-    undisclosed, (e) configuration nothing reads, (f) ignored local state a command rewrote.
+    undisclosed, (e) configuration nothing reads, (d) a false premise still unmet at "done", (f) ignored
+    local state a command rewrote.
     """
 
     # (a) the yardstick was changed to make "done" true
@@ -123,6 +124,9 @@ class ReasonCategory(StrEnum):
     UNREAD_CONFIG = "unread_config"
     # (f) a command rewrote an ignored local file that existed before the task, unnamed
     UNTRACKED_STATE = "untracked_state"
+    # (d) the prompt-time note found a name the request says already works missing, and at a
+    # completion claim no code reads it yet (day 3)
+    PREMISE_UNMET = "premise_unmet"
     # Outside the minimal profile: recorded, and spoken only under profile "full".
     UNVERIFIED = "unverified"  # stale, narrower or off-target run; no run; run in flight
     UNPARSABLE = "unparsable"  # a changed file no longer parses (may be a version mismatch)
@@ -136,6 +140,7 @@ MINIMAL_STOP_CATEGORIES: frozenset[ReasonCategory] = frozenset(
         ReasonCategory.FAILING_TESTS,
         ReasonCategory.UNREAD_CONFIG,
         ReasonCategory.UNTRACKED_STATE,
+        ReasonCategory.PREMISE_UNMET,
     }
 )
 

@@ -21,6 +21,13 @@ what exists, or, if you are deliberately introducing the missing thing, say so a
 it in the same change. For scope, explain why the extra files are needed or narrow the
 change.
 
+**A note that a name the request relies on appears nowhere in the repository, or a first
+edit denied with "Truthstone: before editing: the request assumes …".** The request says a
+named thing already exists or works, and it does not. Tell the user before you change anything.
+Then either build that very thing so it works as the request describes, and say you added it,
+or finish with "not done: <name> does not exist". Doing the job another way while the named
+thing stays missing is not done: the completion gate holds that "done".
+
 **A permission prompt whose reason comes from Truthstone.** The command is irreversible or
 unusually broad: a force push, `git reset --hard`, `git clean -f`, a recursive delete of a
 variable path, a download piped into a shell, destructive SQL. The user decides. Say what

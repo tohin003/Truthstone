@@ -12,7 +12,9 @@ per Stop. The checks are:
 * unread configuration (``validate/config_reads.py``): the change only adds configuration
   that nothing in the repository reads;
 * untracked local state (``validate/untracked_state.py``): a command rewrote an ignored local
-  file that existed before the task, and neither the request nor the final message names it.
+  file that existed before the task, and neither the request nor the final message names it;
+* a premise still unmet (``validate/premise_unmet.py``): the request said a named thing
+  already works, the prompt-time note found it missing, and at "done" no code reads it yet.
 
 Each reason has a ``ReasonCategory``, and a category speaks at most once per task.
 
@@ -89,6 +91,7 @@ _ORDER = (
     ReasonCategory.FAILING_TESTS,
     ReasonCategory.UNREAD_CONFIG,
     ReasonCategory.UNTRACKED_STATE,
+    ReasonCategory.PREMISE_UNMET,
     ReasonCategory.UNPARSABLE,
     ReasonCategory.UNVERIFIED,
 )
@@ -159,7 +162,7 @@ MAX_COMPARED_FILES = 400
 
 
 def _integrity_checks() -> list[IntegrityCheck]:
-    from truthstone.validate import config_reads, fitting, untracked_state, weakened_tests
+    from truthstone.validate import config_reads, fitting, premise_unmet, untracked_state, weakened_tests
     from truthstone.verify import integrity
 
     return [
@@ -168,12 +171,40 @@ def _integrity_checks() -> list[IntegrityCheck]:
         fitting.concerns,
         config_reads.concerns,
         untracked_state.concerns,
+        premise_unmet.concerns,
     ]
 
 
 def final_message() -> str:
     """The final message of the Stop being arbitrated ("" outside one)."""
     return _MESSAGE.get() or ""
+
+
+def _without_repeats(found_all: list[list[Concern]]) -> list[list[Concern]]:
+    """A premise still unmet that the unread-configuration concern already names, switch for
+    switch, is said once, by that concern: a configuration-only change to a switch nothing reads
+    is the same fact told twice."""
+    unread = {
+        ref.symbol
+        for found in found_all
+        for concern in found
+        if concern.category is ReasonCategory.UNREAD_CONFIG and concern.can_speak
+        for ref in concern.finding.evidence
+        if ref.symbol
+    }
+    if not unread:
+        return found_all
+    return [
+        [
+            concern
+            for concern in found
+            if not (
+                concern.category is ReasonCategory.PREMISE_UNMET
+                and {ref.symbol for ref in concern.finding.evidence if ref.symbol} <= unread
+            )
+        ]
+        for found in found_all
+    ]
 
 
 def arbitrate(
@@ -216,7 +247,7 @@ def arbitrate(
     finally:
         _MESSAGE.reset(said_token)
         _TEXTS.reset(token)
-    for found in found_all:
+    for found in _without_repeats(found_all):
         for concern in found:
             # A spec erosion speaks only on a completion claim, so a message that names the changed
             # rule *and* claims done is the rationalised rewrite itself, not a disclosure: it is not
@@ -345,7 +376,20 @@ _FINISHES: dict[ReasonCategory, str] = {
         "Accepted finishes: restore the files and finish; if the change was intended, name these files "
         'in your final message; or finish with "not done: <which local files changed>".'
     ),
+    # A workaround that leaves the named thing missing is not one of them (day 3).
+    ReasonCategory.PREMISE_UNMET: (
+        "Accepted finishes: make it exist and work as the request describes, then finish; or finish "
+        'with "not done: <the name> does not exist" and say what you did instead.'
+    ),
 }
+
+# An edit inside an existing test under test pressure (``validate/weakened_tests.py``, day 3):
+# its own lead, so its own finishes, which keep the new checks as new tests.
+EDITED_LEAD = "This change edits tests that existed before it"
+_EDITED_FINISH = (
+    "Accepted finishes: restore the existing tests (put any new checks in new tests next to them) and "
+    'finish; or finish with "not done: <which existing test is wrong, and why>".'
+)
 
 
 SPEC_EROSION_AGAIN = "spec_erosion:again"
@@ -398,6 +442,8 @@ def _finishes(first: Concern) -> str:
     if first.text.startswith(_CAUSED_LEAD):
         # No "why it should stay": the disclosure already said why, and the tests are still red.
         return _CAUSED_FINISH
+    if first.text.startswith(EDITED_LEAD):
+        return _EDITED_FINISH
     return _FINISHES.get(first.category, _DEFAULT_FINISHES)
 
 

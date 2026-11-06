@@ -707,6 +707,9 @@ class Guard:
             spec.tests_waiver = hint  # the host decides, either way (H5)
         ws.carry_waiver(event.session_id, spec)
         ws.current_spec = spec
+        # The notes first: the premise note's names belong to the task as it is stored, so a task
+        # rebuilt after a restart keeps them (R14); the hold for its first edit waits for its id.
+        notes, findings, hold = self._prompt_notes(event, ws, spec, index)
 
         # The task this prompt follows in the same session, read before the new task
         # replaces it: what it leaves unverified is not forgotten (G8).
@@ -733,7 +736,8 @@ class Guard:
                 exclude = tuple(ws.settings.index.exclude_dirs)
                 ws.defer_call(functools.partial(untracked_state.remember, state, ws.index.root, exclude))
 
-        notes, findings = self._prompt_notes(event, ws, spec, index)
+        if hold and event.task_id:
+            ws.premise_holds[event.task_id] = hold
         if previous is not None and state is not None:
             try:
                 self._inherit_debt(ws, previous, state)
@@ -751,8 +755,10 @@ class Guard:
 
     def _prompt_notes(
         self, event: AgentEvent, ws: Workspace, spec: TaskSpec, index: RepoIndex | None
-    ) -> tuple[list[str], list[Finding]]:
-        """What the prompt may carry back (M8, M9): nothing, on a routine prompt.
+    ) -> tuple[list[str], list[Finding], str]:
+        """What the prompt may carry back (M8, M9): nothing, on a routine prompt. Also the
+        hold for the task's first edit after a premise note ("" for none), and the names a
+        completion claim answers to, recorded on ``spec.premises`` (day 3).
 
         The planning note only when the profile lets it speak (``[notes] planning``, or the
         full profile): it is not even computed otherwise. Each note comes with the finding
@@ -760,22 +766,28 @@ class Guard:
         """
         notes: list[str] = []
         findings: list[Finding] = []
+        hold = ""
         if index is not None:
             # M8: a name the request says exists, which nothing in the repository has. Once
             # per name per session; silent while the index is not built.
             noted = ws.premises_noted.setdefault(event.session_id or "", set())
+            earlier = set(noted)
+            prompt = event.prompt_text or ""
             try:
-                found = premise.check(event.prompt_text or "", ws.root, list(index.files), already=noted)
+                found = premise.check(prompt, ws.root, list(index.files), already=noted)
+                # A name an earlier prompt of the session noted, asserted again: no second note,
+                # but this task's "done" answers to it as well.
+                again = [a.name for a in premise.assertions(prompt) if a.name in earlier] if earlier else []
             except Exception:  # a premise not checked is no note, never a failure
                 log.exception("truthstone: could not check the request's premises")
-                found = premise.Premise()
+                found, again = premise.Premise(), []
             finding = found.finding()
             if finding is not None:
                 noted.update(a.name for a in found.missing)
                 notes.append(found.note)
                 findings.append(finding)
-                if event.task_id:
-                    ws.premise_holds[event.task_id] = found.hold
+                hold = found.hold
+            spec.premises = list(dict.fromkeys([*(a.name for a in found.missing), *again]))
         if profile.active(self.settings).allows(EventType.USER_PROMPT, profile.INTEGRITY_NOTE):
             # Once per session: the rule and the honest way out, before any work (opt-in).
             session = event.session_id or ""
@@ -788,7 +800,7 @@ class Guard:
             if budget:
                 notes.append(budget)
                 findings.append(planning.finding(budget))
-        return notes, findings
+        return notes, findings, hold
 
     @classmethod
     def _inherit_debt(cls, ws: Workspace, old: TaskState, new: TaskState) -> bool:
@@ -893,10 +905,13 @@ class Guard:
 
     @staticmethod
     def _premise_hold_due(event: AgentEvent, ws: Workspace) -> bool:
-        """Whether this is the first edit of a task whose premise note may go unheeded."""
+        """Whether this is the first edit of a task whose premise note may go unheeded: a file
+        tool's edit, or a shell command with positive evidence of a write (day 3). A command
+        Truthstone cannot prove read-only is not an edit for that: reading the code to verify
+        the premise is what the note asks for, and holding it only confused the agent."""
         if not event.task_id or event.task_id not in ws.premise_holds:
             return False
-        return event.is_mutating or (event.tool in SHELL_TOOLS and not checks.read_only_bash(event))
+        return event.is_mutating or (event.tool in SHELL_TOOLS and checks.writes_files(event))
 
     @staticmethod
     def _premise_hold(event: AgentEvent, ws: Workspace) -> Decision | None:
@@ -906,8 +921,8 @@ class Guard:
         first: the user then hears about the missing behaviour only after something was built
         on it, if at all. So the first edit of a task that got a note is denied once, with
         the note's facts and the honest next step; the re-issued edit proceeds. A file tool's
-        edit or deletion, or a shell command that is not read-only, counts as an edit; a read
-        never does. No note, no hold.
+        edit or deletion, or a shell command that visibly writes a file, counts as an edit; a
+        read, or a command that only might write, never does. No note, no hold.
         """
         if not Guard._premise_hold_due(event, ws):
             return None

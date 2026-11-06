@@ -747,18 +747,64 @@ def failing_tests(text: str) -> tuple[str, ...]:
     """The failing tests the output names, as pytest node ids (``path::name[param]``), in
     order. A collection error names its file. Empty when the output names none.
 
-    Only pytest's own lines are read: its default ``-rfE`` short summary lists every
-    failure and error, so the list can be checked against the summary's counts.
+    Only lines that name a test with its file are read: pytest's default ``-rfE`` short summary
+    lists every failure and error, so the list can be checked against the summary's counts; and
+    node:test's (day 3), as ``path::title`` (``_node_failing_tests``).
     """
     found: dict[str, None] = {}
-    for match in _FAILING_TEST.finditer(clean(text)):
+    cleaned = clean(text)
+    for match in _FAILING_TEST.finditer(cleaned):
         node = match.group("py") or match.group("pyv")
         while node.startswith("./"):
             node = node[2:]
         found[node] = None
         if len(found) >= MAX_FAILING_TESTS:
             break
+    for node in _node_failing_tests(cleaned):
+        if len(found) >= MAX_FAILING_TESTS:
+            break
+        found[node] = None
     return tuple(found)
+
+
+# node:test names a failing test by its title and its place. The spec reporter's closing list
+# pairs `test at <path>:<line>:<col>` with the `✖ <title> (<ms>)` under it; TAP gives each
+# `not ok N - <title>` a `location: '<path>:<line>:<col>'` among its diagnostics. Each pair is an
+# id `path::title`, as pytest's are `path::name`.
+_NODE_AT = re.compile(r"^\s*test at (?:file://)?(?P<path>\S+?\.[cm]?[jt]sx?):\d+:\d+\s*$")
+_NODE_FAILED = re.compile(r"^\s*\u2716\s+(?P<title>.+?)(?:\s+\(\d+(?:\.\d+)?m?s\))?\s*$")
+_TAP_NOT_OK = re.compile(r"^\s*not ok \d+ - (?P<title>.+?)(?:\s+#\s.*)?\s*$")
+_TAP_RESULT = re.compile(r"^\s*(?:not )?ok \d+ ")
+_TAP_LOCATION = re.compile(r"^\s*location:\s*'(?:file://)?(?P<path>[^']+?\.[cm]?[jt]sx?):\d+:\d+'\s*$")
+
+
+def _node_failing_tests(text: str) -> list[str]:
+    lines = text.split("\n")
+    found: list[str] = []
+    for n, line in enumerate(lines):
+        at = _NODE_AT.match(line)
+        if at:
+            title = next((later for later in lines[n + 1 : n + 3] if later.strip()), "")
+            failed = _NODE_FAILED.match(title)
+            if failed:
+                found.append(f"{_without_dot(at.group('path'))}::{failed.group('title')}")
+            continue
+        tap = _TAP_NOT_OK.match(line)
+        if tap:
+            for later in lines[n + 1 : n + 60]:
+                if _TAP_RESULT.match(later):
+                    break
+                location = _TAP_LOCATION.match(later)
+                if location:
+                    found.append(f"{_without_dot(location.group('path'))}::{tap.group('title')}")
+                    break
+    return found
+
+
+def _without_dot(path: str) -> str:
+    while path.startswith("./"):
+        path = path[2:]
+    return path
 
 
 # `turbo run test` and similar monorepo runners prefix every line with `<package>:<task>: `.

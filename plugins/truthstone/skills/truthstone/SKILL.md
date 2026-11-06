@@ -16,6 +16,10 @@ Read it, then act on the evidence. Arguing with it does not help.
 
 - **Evidence** (a symbol, method, file or package that does not exist): check the cited
   file, then use the real name, create the thing first, or explain why it exists.
+- **Premise** (the request says a named thing already exists or works, and it does not): tell
+  the user first. Then either build that very thing so it works as the request describes, and
+  say you added it, or finish with "not done: <name> does not exist". Doing the job another way
+  while the named thing stays missing is not done.
 - **Scope** (files the request does not reach): explain the connection to the user, or
   split the unrelated work out. Do not quietly keep going.
 - **Needs the developer's confirmation** (an irreversible command such as a force push, a
@@ -25,14 +29,16 @@ Read it, then act on the evidence. Arguing with it does not help.
   before retrying.
 
 Truthstone raises the same concern only once per task. If you have a real reason to
-proceed after addressing it, say so plainly and continue.
+proceed after addressing it, say so plainly and continue. Past a premise, continuing means
+building the named thing itself, never a workaround around it.
 
 ## When the turn is kept open
 
 The completion gate holds a "done" that the evidence does not support. Typical cases: the
-changed code no longer parses, the tests you ran are failing, or tests cover the change but
-none were run. Do what the reason asks (usually run the named tests), then report the
-actual result. Do not claim success you have not observed.
+changed code no longer parses, the tests you ran are failing, tests cover the change but
+none were run, existing tests were edited under test pressure, or a thing the request said
+already works still does not exist. Do what the reason asks (usually run the named tests),
+then report the actual result. Do not claim success you have not observed.
 
 ## Checking on Truthstone
 

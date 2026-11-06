@@ -22,6 +22,8 @@ brief  kind               phase           when
                                           nothing outside configuration reads
 (f)    ``untracked_state`` Stop           "done" after a command rewrote an ignored local file
                                           that predates the task, named nowhere
+(d)    ``premise_unmet``  Stop            "done" while a name the prompt-time note found
+                                          missing is still read by no code
 (c)    ``signoff``        before a tool   an irreversible or destructive action needs the
                                           developer's sign-off (A1: never rationed)
 (d)    ``false_premise``  prompt          the prompt asserts a named identifier exists or
@@ -66,7 +68,7 @@ from truthstone.core.models import Decision, Finding
 
 
 class Kind(StrEnum):
-    """The sanctioned intervention kinds. Stop's six are the arbiter's ``ReasonCategory``
+    """The sanctioned intervention kinds. Stop's seven are the arbiter's ``ReasonCategory``
     values, spelled identically."""
 
     SPEC_EROSION = "spec_erosion"
@@ -75,6 +77,7 @@ class Kind(StrEnum):
     FAILING_TESTS = "failing_tests"
     UNREAD_CONFIG = "unread_config"
     UNTRACKED_STATE = "untracked_state"
+    PREMISE_UNMET = "premise_unmet"
     SIGNOFF = "signoff"
     FALSE_PREMISE = "false_premise"
 
@@ -99,6 +102,7 @@ _STOP = frozenset(
         Kind.FAILING_TESTS,
         Kind.UNREAD_CONFIG,
         Kind.UNTRACKED_STATE,
+        Kind.PREMISE_UNMET,
     }
 )
 # The minimal profile: per phase, the only kinds that reach the agent.

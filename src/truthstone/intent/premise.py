@@ -8,8 +8,16 @@ names a prompt **asserts exist or already work** and checks them against the rep
 one appears **nowhere** in it — no code, config (TOML, YAML, JSON, ``.env``, CI files), docs or
 path — the agent gets ONE note before it starts:
 
-    `X_DEBUG` appears nowhere in this repository; the behaviour the request assumes may not
-    exist — verify before building on it, and tell the user if it doesn't.
+    `X_DEBUG` appears nowhere in this repository, so what the request says already works is not
+    there. Tell the user before you change anything. Then either build `X_DEBUG` itself so that
+    it works as the request describes, and say that you added it; or finish with "not done:
+    `X_DEBUG` does not exist". Doing the job another way while `X_DEBUG` stays missing is not
+    what was asked.
+
+The note names the two honest finishes (day 3). "Verify before building on it" alone left the
+door open to a third, and agents took it: they found the name missing, did the job some other
+way and called it done, leaving the thing the user believes in still missing. At "done" the
+completion arbiter checks the noted names again (``validate/premise_unmet.py``).
 
 Precision comes first: a note on an ordinary request is friction, and the note must never fire
 on routine work.
@@ -30,9 +38,8 @@ on routine work.
   "existing", "currently", "is supposed to", "should already") when it occurs only in files
   that are not code (config, data, docs, CI) and no code file mentions it:
 
-      `X_DEBUG` appears only in README.md, and no code in this repository reads it; the
-      behaviour the request assumes may not exist — verify before building on it, and tell
-      the user if it doesn't.
+      `X_DEBUG` appears only in README.md, and no code in this repository reads it, so what
+      the request says already works is not there. …
 
   Any other occurrence resolves the name. A dotted name also resolves through its last part in
   code (``Store.move`` through any ``move`` in a source file).
@@ -59,20 +66,20 @@ from truthstone.core.enums import ChallengeCategory, EscalationLevel, FailureMod
 from truthstone.core.models import EvidenceRef, Finding
 
 SUBJECT = "false_premise"  # the intervention kind (core/profile.py)
-NOTE = (
-    "{names} {verb} nowhere in this repository; the behaviour the request assumes may not exist — "
-    "verify before building on it, and tell the user if it doesn't."
-)
 ONLY_IN = "`{name}` appears only in {files}, and no code in this repository reads it"
+# What the note says after the facts: the two honest finishes, and the one that is not (day 3).
 TAIL = (
-    "the behaviour the request assumes may not exist — verify before building on it, and tell the "
-    "user if it doesn't."
+    "so what the request says already works is not there. Tell the user before you change anything. "
+    "Then either {build} so that {works} as the request describes, and say that you added {it}; or "
+    'finish with "not done: {missing}". Doing the job another way while {still} is not what was asked.'
 )
 # The deny for the first file edit after a note (T4): a careful agent can read the note and
 # still edit first; the user hears about the missing behaviour before anything is built on it.
+# No "continue if the change still makes sense": that licensed the workaround the note rules out.
 HOLD = (
     "Truthstone: before editing: the request assumes {what} (see the note above). First tell the user "
-    "so in a message ({say}); then continue only if the change still makes sense."
+    "so in a message ({say}). Then either {build} as the request describes, or finish with "
+    '"not done: {missing}"; a workaround that leaves {left} is not done.'
 )
 
 
@@ -239,7 +246,40 @@ class Premise:
             files = self.only_in[a.name]
             listed = ", ".join(files[:3]) + (f" and {len(files) - 3} more" if len(files) > 3 else "")
             parts.append(ONLY_IN.format(name=a.name, files=listed))
-        return "; ".join(parts) + "; " + TAIL
+        return "; ".join(parts) + ", " + TAIL.format(**self._finishes())
+
+    def _finishes(self) -> dict[str, str]:
+        """The note's and the hold's wording of what to build, what "not done" says, and what a
+        workaround leaves missing, for one name or several."""
+        shown = self.missing[:3]
+        names = [f"`{a.name}`" for a in shown]
+        listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+        if len(shown) > 1:
+            return {
+                "build": f"build {listed} themselves",
+                "works": "they work",
+                "it": "them",
+                "missing": f"{listed} do not exist",
+                "still": f"{listed} stay missing",
+                "left": f"{listed} missing",
+            }
+        if shown[0].name in self.only_in:
+            return {
+                "build": f"build what reads {listed}",
+                "works": "it works",
+                "it": "it",
+                "missing": f"nothing reads {listed}",
+                "still": f"nothing reads {listed}",
+                "left": f"{listed} unread",
+            }
+        return {
+            "build": f"build {listed} itself",
+            "works": "it works",
+            "it": "it",
+            "missing": f"{listed} does not exist",
+            "still": f"{listed} stays missing",
+            "left": f"{listed} missing",
+        }
 
     @property
     def hold(self) -> str:
@@ -258,8 +298,15 @@ class Premise:
                 says.append(f"`{a.name}` doesn't exist in this repository")
         if not clauses:
             return ""
+        finishes = self._finishes()
         # The fact to state, in so many words: the user hears it before anything is built on it.
-        return HOLD.format(what="; and ".join(clauses), say='e.g. "' + "; ".join(says) + '"')
+        return HOLD.format(
+            what="; and ".join(clauses),
+            say='e.g. "' + "; ".join(says) + '"',
+            build=finishes["build"],
+            missing=finishes["missing"],
+            left=finishes["left"],
+        )
 
     def finding(self) -> Finding | None:
         if not self.missing:
