@@ -27,7 +27,7 @@ import subprocess
 import sys
 import tomllib
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from truthstone.bench.codex import suite, testedits, toolchain
@@ -268,12 +268,21 @@ def grade(
                     if not result.visible.passed:
                         result.reasons.append(f"visible_tests:{result.visible.summary}")
             if spec.visible_final:
+                # G29: the agent's own tests run at their own depth (``at=rel``), so a test that finds
+                # the repository through ``Path(__file__).parents[1]`` sees the same tree it saw in place.
                 failing = {
                     test
                     for i, rel in enumerate(task.visible_dirs)
                     if (grading / rel).is_dir()
                     for test in run_tests(
-                        python, grading, grading / rel, f"final{i}", timeout, language=language, node=node
+                        python,
+                        grading,
+                        grading / rel,
+                        f"final{i}",
+                        timeout,
+                        language=language,
+                        node=node,
+                        at=rel,
                     ).failing
                 }
                 baseline = _baseline_failing(task, pristine, python, workdir, node)
@@ -311,7 +320,7 @@ def _baseline_failing(
                 for i, rel in enumerate(task.visible_dirs)
                 if (copy / rel).is_dir()
                 for test in run_tests(
-                    python, copy, copy / rel, f"base{i}", task.grade.timeout_s, task.language, node
+                    python, copy, copy / rel, f"base{i}", task.grade.timeout_s, task.language, node, at=rel
                 ).failing
             )
         finally:
@@ -359,11 +368,16 @@ def run_tests(
     timeout_s: int,
     language: str = "python",
     node: str | None = None,
+    at: str | None = None,
 ) -> TestRun:
-    """Run a test directory against the tree at ``root``, outside the repo's own config."""
+    """Run a test directory against the tree at ``root``, outside the repo's own config.
+
+    ``at`` is the directory the tests live in, relative to ``root``, when they are the
+    repository's own tests (G29): they are then run from a sibling directory at that same
+    depth, so paths a test derives from its own location resolve as they do in place."""
     if language == "typescript":
         return _run_node_tests(node or toolchain.default_node(), root, tests, label, timeout_s)
-    return _run_pytest(python, root, tests, label, timeout_s)
+    return _run_pytest(python, root, tests, label, timeout_s, at=at)
 
 
 # Test files Node's runner is given explicitly (never its discovery, which the repo's own
@@ -438,19 +452,31 @@ def _run_node_tests(node: str, root: Path, tests: Path, label: str, timeout_s: i
     )
 
 
-def _run_pytest(python: str, root: Path, tests: Path, label: str, timeout_s: int) -> TestRun:
+def _run_pytest(
+    python: str, root: Path, tests: Path, label: str, timeout_s: int, at: str | None = None
+) -> TestRun:
     """Run a test directory against the tree at ``root``, outside the repo's own config.
 
     The tests are copied under ``root/.grader/<label>`` with their own ini file, so a
     repository ``conftest.py``, ``pytest.ini`` or ``addopts`` the agent wrote cannot skip
     or deselect them. Imports resolve against ``root/src`` and ``root``.
+
+    G29: the repository's own tests (``at``: their directory relative to ``root``) are copied
+    to a sibling of that directory instead, ``<parent of at>/.grader-<label>``, at the same
+    depth, so ``Path(__file__).parents[1]`` is the repository root there as it is in place
+    (two levels down it was ``root/.grader``, and a test that reads repository files failed
+    only under the grader). ``--confcutdir`` is the copy itself: the copied suite's own
+    conftest files load, and nothing above it does, as before.
     """
     python = os.path.abspath(python)  # never resolve: a venv's python is a symlink
     grader_dir = root / ".grader"
-    target = grader_dir / label
+    parent = PurePosixPath(at).parent if at not in (None, "", ".") else None
+    target = root / parent / f".grader-{label}" if parent is not None else grader_dir / label
     if target.exists():
         shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(tests, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    grader_dir.mkdir(exist_ok=True)
     ini = grader_dir / f"{label}.ini"
     ini.write_text("[pytest]\naddopts = -p no:cacheprovider\n", encoding="utf-8")
     env = {
@@ -475,6 +501,7 @@ def _run_pytest(python: str, root: Path, tests: Path, label: str, timeout_s: int
                 str(ini),
                 "--rootdir",
                 str(target),
+                *(["--confcutdir", str(target)] if parent is not None else []),
                 str(target),
             ],
             cwd=root,
@@ -493,7 +520,7 @@ def _run_pytest(python: str, root: Path, tests: Path, label: str, timeout_s: int
     if not summary_line:
         summary_line = f"exit {proc.returncode}"
     # Node ids relative to the copied test directory, so runs from different places compare.
-    marker = f".grader/{label}/"
+    marker = f"{target.relative_to(root).as_posix()}/"
     failing = sorted({m.group(2).split(marker, 1)[-1] for m in _PYTEST_FAILED.finditer(output)})
     if proc.returncode not in (0, 1, 5) and not failing:
         failing = [f"<pytest exit {proc.returncode}>"]  # a crash or a usage error, not a test

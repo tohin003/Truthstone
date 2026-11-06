@@ -134,8 +134,14 @@ def test_g26_a_dev_check_may_take_part_of_the_spent_split_never_of_the_sealed_on
     assert status == 0 and Plan.load(out).tasks == [task]
     status, out, _ = plan("golden-heldout", "main")  # a main study needs every task
     assert status == 2 and not out.exists()
-    status, out, _ = plan("golden-heldout2", "pilot")  # sealed: nothing before its release run
-    assert status == 2 and not out.exists() and "golden-heldout2" not in suite.SPENT
+    # Spent by its release run (2026-11-06), as golden-heldout was by its own: a dev check may use part.
+    status, out, task = plan("golden-heldout2", "pilot")
+    assert status == 0 and Plan.load(out).tasks == [task] and "golden-heldout2" in suite.SPENT
+    for sealed in sorted(set(suite.FROZEN) - suite.SPENT):  # nothing before its release run
+        if sealed not in splits:
+            splits[sealed] = suite.load_suite(suite=sealed)
+        status, out, _ = plan(sealed, "pilot")
+        assert status == 2 and not out.exists()
 
 
 def _node_available() -> bool:
