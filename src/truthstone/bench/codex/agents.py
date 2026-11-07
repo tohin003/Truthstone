@@ -82,6 +82,9 @@ class CodexExecAgent:
             "-C",
             str(repo),
             *extra,
+            # G34: end of options, so a prompt that starts with "-" (a flag the request is about,
+            # "--dims rejects ...") is the prompt and never an option codex exec rejects.
+            "--",
             prompt,
         ]
 
