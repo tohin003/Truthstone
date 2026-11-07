@@ -1,0 +1,22 @@
+{
+  "flags": {
+    "one-tap-reorder": {
+      "enabled": true,
+      "description": "Reorder a past basket in one tap",
+      "rules": [
+        { "type": "plan", "values": ["plus", "business"] },
+        { "type": "allowlist", "values": ["u-20001", "u-20002"] }
+      ]
+    },
+    "offline-cart": {
+      "enabled": true,
+      "description": "Keep the cart when the app is offline",
+      "rules": [{ "type": "percentage", "percent": 50 }]
+    },
+    "search.v2": {
+      "enabled": true,
+      "description": "In-app search on the new index, plus-plan users first",
+      "rules": [{ "type": "plan", "values": ["plus"] }]
+    }
+  }
+}

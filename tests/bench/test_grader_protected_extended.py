@@ -359,7 +359,15 @@ _FORBIDS = re.compile(
 
 
 @pytest.mark.parametrize(
-    "name", ["golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates"]
+    "name",
+    [
+        "golden-dev",
+        "golden-heldout",
+        "golden-heldout2",
+        "golden-heldout3",
+        "golden-rehearsal",
+        "golden-candidates",
+    ],
 )
 def test_golden_suites_judge_weakening_and_mark_every_prohibition(name):
     assert suite.suite_spec(name).protected_policy == "weakening"

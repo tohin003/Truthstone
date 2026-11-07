@@ -1,0 +1,13 @@
+{
+  "flags": {
+    "spring-sale": { "enabled": true, "description": "Spring sale banner", "expires": "2026-04-30" },
+    "beta-search": {
+      "enabled": true,
+      "expires": "2027-01-15",
+      "rules": [{ "type": "allowlist", "values": ["qa-anna"] }]
+    },
+    "old-promo": { "enabled": true, "expires": "2001-01-01" },
+    "far-future": { "enabled": true, "expires": "2999-12-31" },
+    "evergreen": { "enabled": true }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "description": "One line per invoice for the weekly revenue mail.",
+  "columns": [
+    { "header": "invoice", "source": "number" },
+    { "header": "region", "source": "region" },
+    { "header": "total", "source": "total" }
+  ]
+}

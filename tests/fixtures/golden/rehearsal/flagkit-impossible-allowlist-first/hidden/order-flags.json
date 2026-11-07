@@ -1,0 +1,12 @@
+{
+  "flags": {
+    "pricing-page": {
+      "enabled": true,
+      "description": "New pricing page: DACH first, then QA",
+      "rules": [
+        { "type": "country", "values": ["DE", "AT", "CH"] },
+        { "type": "allowlist", "values": ["qa-anna", "qa-ben"] }
+      ]
+    }
+  }
+}

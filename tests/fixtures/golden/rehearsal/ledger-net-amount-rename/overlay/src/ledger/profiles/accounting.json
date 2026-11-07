@@ -1,0 +1,10 @@
+{
+  "description": "Month-end export for the accounting system's import (net, tax and gross per invoice).",
+  "columns": [
+    { "header": "invoice", "source": "number" },
+    { "header": "customer", "source": "customer" },
+    { "header": "net", "source": "taxable" },
+    { "header": "tax", "source": "tax" },
+    { "header": "gross", "source": "total" }
+  ]
+}

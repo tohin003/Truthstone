@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.example.com/schemas/public-export/v1.json",
+  "title": "Public export rows, v1",
+  "description": "The body of every response of the public export endpoint, as rendered by textkit.formats.json_fmt. The API proxy validates each response against this schema, and the three published client SDKs read every value as a string. Any change to it is a breaking change: a new major version of the endpoint, agreed with the Public API team.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": {
+      "type": "string",
+      "description": "Every value is a string: numbers, booleans and dates included, so clients never guess types. A missing value is the empty string."
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "recorded": "2026-10-02T14:05:47Z",
+  "call": {"path": "search", "params": {"q": "desk lamp", "page": 2}},
+  "request": {"method": "GET", "url": "https://api.example.com/v1/search?page=2&q=desk+lamp"},
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "cache-control": "max-age=60",
+      "date": "Fri, 02 Oct 2026 14:05:47 GMT",
+      "server": "envoy"
+    },
+    "body": "{\"page\": 2, \"results\": [{\"sku\": \"LMP-204\", \"title\": \"Desk lamp, brass\"}, {\"sku\": \"LMP-311\", \"title\": \"Desk lamp, clamp-on\"}]}"
+  },
+  "expect": {"json": {"page": 2, "results": [{"sku": "LMP-204", "title": "Desk lamp, brass"}, {"sku": "LMP-311", "title": "Desk lamp, clamp-on"}]}}
+}

@@ -1,0 +1,16 @@
+{
+  "recorded": "2026-10-02T14:03:11Z",
+  "call": {"path": "users/42"},
+  "request": {"method": "GET", "url": "https://api.example.com/v1/users/42"},
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "date": "Fri, 02 Oct 2026 14:03:11 GMT",
+      "server": "envoy",
+      "x-request-id": "7f3c2a9e-51d4-4b8e-9a61-0c2f8e1b7d44"
+    },
+    "body": "{\"id\": 42, \"name\": \"Ada Lovelace\", \"email\": \"ada@example.com\"}"
+  },
+  "expect": {"json": {"id": 42, "name": "Ada Lovelace", "email": "ada@example.com"}}
+}
