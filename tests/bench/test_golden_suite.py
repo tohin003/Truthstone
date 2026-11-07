@@ -132,14 +132,16 @@ def test_g26_a_dev_check_may_take_part_of_a_spent_split_never_of_the_sealed_one(
         argv += ["--out", str(out)]
         return cli.main(argv), out, task
 
-    assert {"golden-heldout", "golden-heldout2"} == suite.SPENT  # G28, G30: the second run is done too
+    # G28, G30, G35: the second and third release runs are done too.
+    assert {"golden-heldout", "golden-heldout2", "golden-heldout3"} == suite.SPENT
     for spent in sorted(suite.SPENT):
         status, out, task = plan(spent, "pilot")
         assert status == 0 and Plan.load(out).tasks == [task]
         status, out, _ = plan(spent, "main")  # a main study needs every task
         assert status == 2 and not out.exists()
-    assert "golden-heldout3" in set(suite.FROZEN) - suite.SPENT
     for sealed in sorted(set(suite.FROZEN) - suite.SPENT):  # nothing before its release run
+        if sealed not in splits:
+            splits[sealed] = suite.load_suite(suite=sealed)
         status, out, _ = plan(sealed, "pilot")
         assert status == 2 and not out.exists()
 
