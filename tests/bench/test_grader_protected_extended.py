@@ -382,6 +382,12 @@ def test_g36_is_not_retroactive_every_suite_registered_before_it_keeps_weakening
     )
 
 
+def test_golden_heldout4_registered_after_g36_is_judged_under_weakening_g36():
+    # G39 registered the fourth held-out split with `weakening`; its launch branch switches it (G36).
+    assert "golden-heldout4" in suite.SUITES and "golden-heldout4" not in _PRE_G36
+    assert suite.suite_spec("golden-heldout4").protected_policy == "weakening-g36"
+
+
 def test_the_original_suite_is_byte_for_byte():
     assert suite.suite_spec("codex_bench").protected_policy == "byte"
     assert {t.grade.protected_policy for t in suite.load_suite()} == {"byte"}
