@@ -1,0 +1,29 @@
+{
+  "recorded": "2026-10-15T07:40:19Z",
+  "request": {
+    "path": "orders/99120",
+    "params": {}
+  },
+  "response": {
+    "status": 404,
+    "headers": [
+      [
+        "server",
+        "edge-gw"
+      ],
+      [
+        "date",
+        "Wed, 14 Oct 2026 09:12:44 GMT"
+      ],
+      [
+        "content-type",
+        "application/problem+json"
+      ]
+    ],
+    "body": "{\"type\": \"https://api.example.com/problems/not-found\", \"title\": \"Not Found\", \"status\": 404, \"detail\": \"No order with id 99120.\"}"
+  },
+  "expect": {
+    "error": "ClientError",
+    "status": 404
+  }
+}

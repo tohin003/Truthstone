@@ -22,7 +22,10 @@ from pathlib import Path
 
 from truthstone.bench.codex import suite
 
-GOLDEN_SUITES = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates")
+GOLDEN_SUITES = (
+    *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
+    "golden-candidates",
+)
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")
 MIN_LENGTH = 7
@@ -161,6 +164,10 @@ STOPWORDS = frozenset(
         # Reviewed 2026-11-06 (day 3): external names a detector must match as written.
         "ds_store",  # an operating-system metadata file name
         "toequal", "tothrowerror",  # test-framework assertion APIs
+        # Reviewed 2026-11-08 (G39, building golden-heldout4): external names new tasks use as
+        # written and the product's code or tests already hold: two pytest APIs and a JavaScript
+        # platform global. Every other overlap was renamed in its task.
+        "at_level", "importorskip", "structuredclone",
     }
 )  # fmt: skip
 

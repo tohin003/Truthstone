@@ -1,0 +1,20 @@
+{
+  "flags": {
+    "beta-search": {
+      "enabled": true,
+      "description": "Search beta: the Dutch shop first, then three testers",
+      "rules": [
+        { "type": "country", "values": ["NL"] },
+        { "type": "allowlist", "values": ["qa-anna", "qa-ben", "u-31007"] }
+      ]
+    },
+    "beta-invoices": {
+      "enabled": true,
+      "rules": [
+        { "type": "plan", "values": ["business"] },
+        { "type": "country", "values": ["NL", "BE", "LU"] },
+        { "type": "percentage", "percent": 5 }
+      ]
+    }
+  }
+}
