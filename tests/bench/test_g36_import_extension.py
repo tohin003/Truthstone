@@ -34,11 +34,14 @@ from tests.bench.test_acceptance import HEADROOM, _cell, _write_run
 from tests.bench.test_grader_protected_extended import _grade, py_task  # noqa: F401 -- a fixture
 from truthstone.bench.codex import acceptance, claims, cli, grader, testedits
 from truthstone.util.used_names import js_code, used_names
+from truthstone.validate import weakened_tests
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "tests" / "fixtures"
 FROZEN = Path(__file__).parent / "data" / "g36_proto_v3.py.txt"  # the frozen file, byte for byte
 FROZEN_SHA256 = "4db34db688070e8127f30f368d7a32b1699c6b051146c425a61cb08cf0abe031"  # FROZEN-v3.txt
+FROZEN_IXRET = Path(__file__).parent / "data" / "ixret_proto_v3.py.txt"  # the product half
+FROZEN_IXRET_SHA256 = "c879c25da57f6ef2d68e79972c7aaf5037494a5b962552584fca035a43bdbba3"  # FROZEN-v3.txt
 
 BASE_TS = 'import { a, b } from "./m";\nimport test from "node:test";\n\ntest("x", () => {\n  a(1);\n});\n'
 PY_BASE = "from m import a\nimport os\n\n\ndef test_x():\n    assert a(1)\n"
@@ -618,8 +621,9 @@ def _frozen_compare(space: types.SimpleNamespace, rel: str, before: str, after: 
     return space._script(before, after)
 
 
-def test_the_frozen_copy_is_the_frozen_file():
+def test_the_frozen_copies_are_the_frozen_files():
     assert hashlib.sha256(FROZEN.read_bytes()).hexdigest() == FROZEN_SHA256
+    assert hashlib.sha256(FROZEN_IXRET.read_bytes()).hexdigest() == FROZEN_IXRET_SHA256
 
 
 def test_the_built_classifier_equals_the_frozen_prototype_on_every_case():
@@ -699,3 +703,40 @@ def test_the_built_classifier_equals_the_frozen_prototype_on_every_fixture_test_
             assert _compare(rel, text, after, "weakening-g36") == tuple(_frozen_compare(space, rel, text, after)), (rel, kind)
             checked += 1
     assert checked > 200
+
+
+def _frozen_retirement(monkeypatch: pytest.MonkeyPatch):
+    """The product retirement as the frozen `ixret_proto_v3.py` makes it. Its `install()` patches
+    `weakened_tests._module_level` itself; the monkeypatch puts the built function back after the
+    test, and lends the prototype its grader half (the frozen `g36_proto_v3`) through sys.modules."""
+    data = FROZEN_IXRET.read_bytes()
+    assert hashlib.sha256(data).hexdigest() == FROZEN_IXRET_SHA256
+    monkeypatch.setitem(sys.modules, "g36_proto_v3", _frozen())
+    monkeypatch.setattr(weakened_tests, "_module_level", weakened_tests._module_level)  # undone after
+    module = types.ModuleType("_frozen_ixret_proto_v3")
+    module.__file__ = str(FROZEN_IXRET)
+    exec(compile(data, str(FROZEN_IXRET), "exec"), module.__dict__)
+    module.install()
+    return weakened_tests._module_level
+
+
+def test_the_product_retirement_equals_the_frozen_prototype_on_every_fixture_test_file(monkeypatch):
+    """`weakened_tests._module_level` decides as `ixret_proto_v3.install` makes it decide, on every
+    Python test file of the fixtures edited synthetically (appended tests; an import extended by an
+    unused name, retired; and by a used one, shadowing) and on every Python case above."""
+    built = weakened_tests._module_level
+    frozen = _frozen_retirement(monkeypatch)
+    assert frozen is not built
+    checked = {"retired": 0, "kept": 0}
+    for rel, text in _fixture_test_files():
+        if not rel.endswith(".py"):
+            continue
+        for kind, after in _mutations(rel, text):
+            mine = built(rel, text, after)
+            assert mine == frozen(rel, text, after), (rel, kind)
+            if kind != "appended":
+                checked["kept" if any(i.kind == "import-extended" for i in mine) else "retired"] += 1
+    for name, (rel, before, after) in CASES.items():
+        if rel.endswith(".py"):
+            assert built(rel, before, after) == frozen(rel, before, after), name
+    assert checked["retired"] > 100 and checked["kept"] > 100, checked
