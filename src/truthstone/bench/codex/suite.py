@@ -62,9 +62,12 @@ class SuiteSpec:
     """A named suite: a root holding ``bases/`` and ``protocol/``, and its tasks directory.
 
     ``protected_policy`` is how the grader judges edits to protected files: "byte" (any
-    change fails, as the original suite was registered) or "weakening" (the golden set,
+    change fails, as the original suite was registered), "weakening" (the golden set,
     pre-registration P3: protected *test* files fail only when weakened; pure additions are
-    reported, and other protected files stay byte-identical).
+    reported, and other protected files stay byte-identical) or "weakening-g36" (amendment
+    G36, for the splits registered after it: "weakening", and an existing top-level import that
+    only gained names the file did not use is an addition too; ``testedits``). "weakening"
+    keeps its pre-G36 meaning, so every split registered before G36 is read as it was.
     """
 
     name: str
@@ -94,7 +97,7 @@ SUITES: dict[str, SuiteSpec] = {
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
 }
-PROTECTED_POLICIES = ("byte", "weakening")
+PROTECTED_POLICIES = ("byte", "weakening", "weakening-g36")  # G36 added the third
 # Tasks dropped by amendment: still loadable (a registered plan that ran them must resume and be
 # analysed as it was), but excluded from every verdict, and refused by `plan`.
 DROPPED: dict[str, str] = {

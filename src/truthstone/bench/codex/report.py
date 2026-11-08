@@ -250,13 +250,16 @@ def calibration(pairs: Pairs, screened: list[dict] | None = None) -> dict[str, A
     return result
 
 
-def pooled_calibration(run_dirs: list[Path], regraded: bool = False) -> dict[str, Any]:
+def pooled_calibration(
+    run_dirs: list[Path], regraded: bool = False, policy: str | None = None
+) -> dict[str, Any]:
     """The dev review over several runs of one suite (the extended screen, and any later dev
     run of the same arm): every run's observe cells, pooled, through the same calibration
     rule. Runs must share suite, suite digest, model, effort, host and the observe arm's
     plugin (amendment G1: the pilot's observe arm was shown the guard's skill, so it never
     pools with a skill-free screen); a paired run contributes its observe cells only. The
-    guarded arm is never read."""
+    guarded arm is never read. ``regraded``: outcomes from each run's re-grade under ``policy``
+    (default: the policy its suite registered; ``regrade.override_path``, G36)."""
     plans = [Plan.load(d / "plan.json") for d in run_dirs]
     keys = {(p.suite, p.suite_digest, p.model, p.effort, p.host, p.observe_variant) for p in plans}
     if len(keys) != 1:
@@ -273,7 +276,7 @@ def pooled_calibration(run_dirs: list[Path], regraded: bool = False) -> dict[str
             # Today's grader (regrade.py); a cell it could not re-grade is left out, not mixed in.
             from truthstone.bench.codex.regrade import overrides
 
-            new = overrides(run_dir)
+            new = overrides(run_dir, policy)
             dropped = sum(1 for c in cells if c["cell_id"] not in new)
             cells = [
                 {

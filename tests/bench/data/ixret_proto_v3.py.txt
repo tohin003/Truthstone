@@ -1,0 +1,104 @@
+"""Prototype C4 product side v3 (measurement only, never product code).
+
+Settlement C4/G36: an ``import-extended`` item whose gained names do not meet "used" is RETIRED (no
+finding); otherwise it stays ``import-extended`` under today's rules (it speaks only under the
+request's own test pressure, M1, and is dropped when the request asks for new tests,
+``_ASKS_FOR_TESTS``, kept) and is never re-labelled ``module-level``. The decision is made in
+``weakened_tests._module_level``, where both texts exist (rd3-2-5), with the SAME "used" helper the
+grader prototype uses (``g36_proto_v3.used_names``: Python ``ast.Name`` ids plus import-bound names,
+never attribute names).
+
+Today's ``used`` (``ast.Name`` ids only) still decides ``lost_used`` (whether an existing binding the
+file used was lost): using the wider set there would widen ``module-level`` findings (v3 D-C4 8).
+
+r2's ``ixret_proto.py`` retired EVERY ``import-extended`` item; this one keeps shadowing extensions.
+"""
+from __future__ import annotations
+
+import ast
+import importlib.util
+import sys
+from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+
+
+def _g36():
+    mod = sys.modules.get("g36_proto_v3")
+    if mod is None:
+        spec = importlib.util.spec_from_file_location("g36_proto_v3", _HERE / "g36_proto_v3.py")
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["g36_proto_v3"] = mod
+        spec.loader.exec_module(mod)
+    return mod
+
+
+RETIRED: list[tuple[str, str]] = []  # (path, gained names) retired in this process (diagnostics)
+
+
+def install() -> None:
+    from truthstone.validate import weakened_tests as w
+
+    used_names = _g36().used_names
+
+    def _module_level(path: str, before: str, after: str):
+        try:
+            old_tree, new_tree = ast.parse(before), ast.parse(after)
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            return []
+        old, new = w._module_units(old_tree), w._module_units(new_tree)
+        used = {node.id for node in ast.walk(old_tree) if isinstance(node, ast.Name)}
+        old_left, new_left = list(old), list(new)
+        for same in (lambda a, b: a.key == b.key and a.dump == b.dump, lambda a, b: a.dump == b.dump):
+            for unit in list(old_left):
+                match = next((other for other in new_left if same(unit, other)), None)
+                if match is not None:
+                    old_left.remove(unit)
+                    new_left.remove(match)
+        out = []
+        old_imports = [unit for unit in old_left if unit.binds]
+        new_imports = [unit for unit in new_left if unit.binds]
+        modules: set[str] = set()
+        shared_used = None
+        for unit in old_left:
+            if unit.binds:
+                module = unit.key
+                if module in modules:
+                    continue
+                modules.add(module)
+                lost = w._bound(old_imports, module) - w._bound(new_imports, module)
+                gained = w._bound(new_imports, module) - w._bound(old_imports, module)
+                lost_used = {bind for bind in lost if w._alias(bind) in used}
+                if not lost_used and not gained:
+                    continue
+                names = frozenset(w._alias(bind) for bind in lost | gained)
+                names |= {bind.split(":", 1)[0] for bind in lost}
+                if lost_used:
+                    verb = "changed" if w._bound(new_imports, module) else "deleted"
+                    out.append(w.Weakening(path, "", "module-level", f"module-level {unit.label} {verb}", names))
+                else:
+                    # G36 v3: retired unless a gained name is one the pristine file USES (shadowing).
+                    if shared_used is None:
+                        shared_used = used_names(path, before) or frozenset()
+                    shadowing = {w._alias(bind) for bind in gained} & shared_used
+                    if not shadowing:
+                        RETIRED.append((path, ",".join(sorted(w._alias(b) for b in gained))))
+                        continue
+                    detail = (
+                        f"module-level {unit.label} changed (keep it as it was; import new names on a "
+                        "line of their own)"
+                    )
+                    out.append(w.Weakening(path, "", "import-extended", detail, names))
+                continue
+            twin = next((other for other in new_left if other.key == unit.key), None)
+            if twin is None:
+                out.append(w.Weakening(path, "", "module-level", f"module-level {unit.label} deleted", unit.names))
+            elif unit.elements is not None and twin.elements is not None and w._within(unit.elements, twin.elements):
+                continue
+            else:
+                touched = unit.names ^ twin.names
+                detail = f"module-level {unit.label} changed"
+                out.append(w.Weakening(path, "", "module-level", detail, touched, twin.literals - unit.literals))
+        return out
+
+    w._module_level = _module_level

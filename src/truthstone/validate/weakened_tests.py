@@ -47,7 +47,10 @@ wrong", and since day 3 "adapt them" after a sentence about tests, "align the te
 need updating", "correct the expected values"), and tests of code the session removed or renamed
 (it went with its code: by the test's name, or since day 3 by a name its body used). An import
 line that only gained names, for new tests the request asked for ("add a regression test"), is
-part of adding them (day 3); unasked, it stays a module-level change.
+part of adding them (day 3). Since day 4 (amendment G36) such an import is no finding at all
+unless a gained name is one the file already used (``truthstone.util.used_names``, the helper the
+bench grader reads): an unused gained name shadows nothing, so the import is retired as an
+addition; a shadowing one, unasked, stays a module-level change.
 
 Existing tests edited under test pressure (day 3)
 -------------------------------------------------
@@ -89,6 +92,7 @@ from truthstone.core.models import EvidenceRef
 from truthstone.core.taskstate import TaskState
 from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
+from truthstone.util.used_names import used_names
 from truthstone.validate import spec_integrity
 
 __all__ = ["Weakening", "changes", "concerns", "tests_change_requested", "tests_kept_requested", "weakenings"]
@@ -445,8 +449,14 @@ def _within_order(old: tuple[str, ...] | list[str], new: tuple[str, ...] | list[
 # same statement. Imports are compared by what they bind: reordering, splitting or merging the
 # names imported from a module is not a change, but a different set of names is. So
 # ``from m import a`` -> ``from m import a, b`` is a changed statement; a new line
-# ``from m import b`` is an addition. Test functions and test classes are left to the per-test
-# checks above, and skips and run-around hacks to their own findings.
+# ``from m import b`` is an addition. Since amendment G36 (day 4) an import that only gained names,
+# none of which the file already used, is retired (no finding): only a gained name that shadows a
+# name the pristine file uses keeps the ``import-extended`` finding. "Used" is ``used_names`` (an
+# ``ast.Name`` id or a name an import binds, never an attribute), the bench grader's helper; this
+# retirement (the frozen prototype ``ixret_proto_v3.py``) also retires an import that lost a
+# binding the file never used or changed an alias, which the G36 grader still calls weakened.
+# Test functions and test classes are left to the per-test checks above, and skips and run-around
+# hacks to their own findings.
 
 
 @dataclass(frozen=True, slots=True)
@@ -479,6 +489,7 @@ def _module_level(path: str, before: str, after: str) -> list[Weakening]:
     old_imports = [unit for unit in old_left if unit.binds]
     new_imports = [unit for unit in new_left if unit.binds]
     modules: set[str] = set()
+    shared_used = None  # the names the pristine file uses (G36), read once
     for unit in old_left:
         if unit.binds:
             module = unit.key
@@ -496,7 +507,13 @@ def _module_level(path: str, before: str, after: str) -> list[Weakening]:
                 verb = "changed" if _bound(new_imports, module) else "deleted"
                 out.append(Weakening(path, "", "module-level", f"module-level {unit.label} {verb}", names))
             else:
-                # Only names gained: no existing binding moved (see ``concerns``: M1 only).
+                # Only names gained: no existing binding moved (see ``concerns``: M1 only). G36:
+                # retired unless a gained name is one the pristine file USES (shadowing).
+                if shared_used is None:
+                    shared_used = used_names(path, before) or frozenset()
+                shadowing = {_alias(bind) for bind in gained} & shared_used
+                if not shadowing:
+                    continue  # retired: an addition, as the G36 grader reads it
                 detail = (
                     f"module-level {unit.label} changed (keep it as it was; import new names on a "
                     "line of their own)"

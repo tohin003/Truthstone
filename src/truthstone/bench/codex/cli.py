@@ -1064,17 +1064,24 @@ def _cmd_calibrate(args: argparse.Namespace) -> int:
 
 
 def _cmd_regrade(args: argparse.Namespace) -> int:
-    """Re-grade a finished run under today's grader from each cell's pristine tree and diff."""
+    """Re-grade a finished run under today's grader from each cell's pristine tree and diff, under
+    one protected-file policy (G36: its own file, ``regrade-<policy>.json``, never overwritten)."""
     from truthstone.bench.codex import regrade
 
-    rows = regrade.regrade_run(Path(args.run_dir), python=args.python)
+    run_dir = Path(args.run_dir)
+    policy = args.policy or regrade.registered_policy(run_dir)
+    try:
+        rows = regrade.regrade_run(run_dir, python=args.python, policy=policy)
+    except FileExistsError as exc:
+        print(f"refusing to re-grade: {exc}")
+        return 2
     changed = [r for r in rows if "outcome" in r and r["outcome"] != r["stored_outcome"]]
     problems = [r for r in rows if "problem" in r]
     for r in changed:
         print(f"{r['cell_id']:<64} {r['stored_outcome']:<18} -> {r['outcome']}")
     print(
-        f"{len(rows)} valid cells re-graded: {len(changed)} changed outcome, {len(problems)} could not be "
-        f"re-graded; details in {Path(args.run_dir) / regrade.OUT}"
+        f"{len(rows)} valid cells re-graded under {policy}: {len(changed)} changed outcome, "
+        f"{len(problems)} could not be re-graded; details in {run_dir / regrade.out_name(policy)}"
     )
     for r in problems:
         print(f"  {r['cell_id']}: {r['problem']}")
@@ -1082,6 +1089,11 @@ def _cmd_regrade(args: argparse.Namespace) -> int:
 
 
 def _cmd_analyze(args: argparse.Namespace) -> int:
+    if args.policy and not (args.gate or args.acceptance):
+        # G36: a policy chooses which re-grade the targets read; the pre-registered analysis
+        # reads the cells as they were graded.
+        print("refusing to analyse: --policy goes with --gate or --acceptance")
+        return 2
     if args.gate:
         from truthstone.bench.codex import acceptance
 
@@ -1098,7 +1110,11 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
             except ValueError as exc:
                 print(f"refusing the gate: {exc}")
                 return 2
-        result = acceptance.gate(run_dirs, acceptance.GateThresholds(**overrides))
+        try:
+            result = acceptance.gate(run_dirs, acceptance.GateThresholds(**overrides), policy=args.policy)
+        except FileNotFoundError as exc:
+            print(f"refusing the gate: {exc}")
+            return 2
         if args.json:
             Path(args.json).write_text(json.dumps(result, indent=2, default=str))
         print(acceptance.render_gate(result))
@@ -1106,7 +1122,11 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     if args.acceptance:
         from truthstone.bench.codex import acceptance
 
-        result = acceptance.acceptance([Path(d) for d in args.run_dir])
+        try:
+            result = acceptance.acceptance([Path(d) for d in args.run_dir], policy=args.policy)
+        except FileNotFoundError as exc:
+            print(f"refusing the acceptance table: {exc}")
+            return 2
         if args.json:
             Path(args.json).write_text(json.dumps(result, indent=2, default=str))
         text = acceptance.render(result)
@@ -1343,7 +1363,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--run-dir", action="append", required=True, help="Repeat for each run to pool.")
     p.add_argument(
-        "--regraded", action="store_true", help="Use each run's regrade.json (today's grader) for outcomes."
+        "--regraded",
+        action="store_true",
+        help="Use each run's re-grade (regrade-<policy>.json for its suite's policy) for outcomes.",
     )
     p.add_argument("--json")
     p.set_defaults(func=_cmd_calibrate)
@@ -1351,6 +1373,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("regrade", help="Re-grade a finished run under today's grader (no model).")
     p.add_argument("--run-dir", required=True)
     p.add_argument("--python", help="Interpreter with pytest for the task code.")
+    p.add_argument(
+        "--policy",
+        choices=list(suite.PROTECTED_POLICIES),
+        help=(
+            "Protected-file policy to grade under (G36); writes regrade-<policy>.json and never "
+            "overwrites one. Default: the policy the run's suite registered."
+        ),
+    )
     p.set_defaults(func=_cmd_regrade)
 
     p = sub.add_parser("analyze", help="Pre-registered analysis of a run directory.")
@@ -1369,6 +1399,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--threshold",
         action="append",
         help="Override a gate threshold, KEY=VALUE (e.g. t3_lower=-0.05); see acceptance.GateThresholds.",
+    )
+    p.add_argument(
+        "--policy",
+        choices=list(suite.PROTECTED_POLICIES),
+        help=(
+            "With --gate or --acceptance: read each run's re-grade under this protected-file policy "
+            "(regrade-<policy>.json, G36). Default: the policy its suite registered."
+        ),
     )
     p.add_argument("--json")
     p.add_argument("--markdown")

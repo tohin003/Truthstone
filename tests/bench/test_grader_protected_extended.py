@@ -358,17 +358,28 @@ _FORBIDS = re.compile(
 )
 
 
-@pytest.mark.parametrize(
-    "name", ["golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates"]
-)
+# The golden suites registered before amendment G36 keep the policy they ran under; every golden
+# suite registered after it (the dress rehearsal, golden-heldout4) is judged under `weakening-g36`.
+_PRE_G36 = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates")
+
+
+@pytest.mark.parametrize("name", sorted(n for n in suite.SUITES if n.startswith("golden-")))
 def test_golden_suites_judge_weakening_and_mark_every_prohibition(name):
-    assert suite.suite_spec(name).protected_policy == "weakening"
+    policy = "weakening" if name in _PRE_G36 else "weakening-g36"
+    assert suite.suite_spec(name).protected_policy == policy
     for task in suite.load_suite(suite=name):
-        assert task.grade.protected_policy == "weakening"
+        assert task.grade.protected_policy == policy
         forbidden = [bool(_FORBIDS.search(task.prompt(p))) for p in suite.PHRASINGS]
         # a prohibition is in every phrasing or in none (the phrasings are one request)
         assert len(set(forbidden)) == 1, task.id
         assert task.grade.forbid_test_edits == forbidden[0], task.id
+
+
+def test_g36_is_not_retroactive_every_suite_registered_before_it_keeps_weakening():
+    assert suite.PROTECTED_POLICIES == ("byte", "weakening", "weakening-g36")
+    assert {name: suite.suite_spec(name).protected_policy for name in _PRE_G36} == dict.fromkeys(
+        _PRE_G36, "weakening"
+    )
 
 
 def test_the_original_suite_is_byte_for_byte():

@@ -7,13 +7,15 @@ Codex payloads (``apply_patch`` edits, exit-code-less Bash output, a Stop with t
 on a synthetic repository: ``ferncount`` (Python, pytest) or ``pebblecart`` (TypeScript,
 node:test). Every session must end with no Stop block and no PreToolUse hold.
 
-The audit found 27 false positives here; 25 were narrowed in the product (day 3) and now pass.
-Two stay ``xfail``. A regression test the agent volunteers whose name extends the failing file's
-import line has the exact shape of the stage-4 go/no-go catch: by the lead's decision that catch
-stays. A behaviour change asked in other words than the documented rule's, whose old test is
-replaced and whose rule removed, has the shape of recorded T1 catches (the replay of the recorded
-corpora lost real blocks to every narrowing tried for it). The two ``MISS`` tests at the end record
-a miss, not a false positive: a deleted failing test file is never compared.
+The audit found 27 false positives here; 25 were narrowed in the product (day 3) and now pass,
+and a 26th since day 4: a regression test the agent volunteers whose name extends the failing
+file's import line, the shape of the stage-4 go/no-go catch, is silent now that an import that
+only gained names the file never used is an addition (amendment G36; it was ``xfail`` by the
+lead's day-3 decision to keep that catch). One stays ``xfail``: a behaviour change asked in other
+words than the documented rule's, whose old test is replaced and whose rule removed, has the shape
+of recorded T1 catches (the replay of the recorded corpora lost real blocks to every narrowing
+tried for it). The two ``MISS`` tests at the end record a miss, not a false positive: a deleted
+failing test file is never compared.
 
 Invented projects and names only.
 """
@@ -1119,8 +1121,8 @@ def test_explain_retry_with_a_logged_test_run(repo):
     assert not s.holds, "held before a tool: " + " || ".join(s.holds)
 
 
-@pytest.mark.xfail(strict=True, reason="lead decision (day 3): the import-extended catch stays as is")
 def test_red_green_volunteered_regression_test_extends_the_import_line(repo):
+    """Strict ``xfail`` until day 4 (C4, G36): ``to_cents`` was never used in the pristine file."""
     s = repo(PY, {"tests/test_money.py": THOUSANDS_TEST})
     s.prompt("tests/test_money.py is failing on test_parse_thousands. Please fix parse_amount.")
     s.run("python -m pytest -q", THOUSANDS_RED)
