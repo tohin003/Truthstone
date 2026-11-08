@@ -12,6 +12,9 @@ brief  kind               phase           when
 =====  =================  ==============  ================================================
 (a)    ``spec_erosion``   Stop            "done" after a normative documented rule was
                                           removed or qualified
+(a)    ``spec_conflict``  Stop            "done" after a change that routes around a documented
+                                          rule that still reads the same, under a request that
+                                          reserved the tests
 (a)    ``test_weakening`` Stop            "done" after tests were weakened, deleted or
                                           skipped (added tests are never flagged)
 (a)    ``test_fitting``   Stop            "done" when production code hard-codes
@@ -75,10 +78,11 @@ from truthstone.core.models import Decision, Finding
 
 
 class Kind(StrEnum):
-    """The sanctioned intervention kinds. Stop's nine are the arbiter's ``ReasonCategory``
+    """The sanctioned intervention kinds. Stop's ten are the arbiter's ``ReasonCategory``
     values, spelled identically."""
 
     SPEC_EROSION = "spec_erosion"
+    SPEC_CONFLICT = "spec_conflict"
     TEST_WEAKENING = "test_weakening"
     TEST_FITTING = "test_fitting"
     GAMING_SIGNATURE = "gaming_signature"
@@ -106,6 +110,7 @@ PROFILES = (MINIMAL, FULL)
 _STOP = frozenset(
     {
         Kind.SPEC_EROSION,
+        Kind.SPEC_CONFLICT,
         Kind.TEST_WEAKENING,
         Kind.TEST_FITTING,
         Kind.GAMING_SIGNATURE,

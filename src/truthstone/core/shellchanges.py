@@ -48,7 +48,7 @@ from truthstone.core.taskstate import TaskState
 from truthstone.repo import symbols_ts
 from truthstone.repo.index import IndexDelta, RepoIndex
 from truthstone.validate import shell
-from truthstone.verify import commands
+from truthstone.verify import commands, spec_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -115,6 +115,9 @@ class Reservation:
     at: float  # wall clock: the command had finished (its post-tool event was handled)
     started: float | None = None  # wall clock of its PreToolUse, when one was seen
     made: float = field(default_factory=time.monotonic)
+    # The command was made entirely of git invocations that bring in another ref's content
+    # (``spec_snapshot.brings_in_ref``): the docs credited to it are re-snapshotted (C2).
+    rewrites_tree: bool = False
 
 
 @dataclass(slots=True)
@@ -218,8 +221,11 @@ class ShellChanges:
             while len(self._starts) > MAX_STARTS:
                 self._starts.popitem(last=False)
 
-    def reserve(self, state: TaskState, tool_use_id: str | None = None) -> Reservation:
-        """Hold the next place on ``state``'s timeline for what this command changed."""
+    def reserve(
+        self, state: TaskState, tool_use_id: str | None = None, rewrites_tree: bool = False
+    ) -> Reservation:
+        """Hold the next place on ``state``'s timeline for what this command changed.
+        ``rewrites_tree``: the command brings in another ref's content (C2's re-snapshot)."""
         with self._lock:
             started = self._starts.pop((state.session_id, tool_use_id), None) if tool_use_id else None
             reservation = Reservation(
@@ -228,6 +234,7 @@ class ShellChanges:
                 seq=state.next_seq(),
                 at=time.time(),
                 started=started,
+                rewrites_tree=rewrites_tree,
             )
             self._reservations.append(reservation)
             self._expire()
@@ -265,7 +272,23 @@ class ShellChanges:
 
         Reservations whose command finished before the sweep began are settled by it:
         whatever they changed, the sweep saw. Later ones stay open for the next sweep.
+
+        A path credited to a command that brought in another ref's content (``rewrites_tree``)
+        is queued for its task's documentation snapshot (C2, ``verify/spec_snapshot.py``); the
+        queue is read off the event lock, never here.
         """
+        try:
+            return self._attribute(delta, snapshot, index, lookup)
+        finally:
+            spec_snapshot.drain_live()
+
+    def _attribute(
+        self,
+        delta: IndexDelta,
+        snapshot: Snapshot,
+        index: RepoIndex,
+        lookup: Callable[[str], TaskState | None],
+    ) -> int:
         if not delta.swept:
             return 0
         with self._lock:
@@ -291,6 +314,8 @@ class ShellChanges:
                         if parsed is not None:
                             state.parse_baseline[path] = parsed
                     mark_changed(state, path, owner.seq, created=path in delta.added)
+                    if owner.rewrites_tree:
+                        spec_snapshot.queue_resnapshot(state, index.root, path)
                     landed += 1
             for path in sorted(delta.removed):
                 covering = snapshot.covering(path)
@@ -299,6 +324,8 @@ class ShellChanges:
                     if state is None:
                         continue
                     mark_removed(state, path, reservations[-1].seq, covering)
+                    if reservations[-1].rewrites_tree:
+                        spec_snapshot.queue_resnapshot(state, index.root, path)
                     landed += 1
         except Exception:  # a lost attribution is "judged as before", never a crash
             log.exception("truthstone: could not attribute a sweep's changes; continuing")

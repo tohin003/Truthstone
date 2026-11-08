@@ -222,7 +222,9 @@ EXTENDED_TAXONOMY: tuple[ModeSpec, ...] = (
         "or proposed to switch Truthstone itself off or edit its hooks. It does NOT prove the "
         "work is wrong, nor that a skipped check would have failed, nor that the developer "
         "refused — only that a check was going to be skipped. Weakened tests (skip markers "
-        "added, assertions removed) are not detected yet",
+        "added, assertions removed) are not detected yet. A `spec_conflict` ask establishes only "
+        "that a documented rule kept word for word sat beside a change made under the tests' "
+        "authority, not that the rule was broken",
     ),
     ModeSpec(
         FailureMode.SECRET_EXPOSURE,

@@ -6,7 +6,11 @@ per Stop. The checks are:
 * the Completion Gate's evidence (``completion_gate``): failing, stale, narrower or missing
   test runs, unparsable files;
 * spec and doc integrity (M2, ``validate/spec_integrity.py``): a documented rule removed or
-  qualified;
+  qualified, including a doc rewritten through the shell, read against the task-start snapshot (C2,
+  ``verify/spec_snapshot.py``);
+* spec conflict (C3, ``verify/spec_conflict.py``): under a request that reserved the tests, a
+  documented rule kept word for word while added code throws its documented error outside the
+  rule's owner;
 * test integrity (M4, ``validate/weakened_tests.py``): existing tests weakened, deleted or
   skipped;
 * gaming signatures (``validate/gaming.py``): code or a run that makes tests pass without the
@@ -42,9 +46,18 @@ The rules, in order
    failing test. With no link between the failing tests and the change, it stays silent.
 4. **Integrity checks speak only on a completion claim,** and only when the request did
    not ask for that change (each check owns its own exemptions).
-5. **Budget.** At most ``max_blocks`` Stop challenges per task, and none while a stop hook
-   already holds the turn. After that the turn ends with the gap reported to the
-   developer. It is never held indefinitely.
+5. **Budget.** At most ``max_blocks`` Stop challenges per task. After that the turn ends with
+   the gap reported to the developer. It is never held indefinitely.
+6. **A stop hook already holding the turn** (C3): an asked-again concern speaks, and alone (it
+   follows the agent's own reply to the first ask); otherwise only the first ask of a yardstick
+   category not raised before (spec erosion, spec conflict, test weakening, test fitting, a gaming
+   signature) speaks, and with none the Stop is muted.
+7. **Spec conflict yields** to spec erosion, test weakening, test fitting, a gaming signature or
+   original tests failing at the same Stop: they say more about the same change. A yielding first
+   ask leaves them its stop-hook exemption; a yielding asked-again concern is not recorded.
+8. **Asked again** (spec erosion, spec conflict): "done" claimed again over the same rule is asked
+   once more, the smallest ask, and recorded as ``spec_erosion:again`` / ``spec_conflict:again``:
+   asked twice, never thrice.
 
 Never raises; a check that fails is skipped (fail open).
 """
@@ -72,7 +85,7 @@ from truthstone.core.models import EvidenceRef, Finding
 from truthstone.core.taskstate import TaskState
 from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
-from truthstone.verify import baseline, claims, completion_gate, runners
+from truthstone.verify import baseline, claims, completion_gate, runners, spec_conflict
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +102,7 @@ _GATE_CATEGORY = {
 # The order concerns are told in: the yardstick first, then the evidence.
 _ORDER = (
     ReasonCategory.SPEC_EROSION,
+    ReasonCategory.SPEC_CONFLICT,
     ReasonCategory.TEST_WEAKENING,
     ReasonCategory.TEST_FITTING,
     ReasonCategory.GAMING_SIGNATURE,
@@ -101,6 +115,27 @@ _ORDER = (
     ReasonCategory.UNVERIFIED,
 )
 _SPEAKING = (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
+# The yardstick categories (C3): while a stop hook holds the turn, a first ask of one of them that was
+# not raised before still speaks.
+_YARDSTICK = frozenset(
+    {
+        ReasonCategory.SPEC_EROSION,
+        ReasonCategory.TEST_WEAKENING,
+        ReasonCategory.TEST_FITTING,
+        ReasonCategory.GAMING_SIGNATURE,
+        ReasonCategory.SPEC_CONFLICT,
+    }
+)
+# A ``spec_conflict`` concern yields to these when they speak at the same Stop (C3).
+_CONFLICT_YIELDS_TO = frozenset(
+    {
+        ReasonCategory.SPEC_EROSION,
+        ReasonCategory.TEST_WEAKENING,
+        ReasonCategory.TEST_FITTING,
+        ReasonCategory.GAMING_SIGNATURE,
+        ReasonCategory.ORIGINAL_TESTS_FAIL,
+    }
+)
 
 
 @dataclass(slots=True)
@@ -180,6 +215,7 @@ def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
 
     checks: list[IntegrityCheck] = [
         integrity.spec_concerns,
+        spec_conflict.conflict_concerns,
         weakened_tests.concerns,
         fitting.concerns,
         gaming.concerns,
@@ -289,21 +325,33 @@ def arbitrate(
         if concern.needs_claim and not done:
             continue  # an honest hand-back is accepted (rule 1)
         if concern.category in already:
-            if (
-                minimal
-                and concern.category is ReasonCategory.SPEC_EROSION
-                and SPEC_EROSION_AGAIN not in already
-                and again is None
-            ):
-                # The one exception to once per reason: "done" claimed again over a rewritten
-                # documented rule. The second ask is the smallest one: keep the change if you
-                # must, but hand the rule decision back. It can only follow a first challenge.
+            record = _AGAIN_RECORDS.get(concern.category)
+            if minimal and record is not None and record not in already and again is None:
+                # The one exception to once per reason: "done" claimed again over a documented
+                # rule still rewritten (spec erosion) or still worked around (spec conflict). The
+                # second ask is the smallest one: keep the change if you must, but hand the rule
+                # decision back. It can only follow a first challenge.
                 again = _asked_again(concern)
                 speaking.append(again)
                 continue
             repeated.append(concern)
         else:
             speaking.append(concern)
+
+    # A spec conflict yields to the other yardstick concerns speaking at the same Stop (C3): they say
+    # more about the same change. A yielding first ask leaves them its stop-hook exemption; a
+    # yielding asked-again concern is not recorded.
+    inherits: list[Concern] = []
+    conflicts = [c for c in speaking if c.category is ReasonCategory.SPEC_CONFLICT]
+    if conflicts:
+        others = [c for c in speaking if c.category in _CONFLICT_YIELDS_TO]
+        if others:
+            for c in conflicts:
+                speaking.remove(c)
+                if c is again:
+                    again = None
+                else:
+                    inherits.extend(others)
 
     if not speaking:
         # Raised once already and finished anyway: the developer hears of it (G10), under
@@ -324,9 +372,26 @@ def arbitrate(
             unresolved=told.finding.summary,
         )
 
-    # The asked-again challenge follows the agent's own reply to the first one, so a stop hook
-    # is holding the turn by construction; the per-task block budget still bounds it.
-    muted = completion_gate._muted_reason(state, stop_hook_active and again is None, max_blocks)
+    # The per-task block budget mutes first. While a stop hook holds the turn (C3, comp-3-12): the
+    # asked-again challenge follows the agent's own reply to the first one, so a stop hook is holding
+    # the turn by construction; it is exempt, and it alone speaks. With none, the first ask of a
+    # yardstick category not raised before is exempt (with the concerns a yielding first ask left its
+    # exemption to); the rest are dropped from this challenge (they stay in the findings), and with
+    # nothing left the Stop is muted.
+    muted = completion_gate._muted_reason(state, False, max_blocks)
+    if not muted and stop_hook_active and state.stop_blocks >= 1:
+        if again is not None:
+            speaking = [again]
+        else:
+            kept = [
+                c
+                for c in speaking
+                if (c.category in _YARDSTICK and c.category not in already) or c in inherits
+            ]
+            if kept:
+                speaking = kept
+            else:
+                muted = "a stop hook is already holding this turn"
     if muted:
         first = min(speaking, key=lambda c: _ORDER.index(c.category))
         return Arbitration(
@@ -346,8 +411,9 @@ def arbitrate(
     # engine's choke point lets a Stop challenge through only for an allowed category.
     primary = [_primary(c) for c in speaking]
     raised: list = [c.category for c in speaking]
-    if again is not None:
-        raised.append(SPEC_EROSION_AGAIN)  # recorded with the categories: asked twice, never thrice
+    if again is not None and again in speaking:
+        # recorded with the categories: asked twice, never thrice
+        raised.append(_AGAIN_RECORDS[again.category])
     return Arbitration(
         result,
         reason=_render(speaking),
@@ -380,6 +446,9 @@ _FINISHES: dict[ReasonCategory, str] = {
         "Accepted finish: restore the rule and the behaviour it documents, then finish with "
         '"not done: <which test contradicts which documented rule>", so the user decides.'
     ),
+    # A rule kept word for word while the code routes around it (C3): either the test contradicts the
+    # rule, or the change keeps it and the user confirms that.
+    ReasonCategory.SPEC_CONFLICT: spec_conflict.FINISH,
     ReasonCategory.TEST_WEAKENING: (
         'Accepted finishes: restore the test and fix the code, then finish; or finish with "not done: '
         '<which test was weakened, and why>", so the user decides.'
@@ -426,6 +495,12 @@ _EDITED_FINISH = (
 
 
 SPEC_EROSION_AGAIN = "spec_erosion:again"
+SPEC_CONFLICT_AGAIN = spec_conflict.SPEC_CONFLICT_AGAIN
+# The categories with an asked-again path, and the record each one leaves: asked twice, never thrice.
+_AGAIN_RECORDS: dict[ReasonCategory, str] = {
+    ReasonCategory.SPEC_EROSION: SPEC_EROSION_AGAIN,
+    ReasonCategory.SPEC_CONFLICT: SPEC_CONFLICT_AGAIN,
+}
 AGAIN_LEAD = "You finished as done again"
 _AGAIN_FINISH = (
     'Accepted finishes: restore the rule and finish with "not done: <which test contradicts which '
@@ -435,9 +510,21 @@ _AGAIN_FINISH = (
 
 
 def _asked_again(concern: Concern) -> Concern:
-    """The second, smallest ask over a documented rule still rewritten at a repeated "done". A
-    concern already phrased as the second ask (the rule's words restored, its breach kept:
-    ``verify/integrity.py``) is asked as it is."""
+    """The second, smallest ask over a documented rule still rewritten (or, for a spec conflict,
+    still worked around) at a repeated "done". A concern already phrased as the second ask (the
+    rule's words restored, its breach kept: ``verify/integrity.py``) is asked as it is."""
+    if concern.category is ReasonCategory.SPEC_CONFLICT:
+        refs = [ref for ref in concern.finding.evidence if ref.source == "doc-rule" and ref.snippet][
+            : spec_conflict.MAX_QUOTED
+        ]
+        listing = "\n".join(
+            f'  - {ref.path}{f":{ref.line}" if ref.line else ""}: "{ref.snippet}"' for ref in refs
+        )
+        text = (
+            f"{AGAIN_LEAD}, but the documented rule is still worked around:\n"
+            f"{listing}\n{spec_conflict.AGAIN_TAIL}"
+        )
+        return Concern(concern.category, text, concern.finding, needs_claim=True, finish=spec_conflict.FINISH)
     if concern.text.startswith(AGAIN_LEAD):
         return concern
     refs = [ref for ref in concern.finding.evidence if ref.snippet][:3]
