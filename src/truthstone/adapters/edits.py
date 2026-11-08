@@ -3,8 +3,9 @@
 The hosts' tool and argument names stay here, outside the core (``tests/test_core_host_neutral.py``).
 A Codex ``apply_patch`` reaches the core as one event per file; it is read whole from the event's
 raw payload, so the patch's other files can supply a reader. A file tool's ``Write``, ``Edit`` or
-``MultiEdit`` is read from its arguments. Ported unchanged from the frozen ``premise_proto_d.py``
-(``_added_lines_of_event``, ``_rel``, and the file its ``install()`` limits the places to).
+``MultiEdit`` is read from its arguments; a ``Write`` adds only the lines the file did not have. Ported
+unchanged from the frozen ``premise_proto_d4.py`` (``_added_lines_of_event``, ``_rel``, and the file its
+``install()`` limits the places to).
 """
 
 from __future__ import annotations
@@ -48,7 +49,14 @@ def added_lines(event, root: Path) -> list[tuple[str, list[str]]]:
     if rel is None:
         return []
     if event.tool == "Write":
-        out.append((rel, str(args.get("content") or "").splitlines()))
+        # Only the lines the file did not have: a Write rewrites the whole file.
+        try:
+            full = root / rel
+            text = full.read_text(encoding="utf-8", errors="ignore") if full.is_file() else ""
+            had = set(text.splitlines())
+        except OSError:
+            had = set()
+        out.append((rel, [line for line in str(args.get("content") or "").splitlines() if line not in had]))
     elif event.tool == "Edit":
         old = set(str(args.get("old_string") or "").splitlines())
         new = str(args.get("new_string") or "").splitlines()

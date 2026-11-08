@@ -79,6 +79,10 @@ class TaskState:
     # store does not keep it, so a task rebuilt after a restart has none and its second Stop pass
     # stays silent (R14).
     spec_snapshot: object | None = None
+    # What rule D would have held in this task while it only records (``intent/dead_switch.py``,
+    # ``DEAD_SWITCH_SPEAKS`` False): (switch, file). Evidence only: never a finding or a decision,
+    # so nothing that counts premise flags or blocks reads it. Not kept by the store.
+    dead_switch_recorded: list[tuple[str, str]] = field(default_factory=list)
 
     def next_seq(self) -> int:
         self.seq += 1

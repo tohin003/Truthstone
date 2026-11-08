@@ -139,8 +139,8 @@ class Workspace:
         self.premises_noted: dict[str, set[str]] = {}
         # Task id -> the deny its first file edit gets after a premise note (T4), once.
         self.premise_holds: dict[str, str] = {}
-        # Tasks whose edit rule D held (a request-named switch written where nothing reads it,
-        # ``intent/dead_switch.py``): once per task.
+        # Tasks whose edit rule D held, or recorded as one it would have held (a request-named
+        # switch written where nothing reads it, ``intent/dead_switch.py``): once per task.
         self.dead_switch_held: set[str] = set()
         # Sessions already given the integrity note (``[notes] integrity``): once per session.
         self.integrity_noted: set[str] = set()
@@ -912,50 +912,12 @@ class Guard:
         return True
 
     def _on_pre_tool_use(self, event: AgentEvent, ws: Workspace) -> Decision:
-        """Action Validator (SPEC §18), then rule D on an edit it allows (C1-D)."""
-        return self._dead_switch_hold(event, ws, self._pre_tool_use_decision(event, ws))
-
-    @staticmethod
-    def _dead_switch_hold(event: AgentEvent, ws: Workspace, decision: Decision) -> Decision:
-        """Rule D (``intent/dead_switch.py``, C1-D): an allowed file edit that writes a switch the
-        task's request names into a place where switches are set, while no code reads it, is held
-        once per task, with the premise hold's record. The re-issued edit proceeds. A name the
-        session's prompt-time note already named is not held again. A rule that cannot run says
-        nothing: the decision stands."""
-        if decision.action is not DecisionAction.ALLOW or not event.is_mutating or event.is_delete:
-            return decision
-        try:
-            task = str(event.task_id or "")
-            if not task or task in ws.dead_switch_held:
-                return decision
-            state = ws.event_task_state(event)
-            spec = getattr(state, "spec", None) if state is not None else None
-            prompt = getattr(spec, "prompt", "") or ""
-            if not prompt or not ws.index.is_built:
-                return decision
-            root = Path(ws.root)
-            edits = dead_switch.edited_lines(event, root)
-            this = dead_switch.edited_file(event, root)
-            skip = set(ws.premises_noted.get(event.session_id or "", set()))
-            found = dead_switch.dead_switches(
-                prompt, root, list(ws.index.files), edits, this_file=this, skip=skip
-            )
-        except Exception:  # noqa: BLE001 - a rule that cannot run says nothing
-            return decision
-        if not found:
-            return decision
-        name, rel = found[0]
-        ws.dead_switch_held.add(task)
-        text = dead_switch.HOLD.format(name=name, where=f"`{rel}`")
-        return Decision(
-            action=DecisionAction.CHALLENGE,
-            level=EscalationLevel.HOST_CHALLENGE,
-            reason=text,
-            findings=[premise.hold_finding(text)],
-        )
+        """Action Validator (SPEC §18): ``_pre_tool_use_decision``."""
+        return self._pre_tool_use_decision(event, ws)
 
     def _pre_tool_use_decision(self, event: AgentEvent, ws: Workspace) -> Decision:
-        """Action Validator (SPEC §18), which runs the Evidence Engine inside it."""
+        """Action Validator (SPEC §18), which runs the Evidence Engine inside it. The premise
+        hold (T4) and rule D (C1-D) come after Level 0 and before the advice."""
         self._wait_for_spec_snapshot(event, ws)
         # SPEC §7/§8: read-only tools never leave Level 0. This short-circuit is what
         # keeps ordinary exploration free.
@@ -970,21 +932,33 @@ class Guard:
         if self._premise_hold_due(event, ws):
             # The developer's sign-off, or a guarded rewrite, comes first (A1): the hold waits
             # for the next edit. Only the Level-0 decision is wanted here; the advice is not.
-            first = validate.validate(
-                event=event,
-                index=ws.index,
-                state=ws.event_task_state(event),
-                ledger=ws.ledger,
-                task_id=event.task_id,
-                defer=lambda advise: None,
-            )
+            first = self._level_zero(event, ws)
             if first.action is not DecisionAction.ALLOW:
                 return first
             return self._premise_hold(event, ws)
+        dead = self._dead_switch(event, ws)
+        if dead is not None and dead_switch.DEAD_SWITCH_SPEAKS:
+            # Rule D sits where the premise hold sits: Level 0 first, as there, and the advice
+            # does not run for the held edit, so the hold is the decision recorded even where
+            # the advice would have been deferred (the daemon).
+            first = self._level_zero(event, ws)
+            if first.action is not DecisionAction.ALLOW:
+                return first
+            task, name, rel = dead
+            ws.dead_switch_held.add(task)
+            text = dead_switch.HOLD.format(name=name, where=f"`{rel}`")
+            finding = premise.hold_finding(text)
+            finding.summary = dead_switch.HOLD_SUMMARY
+            return Decision(
+                action=DecisionAction.CHALLENGE,
+                level=EscalationLevel.HOST_CHALLENGE,
+                reason=text,
+                findings=[finding],
+            )
         if event.tool in SHELL_TOOLS:
             # The command's window opens: a file it changes changes after this (G5).
             ws.shell.note_start(event.session_id, event.tool_use_id)
-        return validate.validate(
+        decision = validate.validate(
             event=event,
             index=ws.index,
             state=ws.event_task_state(event),
@@ -992,6 +966,75 @@ class Guard:
             task_id=event.task_id,
             defer=self._advice_deferral(event, ws),
         )
+        if dead is not None:  # rule D recorded only: the edit goes ahead as if it were not there
+            self._record_dead_switch(event, ws, dead, decision)
+        return decision
+
+    @staticmethod
+    def _record_dead_switch(
+        event: AgentEvent, ws: Workspace, dead: tuple[str, str, str], decision: Decision
+    ) -> None:
+        """Rule D while it only records (``DEAD_SWITCH_SPEAKS`` False, S9): the hold it would have
+        made, kept on the task state and in the log, never as a finding or a decision; the event's
+        decision is untouched. As when it speaks, Level 0 comes first (after a guarded rewrite or
+        a sign-off request the hold would have waited for the next edit), and once per task."""
+        if decision.action in (DecisionAction.MODIFY, DecisionAction.REQUEST_REVIEW):
+            return  # only Level 0 decides these
+        task, name, rel = dead
+        ws.dead_switch_held.add(task)
+        state = ws.event_task_state(event)
+        if state is not None:
+            state.dead_switch_recorded.append((name, rel))
+        log.info("truthstone: rule D, recorded only: `%s` written into %s, which nothing reads", name, rel)
+
+    @staticmethod
+    def _level_zero(event: AgentEvent, ws: Workspace) -> Decision:
+        """The validator's Level-0 decision alone (the sign-off, a guarded rewrite, self-protection),
+        for an edit about to be held. The advice is dropped, not deferred: the hold is the decision."""
+        return validate.validate(
+            event=event,
+            index=ws.index,
+            state=ws.event_task_state(event),
+            ledger=ws.ledger,
+            task_id=event.task_id,
+            defer=lambda advise: None,
+        )
+
+    @staticmethod
+    def _dead_switch(event: AgentEvent, ws: Workspace) -> tuple[str, str, str] | None:
+        """Rule D (``intent/dead_switch.py``, C1-D): ``(task, switch, file)`` when this file edit
+        writes a switch the task's request names into a place where switches are set, while no
+        code reads it. Once per task (``Workspace.dead_switch_held``); never a name the session's
+        prompt-time note named. The readers scanned are the indexed files and the files the task
+        touched (it may have created them). A Codex patch reaches here one file at a time: that
+        file is the place, and the whole patch may add a reader. A rule that cannot run says
+        nothing: None."""
+        try:
+            task = str(event.task_id or "")
+            if not task or task in ws.dead_switch_held or not event.is_mutating or event.is_delete:
+                return None
+            if not ws.index.is_built:
+                return None
+            state = ws.event_task_state(event)
+            spec = getattr(state, "spec", None) if state is not None else None
+            prompt = getattr(spec, "prompt", "") or ""
+            if not prompt:
+                return None
+            root = Path(ws.root)
+            edits = dead_switch.edited_lines(event, root)
+            if not edits:
+                return None
+            this = dead_switch.edited_file(event, root)
+            skip = set(ws.premises_noted.get(event.session_id or "", set()))
+            touched = getattr(state, "touched_files", None) or []
+            files = list(dict.fromkeys([*ws.index.files, *touched]))
+            found = dead_switch.dead_switches(prompt, root, files, edits, this_file=this, skip=skip)
+        except Exception:  # noqa: BLE001 - a rule that cannot run says nothing
+            return None
+        if not found:
+            return None
+        name, rel = found[0]
+        return task, name, rel
 
     @staticmethod
     def _wait_for_spec_snapshot(event: AgentEvent, ws: Workspace) -> None:
