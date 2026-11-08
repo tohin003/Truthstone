@@ -377,11 +377,11 @@ def test_classify_reports_the_extension_as_an_addition(tmp_path):
 FLIP_TS = (
     'import { test } from "node:test";\n'
     'import assert from "node:assert/strict";\n'
-    'import { matchRule, parseRange } from "../src/rules.ts";\n'
+    'import { matchRule, splitSpan } from "../src/rules.ts";\n'
     "\n"
     'test("matches a rule", () => {\n'
     '  assert.equal(matchRule("a"), true);\n'
-    '  assert.deepEqual(parseRange("1-2"), [1, 2]);\n'
+    '  assert.deepEqual(splitSpan("1-2"), [1, 2]);\n'
     "});\n"
 )
 FLIP_PY = '"""Tests for the exporter."""\n\nfrom sheetkit.export import export_rows\n\n\ndef test_exports_rows():\n    assert export_rows([]) == ""\n'
@@ -391,7 +391,7 @@ def _ts_flip(lines: int) -> str:
     """The pristine file with `parseWide` added to its import and `lines` code lines appended."""
     body = [f'  assert.equal(parseWide("w{k}"), {k});' for k in range(lines - 2)]
     block = 'test("parses the wide form", () => {\n' + "\n".join(body) + "\n});\n"
-    extended = FLIP_TS.replace("{ matchRule, parseRange }", "{ matchRule, parseRange, parseWide }")
+    extended = FLIP_TS.replace("{ matchRule, splitSpan }", "{ matchRule, splitSpan, parseWide }")
     return extended + "\n" + block
 
 
@@ -415,7 +415,7 @@ def test_the_ten_typescript_flips(k):
     lines, _arm = TS_FLIPS[k]
     after = _ts_flip(lines)
     weakened, _ = _compare(TS, FLIP_TS, after, "weakening")
-    assert weakened == ["existing lines changed: 'import { matchRule, parseRange } from \"../src/rules.ts\";'"]
+    assert weakened == ["existing lines changed: 'import { matchRule, splitSpan } from \"../src/rules.ts\";'"]
     assert _compare(TS, FLIP_TS, after, "weakening-g36") == ([], [f"{lines} line(s) added", "import extended: parseWide"])
 
 
@@ -436,7 +436,7 @@ def test_the_flips_are_five_per_arm_plus_two():
     "rel, before, after, why",
     [
         # code inserted inside an existing test, the import extended too (11 recorded cells)
-        (TS, FLIP_TS, _ts_flip(5).replace('  assert.deepEqual(parseRange("1-2"), [1, 2]);\n', '  assert.deepEqual(parseRange("1-2"), [1, 2]);\n  assert.equal(parseWide("x"), 0);\n'), "code inserted inside an existing test"),
+        (TS, FLIP_TS, _ts_flip(5).replace('  assert.deepEqual(splitSpan("1-2"), [1, 2]);\n', '  assert.deepEqual(splitSpan("1-2"), [1, 2]);\n  assert.equal(parseWide("x"), 0);\n'), "code inserted inside an existing test"),
         # an existing test changed beside the extension (2 recorded cells)
         (PY, FLIP_PY, _py_flip(1).replace('assert export_rows([]) == ""', 'assert export_rows([]) == ""\n    assert export_rows([1])'), "test_exports_rows changed"),
         # a fixture or data file changed
