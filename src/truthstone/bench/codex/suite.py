@@ -5,8 +5,9 @@ are named (``SUITES``): ``codex_bench`` is the original 32-task suite
 (``tests/fixtures/codex_bench/tasks``); ``golden-dev`` and ``golden-heldout`` are the two
 disjoint splits of the golden set (``tests/fixtures/golden/{dev,heldout}``), which share
 that directory's ``bases/`` and ``protocol/``; ``golden-heldout2`` (``heldout2/``) is a second
-sealed held-out split of the same families, built blind after the first was spent (G22), and
-``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28). A
+sealed held-out split of the same families, built blind after the first was spent (G22),
+``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28), and
+``golden-heldout4`` (``heldout4/``) a fourth, built blind after the third was spent (G39). A
 plan pins its suite by name and digest.
 
 A task is a directory ``<suite>/<tasks dir>/<id>/``:
@@ -90,6 +91,10 @@ SUITES: dict[str, SuiteSpec] = {
     # The third sealed held-out split (amendment G28): new instances of the same families and
     # recipes, built blind to the product after golden-heldout2 was spent on the second release run.
     "golden-heldout3": SuiteSpec("golden-heldout3", GOLDEN_ROOT, "heldout3", "weakening", True),
+    # The fourth sealed held-out split (amendment G39): new instances of the same families and
+    # recipes, built blind to the product, its fixes and the dress rehearsal after golden-heldout3
+    # was spent on the third release run; the split of the final release run.
+    "golden-heldout4": SuiteSpec("golden-heldout4", GOLDEN_ROOT, "heldout4", "weakening", True),
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
@@ -116,6 +121,10 @@ FROZEN: dict[str, str] = {
     # G28: the third sealed held-out split, frozen on registration (2026-11-06 18:10 IST), built
     # blind after golden-heldout2 was spent; nobody runs or reads it before its release run.
     "golden-heldout3": "58fbcf3b13a4bcba35cd42d50226262ebb7b70cd46cf0c87ea732c6089057d94",
+    # G39: the fourth sealed held-out split, the final release run's, frozen on registration
+    # (2026-11-08 11:51 IST), built blind after golden-heldout3 was spent and blind to the dress
+    # rehearsal; nobody runs or reads it before its release run.
+    "golden-heldout4": "3015291402aad30e555879f5ed2e7ff6c50fecfebce0e4e2e726dbb6a68ffa17",
 }
 
 # Spent splits (amendment G26): frozen splits whose release run is done. Still read-only, and a

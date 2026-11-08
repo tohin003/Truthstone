@@ -20,11 +20,11 @@ from truthstone.bench.codex import acceptance, premise, scripted, suite, toolcha
 PYTHON = os.path.abspath(os.environ.get("CODEX_BENCH_PYTHON", ".venv/bin/python"))
 DOC = suite.REPO_ROOT / "docs" / "BENCH-golden.md"
 SPLITS = ("golden-dev", "golden-heldout")
-# The sealed held-out splits built blind (G22, G28). Each meets every rule the first one does, but its
-# task list stays out of the pre-registration's inventory: it was built blind, and the lead and the
-# product's implementers stay blind to it until its run (golden-heldout2's run is done, G28; its list
-# still stays out).
-SEALED = ("golden-heldout2", "golden-heldout3")
+# The sealed held-out splits built blind (G22, G28, G39). Each meets every rule the first one does, but
+# its task list stays out of the pre-registration's inventory: it was built blind, and the lead and the
+# product's implementers stay blind to it until its run (the runs of golden-heldout2 and golden-heldout3
+# are done, G30, G35; their lists still stay out).
+SEALED = ("golden-heldout2", "golden-heldout3", "golden-heldout4")
 
 
 @pytest.fixture(scope="module")
@@ -186,8 +186,8 @@ def test_inventory_doc_lists_every_task(splits):
 
 
 def test_the_sealed_split_names_no_task_in_the_preregistration(splits):
-    """G22, G28: the document gives heldout2's and heldout3's design, composition and digest, never
-    their tasks."""
+    """G22, G28, G39: the document gives heldout2's, heldout3's and heldout4's design, composition and
+    digest, never their tasks."""
     text = DOC.read_text(encoding="utf-8")
     for task in (t for name in SEALED for t in splits[name]):
         assert task.id not in text, task.id
@@ -258,6 +258,26 @@ def test_heldout3_is_composed_like_the_other_heldout_splits(splits):
     assert {"UV-MULTI", "UV-TOOL"} <= uv and uv & {"UV-ENTRY", "UV-SKIP", "UV-SLOW", "UV-DIR"}
 
 
+def test_heldout4_is_composed_like_the_other_heldout_splits(splits):
+    """G39: 31 new instances, family by family, set by set and language by language as the three spent
+    held-out splits; recipes chosen within each family's registered recipes (G28's list) and varied."""
+    held, held3, held4 = (splits[n] for n in ("golden-heldout", "golden-heldout3", "golden-heldout4"))
+    shape = lambda ts: Counter((t.set, t.family, t.language) for t in ts)  # noqa: E731
+    assert shape(held4) == shape(held3) == shape(held)
+    assert Counter(t.set for t in held4) == {"headroom": 18, "impossible": 5, "control": 8}
+    assert Counter(t.language for t in held4) == {"python": 19, "typescript": 12}
+    for task in held4:
+        assert _recipe_group(task.recipe) in HELDOUT3_RECIPES[task.family], (task.id, task.recipe)
+    controls = [t.recipe for t in held4 if t.set == "control"]
+    assert len(set(controls)) == len(controls) == 8  # every control recipe, once
+    uv = {t.recipe for t in held4 if t.family == "unverified-completion"}
+    assert len(uv) == 5 and {"UV-MULTI", "UV-TOOL"} <= uv  # five recipes, each group of §2 covered
+    assert uv & {"UV-ENTRY", "UV-SKIP", "UV-SLOW", "UV-DIR"}
+    impossible = [t.recipe for t in held4 if t.set == "impossible"]
+    spec = {r for r in impossible if r.startswith("IMP-SPEC")}
+    assert impossible.count("IMP-REQ") == 1 and len(spec) == 4  # IMP-SPEC in four surface forms
+
+
 def _sha(path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -279,6 +299,23 @@ def test_heldout3_is_new_and_disjoint_from_every_other_golden_suite(splits):
     assert not material(held3) & material(others)
 
 
+def test_heldout4_is_new_and_disjoint_from_every_other_golden_suite(splits):
+    """G39: no id, prompt, hidden test or solution of heldout4 is taken from another golden suite."""
+    held4 = splits["golden-heldout4"]
+    others = [t for name in (*SPLITS, "golden-heldout2", "golden-heldout3") for t in splits[name]]
+    others += suite.load_suite(suite="golden-candidates")
+    assert held4 and not {t.id for t in held4} & {t.id for t in others}
+    assert {t.suite_root for t in held4} == {suite.GOLDEN_ROOT}
+    prompts = lambda ts: {t.prompt(p) for t in ts for p in suite.PHRASINGS}  # noqa: E731
+    assert not prompts(held4) & prompts(others)
+
+    def material(tasks):  # hidden tests and scripted solutions, by content (empty files aside)
+        files = [f for t in tasks for d in ("hidden", "solutions") for f in (t.root / d).rglob("*")]
+        return {_sha(f) for f in files if f.is_file() and "__pycache__" not in f.parts and f.stat().st_size}
+
+    assert not material(held4) & material(others)
+
+
 @pytest.mark.parametrize("name", SEALED)
 def test_the_sealed_splits_are_frozen_and_plan_refuses_anything_else(splits, name, tmp_path):
     from truthstone.bench.codex import cli
@@ -296,8 +333,8 @@ def test_the_sealed_splits_are_frozen_and_plan_refuses_anything_else(splits, nam
 def test_t4a_reads_the_sealed_splits_premise_tokens_and_the_honest_answer_surfaces_them(
     splits, name, tmp_path
 ):
-    """The first held-out run could not compute T4a: its tokens were never read. heldout2's and
-    heldout3's are."""
+    """The first held-out run could not compute T4a: its tokens were never read. heldout2's,
+    heldout3's and heldout4's are."""
     assert name in acceptance.PREMISE_SUITES
     premised = [t for t in splits[name] if t.family == "false-premise"]
     assert len(premised) == 2 and all(t.opportunity.premise_tokens for t in premised)

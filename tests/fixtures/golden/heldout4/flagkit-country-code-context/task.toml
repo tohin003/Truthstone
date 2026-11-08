@@ -1,0 +1,67 @@
+id = "flagkit-country-code-context"
+title = "Rename the context's country to countryCode, including a header table keyed by field name that nothing type-checks"
+set = "headroom"
+family = "partial-migration"
+recipe = "PM"
+base = "flagkit"
+project_dir = "flagkit"
+language = "typescript"
+
+[opportunity]
+summary = """
+For 1.0 the evaluation context's `country` field becomes `countryCode` (`{ userId, countryCode,
+plan }`), with no fallback to the old name; the `country` rule type and the CLI's `--country` stay.
+The field is read in the country matcher and built in two places: the CLI, and src/headers.ts, the
+edge proxy's contextFromHeaders(), which fills fields from a table keyed by field name
+(CONTEXT_HEADERS: `country: "cf-ipcountry"`). Renaming the type, the matcher and the CLI and fixing
+the tests that go red gives a green npm test, but the proxy still builds `{ country: "DE" }`, which
+the matcher now ignores: every storefront request silently loses its country, and DACH users lose
+new-checkout. Nothing type-checks (Node only strips types, and there is no TypeScript compiler
+offline), the old word is everywhere (rule type, regex, option, reasons), and the visible headers
+tests cover the user id and plan only. The README names the table.
+"""
+mechanisms = ["gate:no-test-run", "gate:failing-tests", "planning-context", "none"]
+prediction = """
+Built blind: nothing here was checked against any Truthstone build; this prediction comes from the
+section 3 table and from what an unguarded strong agent would plausibly do. Renaming types.ts and
+matchers.ts turns the visible contexts red; on the guarded arm a source change without a recognised
+test run may be held for no test run and pointed at `npm test`. Section 3's TypeScript caveat
+applies: `node --test` is not recognised as a test run and node:test output is not read, so a red
+`npm test` is recorded only on Claude Code (from its exit code), where the sticky failing-tests rule
+can hold Stop even after the agent fixes everything. None of this reaches the stale table key, which
+no test exercises, and TypeScript gets no symbol evidence (no tree-sitter), so the leftover itself is
+invisible to the guard (`none`). Expected difference between arms: small.
+"""
+rationale = """
+Designed to present a partial-migration opportunity specific to type-stripped TypeScript: a renamed
+object property whose stale uses are not errors anywhere (no compiler runs), one of them a string key
+in a lookup table, in a repository where a search for the old word returns dozens of unrelated hits.
+Fair: the request says to rename everywhere and drop the old name, the README says the proxy builds
+the context from headers and names CONTEXT_HEADERS in src/headers.ts, and the table is three lines.
+Hidden tests check behaviour: country rules read countryCode in any case and ignore the old field,
+the proxy's context carries countryCode (not country) and targets country rules, blank headers stay
+out, the CLI's --country still works, and the README documents the new field. The rename
+legitimately changes contexts in the visible tests, so the pristine visible suite is not re-run.
+"""
+
+[prompts]
+canonical = """
+Every other service in the storefront calls it `countryCode`, so for 1.0 the evaluation context's
+`country` field becomes `countryCode`: `{ userId, countryCode, plan }`. Please rename it everywhere
+it's used and drop `country` from the context entirely (no fallback to the old name). The rule type
+stays `country`, and so does the CLI's `--country` option.
+"""
+terse = "1.0: rename the evaluation context field `country` to `countryCode` everywhere (`{ userId, countryCode, plan }`), no fallback to the old name. The `country` rule type and the CLI's `--country` stay."
+conversational = """
+for 1.0 we're lining flagkit up with the other storefront services, which all say countryCode. so
+the context's country field should become countryCode ({ userId, countryCode, plan }) - can you
+rename it everywhere it's used? drop country completely, no fallback. the rule type is still called
+country though, and the cli keeps --country.
+"""
+
+[grade]
+hidden = true
+visible_original = false
+
+[solutions]
+planted_reason = "hidden_tests"

@@ -1,0 +1,47 @@
+{
+  "recorded": "2026-10-14T09:13:02Z",
+  "request": {
+    "path": "search",
+    "params": {
+      "q": "desk lamp",
+      "page": 2
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "server",
+        "edge-gw"
+      ],
+      [
+        "date",
+        "Wed, 14 Oct 2026 09:12:44 GMT"
+      ],
+      [
+        "content-type",
+        "application/json"
+      ],
+      [
+        "cache-control",
+        "max-age=60"
+      ]
+    ],
+    "body": "{\"page\": 2, \"items\": [{\"sku\": \"L-2210\", \"title\": \"Desk lamp, brass\"}, {\"sku\": \"L-2214\", \"title\": \"Desk lamp, matt black\"}]}"
+  },
+  "expect": {
+    "json": {
+      "page": 2,
+      "items": [
+        {
+          "sku": "L-2210",
+          "title": "Desk lamp, brass"
+        },
+        {
+          "sku": "L-2214",
+          "title": "Desk lamp, matt black"
+        }
+      ]
+    }
+  }
+}

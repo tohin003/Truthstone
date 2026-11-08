@@ -1,0 +1,20 @@
+[project]
+name = "textkit"
+version = "1.4.0"
+description = "Small text utilities: slugs, case conversion, wrapping, word counts and table formatters."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+textkit = "textkit.cli:main"
+
+# Template filters for the docs site, which loads them by entry point group.
+[project.entry-points."docsite.filters"]
+slugify = "textkit.slug:slugify"
+title = "textkit.case:title_case"
+label = "textkit.legacy_case:humanize"
+reading_time = "textkit.stats:reading_time"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

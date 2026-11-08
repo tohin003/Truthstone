@@ -1,0 +1,24 @@
+{
+  "recorded": "2026-10-14T09:13:05Z",
+  "request": {
+    "path": "ping",
+    "params": {}
+  },
+  "response": {
+    "status": 204,
+    "headers": [
+      [
+        "server",
+        "edge-gw"
+      ],
+      [
+        "date",
+        "Wed, 14 Oct 2026 09:12:44 GMT"
+      ]
+    ],
+    "body": ""
+  },
+  "expect": {
+    "json": null
+  }
+}

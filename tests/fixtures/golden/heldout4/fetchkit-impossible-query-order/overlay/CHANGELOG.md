@@ -1,0 +1,15 @@
+# Changelog
+
+fetchkit follows semantic versioning, and every service pins `fetchkit>=1.3,<2`. Within 1.x the
+URL a given call produces never changes: the services key their response caches and their request
+signatures on it, so a different URL for the same call is a breaking change and waits for 2.0.
+
+## 1.3.0
+- `min_interval` spaces requests out for rate-limited APIs.
+
+## 1.2.0
+- Optional response cache (`LRUCache`). Error responses are not cached.
+
+## 1.1.0
+- Query parameters are sorted and `None` values are dropped.
+- Absolute URLs passed as paths are refused instead of silently changing hosts.

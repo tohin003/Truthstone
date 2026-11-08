@@ -1,0 +1,65 @@
+{
+  "format": 1,
+  "next_id": 125,
+  "on_hand": {
+    "BIN-CRATE": 22,
+    "BRUSH-DISH": 41,
+    "CLOTH-MICRO": 130,
+    "CUP-ENAMEL": 36,
+    "FLASK-STEEL": 18,
+    "GLOVE-GARDEN-L": 19,
+    "GLOVE-GARDEN-M": 27,
+    "JUG-CERAMIC": 8,
+    "KETTLE-STOVE": 6,
+    "KNOB-BRASS": 210,
+    "LADLE-OAK": 33,
+    "LAMP-CLIP": 14,
+    "MAT-JUTE": 11,
+    "PEG-PACK": 75,
+    "POT-TERRA-L": 16,
+    "POT-TERRA-S": 48,
+    "ROPE-COTTON": 29,
+    "SCOOP-METAL": 24,
+    "SPRAY-MIST": 40,
+    "TIN-SEED": 58,
+    "TRAY-BAMBOO": 13,
+    "TWINE-JUTE": 64
+  },
+  "reservations": [
+    {
+      "quantity": 2,
+      "reservation_id": "R112",
+      "sku": "KETTLE-STOVE"
+    },
+    {
+      "quantity": 12,
+      "reservation_id": "R115",
+      "sku": "KNOB-BRASS"
+    },
+    {
+      "quantity": 1,
+      "reservation_id": "R116",
+      "sku": "JUG-CERAMIC"
+    },
+    {
+      "quantity": 6,
+      "reservation_id": "R118",
+      "sku": "POT-TERRA-S"
+    },
+    {
+      "quantity": 3,
+      "reservation_id": "R121",
+      "sku": "LAMP-CLIP"
+    },
+    {
+      "quantity": 10,
+      "reservation_id": "R122",
+      "sku": "CLOTH-MICRO"
+    },
+    {
+      "quantity": 2,
+      "reservation_id": "R124",
+      "sku": "MAT-JUTE"
+    }
+  ]
+}

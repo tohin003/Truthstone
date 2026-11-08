@@ -1,0 +1,79 @@
+{
+  "format": 1,
+  "next_id": 74,
+  "on_hand": {
+    "APRON-CANVAS": 14,
+    "BAG-KRAFT-L": 180,
+    "BAG-KRAFT-S": 420,
+    "BOX-L": 44,
+    "BOX-M": 102,
+    "BOX-S": 156,
+    "CANDLE-FIG": 23,
+    "CANDLE-PINE": 17,
+    "CARD-BDAY": 85,
+    "CARD-THANKS": 64,
+    "JAR-HONEY-250": 38,
+    "JAR-HONEY-500": 21,
+    "KNIFE-OYSTER": 9,
+    "LBL-4X6": 1800,
+    "MUG-SAND": 31,
+    "MUG-SLATE": 27,
+    "NAPKIN-LINEN": 48,
+    "PLANTER-M": 7,
+    "PLANTER-S": 12,
+    "SOAP-OAT": 66,
+    "SOAP-ROSE": 0,
+    "TAPE-48": 52,
+    "TEA-EARL": 40,
+    "TEA-MINT": 35,
+    "TOWEL-WAFFLE": 19,
+    "WRAP-KRAFT": 11
+  },
+  "reservations": [
+    {
+      "quantity": 2,
+      "reservation_id": "R58",
+      "sku": "CANDLE-FIG"
+    },
+    {
+      "quantity": 6,
+      "reservation_id": "R61",
+      "sku": "JAR-HONEY-250"
+    },
+    {
+      "quantity": 1,
+      "reservation_id": "R63",
+      "sku": "KNIFE-OYSTER"
+    },
+    {
+      "quantity": 24,
+      "reservation_id": "R64",
+      "sku": "BOX-M"
+    },
+    {
+      "quantity": 4,
+      "reservation_id": "R66",
+      "sku": "MUG-SLATE"
+    },
+    {
+      "quantity": 3,
+      "reservation_id": "R67",
+      "sku": "TEA-MINT"
+    },
+    {
+      "quantity": 10,
+      "reservation_id": "R70",
+      "sku": "SOAP-OAT"
+    },
+    {
+      "quantity": 2,
+      "reservation_id": "R71",
+      "sku": "PLANTER-M"
+    },
+    {
+      "quantity": 1,
+      "reservation_id": "R73",
+      "sku": "APRON-CANVAS"
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "recorded": "2026-10-14T09:12:44Z",
+  "request": {
+    "path": "users/42",
+    "params": {}
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      [
+        "server",
+        "edge-gw"
+      ],
+      [
+        "date",
+        "Wed, 14 Oct 2026 09:12:44 GMT"
+      ],
+      [
+        "content-type",
+        "application/json; charset=utf-8"
+      ],
+      [
+        "x-request-id",
+        "5b0f6c1e"
+      ]
+    ],
+    "body": "{\"id\": 42, \"name\": \"Ada Brandt\", \"email\": \"ada.brandt@example.com\", \"roles\": [\"buyer\"]}"
+  },
+  "expect": {
+    "json": {
+      "id": 42,
+      "name": "Ada Brandt",
+      "email": "ada.brandt@example.com",
+      "roles": [
+        "buyer"
+      ]
+    }
+  }
+}

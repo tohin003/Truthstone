@@ -1,0 +1,28 @@
+{
+  "format": 1,
+  "next_id": 31,
+  "on_hand": {
+    "BOX-L": 41,
+    "BOX-M": 97,
+    "BOX-S": 150,
+    "CUP-ENAMEL": 35,
+    "G-200": 11,
+    "L-2": 13,
+    "LBL-4X6": 2350,
+    "MUG-RED": 25,
+    "TAPE-48": 61,
+    "W-100": 38
+  },
+  "reservations": [
+    {
+      "quantity": 4,
+      "reservation_id": "R27",
+      "sku": "W-100"
+    },
+    {
+      "quantity": 2,
+      "reservation_id": "R30",
+      "sku": "L-2"
+    }
+  ]
+}

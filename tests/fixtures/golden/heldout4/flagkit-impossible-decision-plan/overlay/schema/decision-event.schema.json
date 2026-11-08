@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.com/analytics/flag-decision-event/v3.json",
+  "title": "Feature-flag decision event, v3",
+  "$comment": "Owned by the data team (analytics-schemas repository); copied here verbatim, do not edit. The warehouse loader rejects any event that does not validate. Context attributes other than userId are left out on purpose: the data-protection review approved exactly these fields, and a new field needs a new review and a new schema version.",
+  "type": "object",
+  "required": ["flag", "enabled", "reason", "userId", "at"],
+  "additionalProperties": false,
+  "properties": {
+    "flag": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" },
+    "enabled": { "type": "boolean" },
+    "reason": { "type": "string", "minLength": 1 },
+    "userId": { "type": ["string", "null"] },
+    "at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+*.db
+backups/
+
+# Partner exports and any other CSV under data/ are customer data: never commit them.
+# The sample export is the one exception.
+exports/
+data/*.csv
+!data/orders.csv
