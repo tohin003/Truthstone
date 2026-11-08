@@ -74,6 +74,11 @@ class TaskState:
     # an ``IgnoredSnapshot``, or None when none could be taken. The store does not keep it, so a
     # task rebuilt after a restart has none and the check it serves stays silent (R14).
     ignored_snapshot: object | None = None
+    # The task's in-scope docs as the task found them (``verify/spec_snapshot.py``, C2): a
+    # ``SpecSnapshot``, or None when none was taken, or once the session's next prompt freed it. The
+    # store does not keep it, so a task rebuilt after a restart has none and its second Stop pass
+    # stays silent (R14).
+    spec_snapshot: object | None = None
 
     def next_seq(self) -> int:
         self.seq += 1

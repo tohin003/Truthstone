@@ -590,15 +590,28 @@ def eroded(
     after: dict[str, str | None],
     targets: Iterable[str] = (),
     code: tuple[str, str] | None = None,
+    *,
+    marker_only: Iterable[str] = (),
+    deleted: Iterable[str] = (),
+    extra_pool: dict[str, str] | None = None,
 ) -> list[Erosion]:
     """Rules of the ``before`` texts that the ``after`` texts removed, qualified, rewrote (a
     documentation sentence) or excepted (an exception added beside it). ``after[path]`` is None
     for a deleted file. ``targets`` are identifiers the request renames or removes: a rule
     naming one went with it. ``code`` is the session's changed code before and after, without
     comments (``code_text``): when given, a rule counts as gone with the code it names only if
-    that name left the code too, not just the documentation's examples. Never raises."""
+    that name left the code too, not just the documentation's examples. Never raises.
+
+    The task-start snapshot's keywords (C2, ``verify/spec_snapshot.py``): ``marker_only`` paths are
+    read for marker sentences only (``_rewritten`` not used; ``_excepted`` still runs); ``deleted``
+    paths (after is None) count their non-contract marker sentences found nowhere in the new texts
+    as removed; ``extra_pool`` adds new texts (docs created through the shell) to the pool. Without
+    them, a deleted file is not a rule edit, as before."""
     try:
-        return _eroded(before, after, set(targets), code)
+        return _eroded(
+            before, after, set(targets), code,
+            marker_only=set(marker_only), deleted=set(deleted), extra_pool=extra_pool,
+        )
     except Exception:  # noqa: BLE001 - an integrity check never fails the hook
         return []
 
@@ -623,30 +636,62 @@ def _eroded(
     after: dict[str, str | None],
     targets: set[str],
     code: tuple[str, str] | None = None,
+    marker_only: set[str] | frozenset[str] = frozenset(),
+    deleted: set[str] | frozenset[str] = frozenset(),
+    extra_pool: dict[str, str] | None = None,
 ) -> list[Erosion]:
     pool = _Pool()
     after_sentences: dict[str, list[Sentence]] = {}
-    for path, text in after.items():
+    for path, text in list(after.items()) + list((extra_pool or {}).items()):
         if text is None:
             continue
         sentences = doc_sentences(path, text)
         if sentences is None:
             continue
-        after_sentences[path] = sentences
+        if path in after:
+            after_sentences[path] = sentences
         pool.add(sentences)
 
     before_text_all = "\n".join(before.values())
-    after_text_all = "\n".join(text for text in after.values() if text)
+    after_text_all = "\n".join(
+        text for text in list(after.values()) + list((extra_pool or {}).values()) if text
+    )
     out: list[Erosion] = []
     for path, old in before.items():
         new = after.get(path)
-        if new is None:
-            continue  # deleted, or not read: a whole file going is not a rule edit
         old_sentences = doc_sentences(path, old)
-        if old_sentences is None or path not in after_sentences:
+        if old_sentences is None:
+            continue
+        if new is None:
+            if path not in deleted:
+                continue  # deleted, or not read: a whole file going is not a rule edit
+            # A deleted doc the snapshot knows (C2): a non-contract marker sentence found nowhere
+            # in the new texts left with its file.
+            for sentence in old_sentences:
+                markers = sentence.markers
+                if not (markers - CONTRACT_MARKERS) or _norm(sentence.text) in pool.exact:
+                    continue
+                if states_a_gap(sentence.text):
+                    continue
+                tokens = _code_tokens(sentence.text)
+                if tokens & targets or any(_mentions(sentence.text, t) for t in targets):
+                    continue
+                verdict, _ = _counterpart(sentence, markers, pool)
+                if verdict == "kept":
+                    continue
+                vanished = [
+                    t for t in tokens if _mentions(before_text_all, t) and not _mentions(after_text_all, t)
+                ]
+                if vanished:
+                    continue  # names code the session removed or renamed: went with it
+                out.append(Erosion(path, sentence, "removed", ""))
+            continue
+        if path not in after_sentences:
             continue
         owners_after = _owners(path, new) if is_docstring_source(path) else None
-        prose = is_prose_spec(path)
+        spec_doc = is_prose_spec(path)
+        # A doc whose before-text is the task-start snapshot is read for marker sentences only.
+        prose = spec_doc and path not in marker_only
         for sentence in old_sentences:
             markers = sentence.markers
             normative = markers - CONTRACT_MARKERS
@@ -683,7 +728,7 @@ def _eroded(
             ):
                 continue  # names code the session removed or renamed
             out.append(Erosion(path, sentence, verdict, counterpart))
-        if prose:
+        if spec_doc:
             out.extend(_excepted(path, old_sentences, after_sentences[path]))
     return out
 

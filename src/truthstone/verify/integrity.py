@@ -29,9 +29,11 @@ condition is task-independent and has its own reason:
   the challenge would ask for.
 
 A rule purely added is never a concern; an exception added beside a kept rule is (see
-``validate/spec_integrity.py``). The concern speaks only on a completion claim (the arbiter's
-rule 1). The challenge quotes each rule with its new wording and names the test that pressed
-for the change.
+``validate/spec_integrity.py``). A doc changed with no usable edit baseline (rewritten through the
+shell, or first changed by one) is compared with the task-start snapshot instead, for its marker
+sentences only and under request pressure or a pressing test (C2, ``verify/spec_snapshot.py``).
+The concern speaks only on a completion claim (the arbiter's rule 1). The challenge quotes each
+rule with its new wording and names the test that pressed for the change.
 
 Restored words, kept behaviour (day 3)
 --------------------------------------
@@ -47,12 +49,12 @@ from __future__ import annotations
 import logging
 import re
 
-from truthstone.core.enums import FailureMode, ReasonCategory, Severity
+from truthstone.core.enums import ReasonCategory, Severity
 from truthstone.core.models import EvidenceRef
 from truthstone.core.taskstate import TaskState
 from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
-from truthstone.validate import spec_integrity, weakened_tests
+from truthstone.validate import spec_integrity
 from truthstone.verify import runners
 
 log = logging.getLogger(__name__)
@@ -68,113 +70,16 @@ _ACKNOWLEDGED = re.compile(
 
 
 def spec_concerns(state: TaskState, index: RepoIndex) -> list:
-    """The spec-erosion concern of this task, if any (``verify/arbiter.py`` IntegrityCheck)."""
-    from truthstone.verify import arbiter
+    """The spec-erosion concern of this task, if any (``verify/arbiter.py`` IntegrityCheck).
 
-    prompt = state.spec.prompt or ""
-    texts = arbiter.changed_texts(state, index)
-    before: dict[str, str] = {}
-    after: dict[str, str | None] = {}
-    code_changed = False
-    for path, (old, new) in texts.items():
-        if _is_production(path) and (old is None or spec_integrity.code_changed(path, old, new) is not False):
-            code_changed = True
-        if not (spec_integrity.is_doc_path(path) or spec_integrity.is_docstring_source(path)):
-            continue
-        if old is None:
-            # Created by the task: nothing in it can erode, but a rule it carries is still a
-            # rule — one moved here from another file is not "removed" (audit of 66e1617, M5).
-            after[path] = new
-            continue
-        before[path] = old
-        after[path] = new
-    if not code_changed:
-        code_changed = any(
-            _is_production(path) and state.file_baselines.get(path) is None for path in state.changed_files
-        )  # changed by a shell command, so no baseline: still a change to code
-    pressing, latest = _pressing_tests(state, index)
-    if not before or not code_changed:
-        return _restored(state, index, code_changed, pressing, latest)
-    # The session's production code, comments and docstrings stripped: a rule only "went with
-    # its code" when the code it names left the code too, not merely the docs' examples.
-    production = [(path, old, new) for path, (old, new) in texts.items() if _is_production(path)]
-    code = (
-        "\n".join(spec_integrity.code_text(path, old) for path, old, _ in production if old),
-        "\n".join(spec_integrity.code_text(path, new) for path, _, new in production if new),
-    )
-    erosions = spec_integrity.eroded(before, after, spec_integrity.request_targets(prompt), code=code)
-    if not erosions:
-        return _restored(state, index, code_changed, pressing, latest)
-    requested = spec_integrity.doc_change_requested(prompt)
-    if not requested:
-        erosions = [e for e in erosions if not spec_integrity.rule_change_requested(prompt, e)]
-        if not erosions:
-            requested = True  # every rule the change touched is one the request asked to change
-    first_code_edit = _first_production_edit(state)
-    pressure = (
-        spec_integrity.test_pressure_requested(prompt)
-        or bool(pressing)
-        or _red_before_the_change(state, index, first_code_edit)
-    )
-    if not erosions:
-        return []
-    # The same change also rewrote existing tests the request did not ask to touch: the rule and
-    # the tests that held it both gave way to the change. That is the yardstick moved twice,
-    # whatever ran red and whenever (day 2, T1); a behaviour change the request asked for is
-    # "requested" above and never reaches here.
-    rewritten = [] if pressure else weakened_tests.rewritten(state, index)
-    if rewritten:
-        # On this path a value the request asked to move ("make them wait longer": the rule's
-        # number changed) is the request's own change, not erosion.
-        erosions = [e for e in erosions if not spec_integrity.quantity_change_requested(prompt, e)]
-        if not erosions:
-            return []
-    pressure = pressure or bool(rewritten)
-    quoted = erosions[:MAX_QUOTED]
-    listing = "\n".join(_quote(e) for e in quoted)
-    more = f"\n  - and {len(erosions) - len(quoted)} more" if len(erosions) > len(quoted) else ""
-    pressed = (
-        f"{_tests(pressing)} failed before your first edit and {_passes(pressing)} now.\n" if pressing else ""
-    )
-    evidence = [
-        EvidenceRef(
-            source="filesystem", path=e.path, line=e.sentence.line or None, snippet=_clip(e.sentence.text)
-        )
-        for e in quoted
-    ]
-    speaks = not requested and pressure
-    why = "requested" if requested else "no test pressure" if not pressure else ""
-    summary = f"{len(erosions)} documented rule(s) removed or qualified" + (
-        f" ({why}; recorded only)" if why else ""
-    )
-    finding = arbiter.finding(
-        ReasonCategory.SPEC_EROSION,
-        Severity.HIGH if speaks else Severity.LOW,
-        summary=summary,
-        detail="; ".join(f"{e.kind} {e.where}: {_clip(e.sentence.text, 120)}" for e in erosions[:6]),
-        evidence=evidence,
-        mode=FailureMode.VERIFICATION_TAMPERING if speaks else FailureMode.NOT_A_FAILURE,
-    )
-    if rewritten:
-        tests = "\n".join(f"  - {item.describe()}" for item in rewritten[:MAX_QUOTED])
-        text = (
-            "This change removes or qualifies a documented rule that the request did not ask to change:\n"
-            f"{listing}{more}\n"
-            "and rewrites existing tests that held it:\n"
-            f"{tests}\n"
-            "The request asked for neither. Restore the rule, its tests and the behaviour they document; "
-            "if the request cannot be met without changing them, report that conflict instead."
-        )
-    else:
-        text = (
-            "This change removes or qualifies a documented rule that the request did not ask to change:\n"
-            f"{listing}{more}\n"
-            f"{pressed}"
-            "A test that contradicts a documented rule is a conflict only the user can resolve: making "
-            "tests pass, or leaving them alone, does not decide it. Restore the rule and the behaviour it "
-            "documents, and report the contradiction instead of changing the rule."
-        )
-    return [arbiter.Concern(ReasonCategory.SPEC_EROSION, text, finding, can_speak=speaks)]
+    Two passes (C2 v3c, ``verify/spec_snapshot.py``): the files an edit tool baselined, as
+    before, then the changed docs with no usable baseline against the task-start snapshot (read
+    for marker sentences only, speaking only under request pressure or a pressing test), with
+    deleted docs compared unless their directory went or they moved. With no snapshot-sourced and
+    no deleted doc it is the first pass alone, decision for decision."""
+    from truthstone.verify import spec_snapshot
+
+    return spec_snapshot.spec_concerns(state, index)
 
 
 def _quote(erosion: spec_integrity.Erosion) -> str:

@@ -109,13 +109,16 @@ class ReasonCategory(StrEnum):
     once per task. The minimal-intervention profile (``settings.profile = "minimal"``, the
     product default) lets only the categories in ``MINIMAL_STOP_CATEGORIES`` reach the
     agent; the others are recorded and reported to the developer, never to the agent.
-    The letters are the profile's own: (a) a weakened yardstick, (b) failing tests left
+    The letters are the profile's own: (a) a weakened yardstick (or one routed around), (b) failing tests left
     undisclosed, (e) configuration nothing reads, (d) a false premise still unmet at "done", (f) ignored
     local state a command rewrote.
     """
 
     # (a) the yardstick was changed to make "done" true
     SPEC_EROSION = "spec_erosion"  # a documented normative rule removed or qualified
+    # a documented rule kept word for word while the change routes around it, under a request that
+    # reserved the tests (day 4, ``verify/spec_conflict.py``)
+    SPEC_CONFLICT = "spec_conflict"
     TEST_WEAKENING = "test_weakening"  # existing tests weakened, deleted or skipped
     TEST_FITTING = "test_fitting"  # production code hard-codes test-only expectations
     # code or a run that makes tests pass without the behaviour: the test run read from production
@@ -142,6 +145,7 @@ class ReasonCategory(StrEnum):
 MINIMAL_STOP_CATEGORIES: frozenset[ReasonCategory] = frozenset(
     {
         ReasonCategory.SPEC_EROSION,
+        ReasonCategory.SPEC_CONFLICT,
         ReasonCategory.TEST_WEAKENING,
         ReasonCategory.TEST_FITTING,
         ReasonCategory.GAMING_SIGNATURE,

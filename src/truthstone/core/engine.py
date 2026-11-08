@@ -47,7 +47,7 @@ from truthstone.repo import symbols_ts
 from truthstone.repo.gitinfo import repository_root
 from truthstone.repo.index import IndexDelta, RepoIndex
 from truthstone.validate import checks, untracked_state
-from truthstone.verify import arbiter, completion_gate, runners, static
+from truthstone.verify import arbiter, completion_gate, runners, spec_snapshot, static
 
 log = logging.getLogger(__name__)
 
@@ -144,6 +144,9 @@ class Workspace:
         # Shell commands' changes, each holding its place on its task's timeline until a
         # sweep of the tree attributes them (G5).
         self.shell = shellchanges.ShellChanges()
+        # Session -> the task whose documentation snapshot it took last (C2): a session's next
+        # prompt frees that task's snapshot, one per session's current task.
+        self.spec_snapshot_tasks: dict[str, str] = {}
         # Events answered before their bookkeeping ran (WP9), in arrival order. Handled by
         # this workspace's worker, and by any later event first, always under event_lock:
         # nothing is judged before everything that came before it is recorded.
@@ -371,6 +374,7 @@ class Workspace:
         self.session_waivers.discard(session_id)
         self.premises_noted.pop(session_id, None)
         self.integrity_noted.discard(session_id)
+        self.spec_snapshot_tasks.pop(session_id, None)
         self.shell.forget_session(session_id)
 
     def carry_waiver(self, session_id: str, spec: TaskSpec) -> None:
@@ -478,6 +482,15 @@ class Guard:
 
     def handle(self, event: AgentEvent) -> Decision:
         """Never raises. Never blocks on failure."""
+        try:
+            return self._handle(event)
+        finally:
+            # The documentation re-snapshots a git command queued under the event lock (C2,
+            # ``verify/spec_snapshot.py``) are read here, once the lock is released and before the
+            # next event's tree is checked out. In process only; live, a thread reads them.
+            spec_snapshot.drain_after_event()
+
+    def _handle(self, event: AgentEvent) -> Decision:
         if not self.settings.enabled:
             return Decision.allow()
         # The marker is per-dispatch, not part of the host event contract.  Reset it so
@@ -743,6 +756,7 @@ class Guard:
                 self._inherit_debt(ws, previous, state)
             except Exception:  # a debt not carried is the old behaviour, never a failure
                 log.exception("truthstone: could not carry verification debt to a new task")
+        self._start_spec_snapshot(event, ws)
         if not notes and not findings:
             return Decision.allow(EscalationLevel.REPOSITORY)
 
@@ -752,6 +766,34 @@ class Guard:
             additional_context="\n\n".join(notes) or None,
             findings=findings,
         )
+
+    def _start_spec_snapshot(self, event: AgentEvent, ws: Workspace) -> None:
+        """The documentation snapshot of a task created for a session (C2,
+        ``verify/spec_snapshot.py``), taken once the prompt's other work is done: on its own thread
+        live, synchronously in process (replay stays deterministic). One per session's current
+        task: the session's previous task's snapshot is freed. Never raises; no snapshot is
+        silence."""
+        session = event.session_id or ""
+        try:
+            task_id = event.task_id
+            state = ws.live_task(task_id) if (session and task_id) else None
+            if state is None:
+                return
+            previous = ws.spec_snapshot_tasks.get(session)
+            if previous and previous != state.task_id:
+                old = ws.live_task(previous)
+                if old is not None:
+                    old.spec_snapshot = None
+            ws.spec_snapshot_tasks[session] = state.task_id
+            index = ws.index
+            spec_snapshot.start(
+                state,
+                index.root,
+                lambda: list(index.files) if index.is_built else None,
+                synchronous=not self.defer_bookkeeping,
+            )
+        except Exception:  # a snapshot not taken is silence, never a failure
+            log.debug("truthstone: could not take the documentation snapshot", exc_info=True)
 
     def _prompt_notes(
         self, event: AgentEvent, ws: Workspace, spec: TaskSpec, index: RepoIndex | None
@@ -867,6 +909,7 @@ class Guard:
 
     def _on_pre_tool_use(self, event: AgentEvent, ws: Workspace) -> Decision:
         """Action Validator (SPEC §18), which runs the Evidence Engine inside it."""
+        self._wait_for_spec_snapshot(event, ws)
         # SPEC §7/§8: read-only tools never leave Level 0. This short-circuit is what
         # keeps ordinary exploration free.
         if event.is_read_only:
@@ -902,6 +945,21 @@ class Guard:
             task_id=event.task_id,
             defer=self._advice_deferral(event, ws),
         )
+
+    @staticmethod
+    def _wait_for_spec_snapshot(event: AgentEvent, ws: Workspace) -> None:
+        """A write-capable event (an edit, or a shell command not known to be read-only) waits for
+        its task's documentation snapshot (C2): only the task's first such event, and at most until
+        ``spec_snapshot.DEADLINE_S`` after the prompt. Never raises."""
+        try:
+            if not event.is_read_only and (
+                event.is_mutating or (event.tool in SHELL_TOOLS and not checks.read_only_bash(event))
+            ):
+                state = ws.event_task_state(event)
+                if state is not None:
+                    spec_snapshot.wait(state)
+        except Exception:  # a wait that fails is no wait
+            log.debug("truthstone: could not wait for the documentation snapshot", exc_info=True)
 
     @staticmethod
     def _premise_hold_due(event: AgentEvent, ws: Workspace) -> bool:
@@ -1029,12 +1087,15 @@ class Guard:
                 state is not None and not event.is_read_only and not checks.read_only_bash(event)
             )
             first = writes and shellchanges.changes_precede_run(command)
+            # A line made entirely of git commands that bring in another ref's content: the docs
+            # it changes get their new text as their before-text (C2, ``verify/spec_snapshot.py``).
+            rewrites = writes and spec_snapshot.brings_in_ref(command, ws.index.root)
             if first:
-                ws.shell.reserve(state, event.tool_use_id)
+                ws.shell.reserve(state, event.tool_use_id, rewrites_tree=rewrites)
             if command:
                 self._record_test_run(event, ws, state, command)
             if writes and not first:
-                ws.shell.reserve(state, event.tool_use_id)
+                ws.shell.reserve(state, event.tool_use_id, rewrites_tree=rewrites)
             # A shell command can touch anything; fall back to a rate-limited sweep.
             self._sweep(ws, SHELL_SWEEP_INTERVAL)
 
