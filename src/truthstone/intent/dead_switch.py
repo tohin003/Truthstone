@@ -522,10 +522,10 @@ def request_creates(prompt: str, name: str) -> bool:
     for n, sentence in enumerate(sentences):
         at = sentence.find(name)
         while at != -1:
-            clause_before = re.split(r"[,;:!?]|\.\s|\bso\b|\bbut\b|\band\s+then\b", sentence[:at])[-1]
-            if re.search(r"\b(?:already|existing|currently)\b", clause_before, re.IGNORECASE):
+            before_name = sentence[max(0, at - 80) : at]
+            if _EXISTING_WITHIN_THREE.search(before_name):
                 at = sentence.find(name, at + 1)
-                continue  # "Our script already supports a `--x` flag": its own clause says it exists
+                continue  # v4.1: "already supports a `--x` flag": the existence word is within three words
             if _created_local(sentence, at, name):
                 return True
             before = sentence[max(0, at - 90):at]
@@ -612,7 +612,7 @@ def _owned_program(
     prog = tokens[i]
     rel = prog.removeprefix("./")
     runnable = PurePosixPath(rel).suffix.lower() in READER_SUFFIXES or rel.startswith("bin/")
-    if runnable and (rel in files or (rel and not rel.startswith("/") and (root / rel).is_file())):
+    if runnable and rel in files:  # v4.1: only a scanned file can own a program
         return rel
     if prog in ident["commands"] or (("/" in prog) and PurePosixPath(prog).name in ident["commands"]):
         return True  # an installed command by path (/opt/app/venv/bin/<command>)
@@ -765,6 +765,50 @@ def _code_mentions_file(rel: str, code_texts: list[tuple[str, str]]) -> bool:
     return False
 
 
+_EXISTING_WITHIN_THREE = re.compile(
+    r"\b(?:already|existing|currently)\s+(?:\S+\s+){0,3}?[`'\"]?$", re.IGNORECASE
+)  # v4.1: the existence word stands within three words before the name
+
+
+def _already_in_place(text: str, name: str, kind: str) -> bool:
+    """v4.1: whether the place had the switch before the edit (a value change is not a new switch)."""
+    lines = text.splitlines()
+    if kind == "env":
+        return any(_env_set(line, name) for line in lines) or re.search(
+            rf"\bname:\s*[\"']?{re.escape(name)}\b", text
+        ) is not None
+    if kind == "flag":
+        return re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text) is not None
+    return any(_key_set(line, name) for line in lines)
+
+
+_DOC_SUFFIXES = (".md", ".rst", ".txt", ".adoc", ".markdown")
+
+
+def _other_files_read_env(root: Path, files: list[str], rel: str, name: str) -> bool:
+    """v4.1: a non-code, non-doc file other than the place that interpolates or maps the env name: compose's
+    `${X}` from `.env`, a template's `{{X}}`, node-config's custom-environment-variables.json ("X")."""
+    e = re.escape(name)
+    pat = re.compile(rf"\$\{{?{e}\b|\{{\{{\s*{e}\s*\}}\}}|%{e}%|[\"']{e}[\"']")
+    budget = MAX_SCAN_BYTES
+    for f in files:
+        if f == rel or _is_reader(f) or f.lower().endswith(_DOC_SUFFIXES):
+            continue
+        try:
+            full = root / f
+            size = full.stat().st_size
+            if size > MAX_FILE_BYTES:
+                continue
+            budget -= size
+            if budget < 0:
+                return True  # too big to be sure: count it as read (silent)
+            if pat.search(full.read_text(encoding="utf-8", errors="ignore")):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _patch_adds_reader(edits: list[tuple[str, list[str]]], name: str, kind: str, read) -> bool:
     """A code or test file of the same edit with a read form; a script, Makefile, Dockerfile or ``bin/``
     file only by a reader form (``$NAME``, ``${NAME``, a ``case`` arm or comparison on the flag), never by
@@ -902,7 +946,14 @@ def dead_switches(prompt: str, root: Path, files: list[str], edits: list[tuple[s
         kind = _place_kind(rel)
         if kind is None or not added:
             continue
+        try:
+            place = root / rel
+            before = place.read_text(encoding="utf-8", errors="ignore") if place.is_file() else ""
+        except OSError:
+            continue
         for name, k in sw.items():
+            if before and _already_in_place(before, name, k):
+                continue  # v4.1: the place already had it; a value change sets no new switch
             if k == "env":
                 if config_reads.is_well_known(name) or not _project_prefixed(name, ident):
                     continue
@@ -946,7 +997,9 @@ def dead_switches(prompt: str, root: Path, files: list[str], edits: list[tuple[s
         read = READS[k]
         if any(read(text, name) for path, text in texts if path != rel):
             continue
-        if k == "env" and _place_reads_env(root, rel, edits, name):
+        if k == "env" and (
+            _place_reads_env(root, rel, edits, name) or _other_files_read_env(root, files, rel, name)
+        ):
             continue  # the edited file itself reads it (`$NAME`, `${NAME:-x}`, `$(NAME)`, `${{ env.NAME }}`)
         if _patch_adds_reader(edits, name, k, read):
             continue  # the same edit adds its reader (code or test; a script by a reader form): being built

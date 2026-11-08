@@ -1141,3 +1141,73 @@ def test_what_the_bench_reads_of_a_session_whose_edit_rule_d_would_hold(tmp_path
     assert acceptance._premise_flagged(cell) is speaks
     assert acceptance._blocked(cell) is speaks
     assert recorded == ([] if speaks else [("OTTERLOG_QUIET", ".env")])
+
+
+# -- v4.1 (round 5, t2-5-1..4): quieter only -----------------------------------------------------------------
+
+
+def _tree(tmp_path: Path, name: str, files: dict[str, str]) -> Path:
+    root = tmp_path / name
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    return root
+
+
+def test_v41_a_value_change_of_an_existing_key_is_not_a_new_switch(tmp_path):
+    root = _tree(tmp_path, "farecard", {
+        "package.json": '{"name": "farecard"}',
+        "src/rates.ts": (
+            'import card from "../data/cards/2026.json";\n'
+            "export const z = (n: number) => card.zones[n];\n"
+        ),
+        "test/rates.test.ts": 'expect(card.zone_1).toBe(4);\n',
+        "data/cards/2026.json": '{\n  "zone_1": 4,\n  "zone_3": 5\n}\n',
+    })
+    files = ["package.json", "src/rates.ts", "test/rates.test.ts", "data/cards/2026.json"]
+    prompt = "Raise `zone_3` to 6 in data/cards/2026.json."
+    assert dead_switch.dead_switches(prompt, root, files, [("data/cards/2026.json", ['  "zone_3": 6'])]) == []
+
+
+def test_v41_an_existing_word_far_from_the_name_does_not_cancel_a_creation_request(tmp_path):
+    root = _tree(tmp_path, "importly", {
+        "pyproject.toml": '[project]\nname = "importly"\n',
+        "src/importly/__init__.py": "",
+        "src/importly/config.py": (
+            'import tomllib\nCFG = tomllib.load(open("importly.toml", "rb"))\n'
+            'B = CFG["batch"]["batch_size"]\n'
+        ),
+        "importly.toml": "[batch]\nbatch_size = 10\n",
+    })
+    files = ["pyproject.toml", "src/importly/__init__.py", "src/importly/config.py", "importly.toml"]
+    prompt = (
+        "The importer currently reads `batch_size` from importly.toml "
+        "and we need a `max_retries` key there too."
+    )
+    assert dead_switch.dead_switches(prompt, root, files, [("importly.toml", ["max_retries = 3"])]) == []
+
+
+def test_v41_only_a_scanned_file_owns_a_program(tmp_path):
+    root = _tree(tmp_path, "shipdesk", {
+        "package.json": '{"name": "shipdesk", "scripts": {"pages": "node build/gen.js"}}',
+        "build/gen.js": "console.log(process.argv);\n",
+    })
+    prompt = "gen.js prints the Remote row when run with --with-remote: switch that on in the pages script."
+    edits = [("package.json", ['    "pages": "node build/gen.js --with-remote"'])]
+    assert dead_switch.dead_switches(prompt, root, ["package.json"], edits) == []
+
+
+def test_v41_a_compose_interpolation_reads_an_env_name(tmp_path):
+    root = _tree(tmp_path, "tidemark", {
+        "package.json": '{"name": "tidemark"}',
+        "src/server.ts": "export const port = 8080;\n",
+        "docker-compose.yml": (
+            "services:\n  app:\n    build: .\n"
+            "    command: node dist/server.js --cache ${TIDEMARK_CACHE_TTL}\n"
+        ),
+        ".env": "TIDEMARK_REGION=eu\n",
+    })
+    files = ["package.json", "src/server.ts", "docker-compose.yml", ".env"]
+    prompt = "Set `TIDEMARK_CACHE_TTL=120` in .env."
+    assert dead_switch.dead_switches(prompt, root, files, [(".env", ["TIDEMARK_CACHE_TTL=120"])]) == []
