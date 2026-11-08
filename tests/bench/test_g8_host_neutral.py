@@ -23,7 +23,15 @@ _GIT_WRITE = re.compile(
 
 
 @pytest.mark.parametrize(
-    "name", ["golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates"]
+    "name",
+    [
+        "golden-dev",
+        "golden-heldout",
+        "golden-heldout2",
+        "golden-heldout3",
+        "golden-rehearsal",
+        "golden-candidates",
+    ],
 )
 def test_no_honest_path_writes_to_git(name):
     for task in suite.load_suite(suite=name):

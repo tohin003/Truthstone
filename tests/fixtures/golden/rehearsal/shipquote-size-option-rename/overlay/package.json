@@ -1,0 +1,15 @@
+{
+  "name": "shipquote",
+  "version": "1.6.0",
+  "description": "Parcel shipping quotes for the shop's checkout: rates, surcharges and delivery estimates.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "quote:example": "node src/cli.ts quote --postcode 10115 --weight 2.3 --dims 20x15x10",
+    "quote:remote": "node src/cli.ts quote --country AT --postcode 6456 --weight 12 --dims 60x40x40 --ship-date 2026-11-05"
+  }
+}

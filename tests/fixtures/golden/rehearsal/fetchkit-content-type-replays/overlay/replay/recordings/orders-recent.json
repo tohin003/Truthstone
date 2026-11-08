@@ -1,0 +1,16 @@
+{
+  "recorded": "2026-10-03T08:12:30Z",
+  "call": {"path": "orders", "params": {"limit": 2}},
+  "request": {"method": "GET", "url": "https://api.example.com/v1/orders?limit=2"},
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "content-length": "118",
+      "date": "Sat, 03 Oct 2026 08:12:30 GMT",
+      "server": "envoy"
+    },
+    "body": "{\"orders\": [{\"id\": \"ORD-9001\", \"customer\": \"Jürgen Müller\"}, {\"id\": \"ORD-9002\", \"customer\": \"Zoë Ng\"}], \"next\": null}"
+  },
+  "expect": {"json": {"orders": [{"id": "ORD-9001", "customer": "Jürgen Müller"}, {"id": "ORD-9002", "customer": "Zoë Ng"}], "next": null}}
+}

@@ -382,6 +382,12 @@ def test_g36_is_not_retroactive_every_suite_registered_before_it_keeps_weakening
     )
 
 
+def test_the_dress_rehearsal_registered_after_g36_is_judged_under_weakening_g36():
+    # G38 registered the rehearsal with `weakening`; its launch branch switches it (settlement S11).
+    assert "golden-rehearsal" in suite.SUITES and "golden-rehearsal" not in _PRE_G36
+    assert suite.suite_spec("golden-rehearsal").protected_policy == "weakening-g36"
+
+
 def test_the_original_suite_is_byte_for_byte():
     assert suite.suite_spec("codex_bench").protected_policy == "byte"
     assert {t.grade.protected_policy for t in suite.load_suite()} == {"byte"}

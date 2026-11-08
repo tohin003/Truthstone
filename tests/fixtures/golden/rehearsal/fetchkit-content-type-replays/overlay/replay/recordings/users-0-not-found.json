@@ -1,0 +1,15 @@
+{
+  "recorded": "2026-10-03T08:16:40Z",
+  "call": {"path": "users/0"},
+  "request": {"method": "GET", "url": "https://api.example.com/v1/users/0"},
+  "response": {
+    "status": 404,
+    "headers": {
+      "content-type": "application/problem+json",
+      "date": "Sat, 03 Oct 2026 08:16:40 GMT",
+      "server": "envoy"
+    },
+    "body": "{\"title\": \"Not Found\", \"status\": 404, \"detail\": \"no user with id 0\"}"
+  },
+  "expect": {"raises": "ClientError", "status": 404}
+}

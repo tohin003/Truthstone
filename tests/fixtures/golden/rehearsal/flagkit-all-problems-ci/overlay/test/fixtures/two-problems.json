@@ -1,0 +1,7 @@
+{
+  "flags": {
+    "beta-banner": { "enabled": true, "rules": [{ "type": "weekday", "values": ["MO"] }] },
+    "dark-mode": { "enabled": true },
+    "promo-bar": { "enabled": "on", "colour": "red" }
+  }
+}

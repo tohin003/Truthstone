@@ -20,11 +20,11 @@ from truthstone.bench.codex import acceptance, premise, scripted, suite, toolcha
 PYTHON = os.path.abspath(os.environ.get("CODEX_BENCH_PYTHON", ".venv/bin/python"))
 DOC = suite.REPO_ROOT / "docs" / "BENCH-golden.md"
 SPLITS = ("golden-dev", "golden-heldout")
-# The sealed held-out splits built blind (G22, G28). Each meets every rule the first one does, but its
-# task list stays out of the pre-registration's inventory: it was built blind, and the lead and the
-# product's implementers stay blind to it until its run (golden-heldout2's run is done, G28; its list
-# still stays out).
-SEALED = ("golden-heldout2", "golden-heldout3")
+# The sealed held-out splits built blind (G22, G28), and the dress rehearsal built the same way (G38).
+# Each meets every rule the first one does, but its task list stays out of the pre-registration's
+# inventory: it was built blind, and the lead and the product's implementers stay blind to it until
+# its run (golden-heldout2's and golden-heldout3's runs are done, G30, G35; their lists still stay out).
+SEALED = ("golden-heldout2", "golden-heldout3", "golden-rehearsal")
 
 
 @pytest.fixture(scope="module")
@@ -186,8 +186,8 @@ def test_inventory_doc_lists_every_task(splits):
 
 
 def test_the_sealed_split_names_no_task_in_the_preregistration(splits):
-    """G22, G28: the document gives heldout2's and heldout3's design, composition and digest, never
-    their tasks."""
+    """G22, G28, G38: the document gives heldout2's, heldout3's and the rehearsal's design,
+    composition and digest, never their tasks."""
     text = DOC.read_text(encoding="utf-8")
     for task in (t for name in SEALED for t in splits[name]):
         assert task.id not in text, task.id
@@ -277,6 +277,49 @@ def test_heldout3_is_new_and_disjoint_from_every_other_golden_suite(splits):
         return {_sha(f) for f in files if f.is_file() and "__pycache__" not in f.parts and f.stat().st_size}
 
     assert not material(held3) & material(others)
+
+
+# G38: the dress rehearsal chooses its recipes within the same registered recipe groups as heldout3.
+REHEARSAL_RECIPES = HELDOUT3_RECIPES
+
+
+def test_rehearsal_is_composed_like_the_heldout_splits(splits):
+    """G38: 31 new instances, family by family, set by set and language by language as every
+    held-out split; recipes chosen within each family's registered recipes, the eight control
+    recipes once each, and each group of unverified-completion recipes represented."""
+    held, held2, held3 = (splits[n] for n in ("golden-heldout", "golden-heldout2", "golden-heldout3"))
+    rehearsal = splits["golden-rehearsal"]
+    shape = lambda ts: Counter((t.set, t.family, t.language) for t in ts)  # noqa: E731
+    assert shape(rehearsal) == shape(held3) == shape(held2) == shape(held)
+    assert Counter(t.set for t in rehearsal) == {"headroom": 18, "impossible": 5, "control": 8}
+    assert Counter(t.language for t in rehearsal) == {"python": 19, "typescript": 12}
+    assert set(REHEARSAL_RECIPES) == set(suite.FAMILIES)
+    for task in rehearsal:
+        assert _recipe_group(task.recipe) in REHEARSAL_RECIPES[task.family], (task.id, task.recipe)
+    controls = [t.recipe for t in rehearsal if t.set == "control"]
+    assert len(set(controls)) == len(controls) == 8  # every control recipe, once
+    uv = {t.recipe for t in rehearsal if t.family == "unverified-completion"}
+    assert {"UV-MULTI", "UV-TOOL"} <= uv and uv & {"UV-ENTRY", "UV-SKIP", "UV-SLOW", "UV-DIR"}
+    impossible = Counter(_recipe_group(t.recipe) for t in rehearsal if t.set == "impossible")
+    assert impossible == {"IMP-SPEC": 4, "IMP-REQ": 1}  # as on every held-out split
+
+
+def test_rehearsal_is_new_and_disjoint_from_every_other_golden_suite(splits):
+    """G38: no id, prompt, hidden test or solution of the rehearsal is taken from another golden
+    suite, the three spent held-out splits included."""
+    rehearsal = splits["golden-rehearsal"]
+    others = [t for name in (*SPLITS, "golden-heldout2", "golden-heldout3") for t in splits[name]]
+    others += suite.load_suite(suite="golden-candidates")
+    assert rehearsal and not {t.id for t in rehearsal} & {t.id for t in others}
+    assert {t.suite_root for t in rehearsal} == {suite.GOLDEN_ROOT}
+    prompts = lambda ts: {t.prompt(p) for t in ts for p in suite.PHRASINGS}  # noqa: E731
+    assert not prompts(rehearsal) & prompts(others)
+
+    def material(tasks):  # hidden tests and scripted solutions, by content (empty files aside)
+        files = [f for t in tasks for d in ("hidden", "solutions") for f in (t.root / d).rglob("*")]
+        return {_sha(f) for f in files if f.is_file() and "__pycache__" not in f.parts and f.stat().st_size}
+
+    assert not material(rehearsal) & material(others)
 
 
 @pytest.mark.parametrize("name", SEALED)

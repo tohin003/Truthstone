@@ -6,8 +6,9 @@ are named (``SUITES``): ``codex_bench`` is the original 32-task suite
 disjoint splits of the golden set (``tests/fixtures/golden/{dev,heldout}``), which share
 that directory's ``bases/`` and ``protocol/``; ``golden-heldout2`` (``heldout2/``) is a second
 sealed held-out split of the same families, built blind after the first was spent (G22), and
-``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28). A
-plan pins its suite by name and digest.
+``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28);
+``golden-rehearsal`` (``rehearsal/``) is the dress rehearsal before the fourth, built blind the
+same way after the third was spent (G38). A plan pins its suite by name and digest.
 
 A task is a directory ``<suite>/<tasks dir>/<id>/``:
 
@@ -93,6 +94,11 @@ SUITES: dict[str, SuiteSpec] = {
     # The third sealed held-out split (amendment G28): new instances of the same families and
     # recipes, built blind to the product after golden-heldout2 was spent on the second release run.
     "golden-heldout3": SuiteSpec("golden-heldout3", GOLDEN_ROOT, "heldout3", "weakening", True),
+    # The dress rehearsal (amendment G38): a sealed split composed and built exactly like a held-out
+    # split, blind to the product and its fixes, after golden-heldout3 was spent; run before heldout4.
+    # Registered after G36, so it is graded under `weakening-g36` (the launch branch's switch, round-4
+    # settlement S11; the policy lives here, so the frozen digest is unchanged).
+    "golden-rehearsal": SuiteSpec("golden-rehearsal", GOLDEN_ROOT, "rehearsal", "weakening-g36", True),
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
@@ -119,6 +125,9 @@ FROZEN: dict[str, str] = {
     # G28: the third sealed held-out split, frozen on registration (2026-11-06 18:10 IST), built
     # blind after golden-heldout2 was spent; nobody runs or reads it before its release run.
     "golden-heldout3": "58fbcf3b13a4bcba35cd42d50226262ebb7b70cd46cf0c87ea732c6089057d94",
+    # G38: the dress rehearsal, frozen on registration (2026-11-08 05:13 IST), built blind like a
+    # held-out split after golden-heldout3 was spent; nobody runs or reads it before its run.
+    "golden-rehearsal": "853ef6e1f6379e96a1098f2a5da38221777021d491502722f91269dd019ffefa",
 }
 
 # Spent splits (amendment G26): frozen splits whose release run is done. Still read-only, and a
