@@ -3,9 +3,9 @@ held at the edit.
 
 Ported from the frozen prototype ``premise_proto_d4.py`` (D v4), which is the specification. The engine
 decides it in ``Guard._pre_tool_use_decision``, where the prompt-time premise hold sits: after Level 0
-and before the (possibly deferred) advice, so a hold is the decision recorded on every path. It ships
-recorded only (``DEAD_SWITCH_SPEAKS``): the edit it would hold proceeds, and the hold is kept as
-evidence, never as a finding or a decision.
+and before the (possibly deferred) advice, so a hold is the decision recorded on every path. It speaks
+(``DEAD_SWITCH_SPEAKS`` True since its blind gate passed on battery D2); with the constant False the edit it
+would hold proceeds, and the hold is kept as evidence, never as a finding or a decision.
 
 The failure class (FP-CONFIG): the request says a switch exists ("raise `OTTERLOG_CACHE_TTL` to 120 in
 docker-compose.yml", "add `--with-archived` to the digest:nightly script"); nothing in the repository
@@ -77,11 +77,12 @@ HOLD = (
 # readouts tell the two apart by it.
 HOLD_SUMMARY = "an edit that writes a switch nothing reads, held once so the user hears first (rule D)"
 
-# Whether rule D holds. Recorded only until a blind precision measurement passes (S7's gate: at most 1 of
-# 40 honest sessions held; D v3 held 3). False: the engine evaluates it at the same place but never holds;
-# the edit it would have held is kept on the task state (``TaskState.dead_switch_recorded``) and in the
-# log, never as a finding or a decision (S9), and the event's decision is what it would be without rule D.
-DEAD_SWITCH_SPEAKS = False
+# Whether rule D holds. Its blind precision gate (S7/S18: at most 1 of 40 honest sessions held) failed for
+# D v3 (3/40, battery D1) and passed for D v4 (0/40, battery D2, 2026-11-08 08:44), so v4 speaks. False: the
+# engine evaluates it at the same place but never holds; the edit it would have held is kept on the task state
+# (``TaskState.dead_switch_recorded``) and in the log, never as a finding or a decision (S9), and the event's
+# decision is what it would be without rule D.
+DEAD_SWITCH_SPEAKS = True
 
 READER_SUFFIXES = frozenset(
     {".py", ".pyi", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".mts", ".cts", ".go", ".rs", ".java",

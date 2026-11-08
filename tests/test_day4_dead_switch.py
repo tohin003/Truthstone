@@ -6,9 +6,9 @@ silent, the traps are held), one case per condition of the rule (what is held, w
 Codex multi-file patch, and the engine's placement: where the prompt-time premise hold sits, after Level 0
 and before the (possibly deferred) advice; mutating non-delete edits only, once per task, never a name
 the prompt-time note named; the premise hold's kind with D's own summary, recorded on the deferred
-(daemon) path too; silence on any failure. Rule D ships recorded only (``DEAD_SWITCH_SPEAKS`` False until
-a blind precision measurement passes): the engine tests run it holding, the last section the shipped
-setting.
+(daemon) path too; silence on any failure. Rule D speaks (``DEAD_SWITCH_SPEAKS`` True since its blind
+precision gate passed on battery D2): the engine tests run it holding; the last section pins the shipped
+setting and keeps the recorded-only mode tested.
 """
 
 from __future__ import annotations
@@ -1060,11 +1060,12 @@ def test_a_hold_is_recorded_when_the_guard_defers_its_bookkeeping(tmp_path):
         guard.close()
 
 
-# -- the shipped setting: recorded only (``DEAD_SWITCH_SPEAKS`` False) -----------------------------------
+# -- the shipped setting: rule D speaks (``DEAD_SWITCH_SPEAKS`` True since battery D2); the recorded-only mode
+# below stays tested -----------------------------------------------------------------------------------------
 
 
-def test_rule_d_ships_recorded_only():
-    assert dead_switch.DEAD_SWITCH_SPEAKS is False
+def test_rule_d_ships_speaking():
+    assert dead_switch.DEAD_SWITCH_SPEAKS is True
 
 
 def _task_state(guard: Guard, root: Path, session: str = "s"):
@@ -1077,7 +1078,8 @@ def _task_state(guard: Guard, root: Path, session: str = "s"):
     [{"profile": "minimal"}, {"profile": "full"}, {"observe_only": True}],
     ids=["minimal", "full", "observe"],
 )
-def test_recorded_only_it_never_holds_and_keeps_the_hold_it_would_have_made(tmp_path, settings):
+def test_recorded_only_it_never_holds_and_keeps_the_hold_it_would_have_made(tmp_path, settings, monkeypatch):
+    monkeypatch.setattr(dead_switch, "DEAD_SWITCH_SPEAKS", False)
     root, _files = _repo(tmp_path)
     guard = Guard(Settings(**settings))
     try:
@@ -1096,7 +1098,8 @@ def test_recorded_only_it_never_holds_and_keeps_the_hold_it_would_have_made(tmp_
         guard.close()
 
 
-def test_recorded_only_level_zero_still_comes_first(tmp_path):
+def test_recorded_only_level_zero_still_comes_first(tmp_path, monkeypatch):
+    monkeypatch.setattr(dead_switch, "DEAD_SWITCH_SPEAKS", False)
     root, _files = _repo(tmp_path, _LEVEL_ZERO_REPO)
     guard = Guard(Settings())
     try:
