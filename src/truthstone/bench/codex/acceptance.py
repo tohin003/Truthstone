@@ -32,19 +32,25 @@ BLOCKING = ("deny", "block", "ask", "request_review", "sign_off", "challenge")
 HELD_OUT = ("golden-heldout", "golden-heldout2", "golden-heldout3")
 
 
-def load_cells(run_dirs: Sequence[Path], allow_heldout: bool = False) -> list[dict[str, Any]]:
+def load_cells(
+    run_dirs: Sequence[Path], allow_heldout: bool = False, policy: str | None = None
+) -> list[dict[str, Any]]:
     """Valid cells of every run, each with its cell directory; held-out runs are refused unless
     this is the pre-registered release gate on the held-out study (G9).
 
-    A run that was re-graded (its ``regrade.json``, written by ``regrade``) is read under today's
-    grader, as ``calibrate --regraded`` reads it, so runs graded at different times compare under
-    one grader; a cell the re-grade could not rebuild is left out, never mixed in."""
+    A run that was re-graded under the policy read (``policy``, else the policy its suite
+    registered; ``regrade.override_path``: its ``regrade-<policy>.json``, or for ``weakening`` the
+    legacy ``regrade.json``) is read under that re-grade, as ``calibrate --regraded`` reads it, so
+    runs graded at different times compare under one grader; a cell the re-grade could not rebuild
+    is left out, never mixed in. A run graded under another policy than the one asked for, with
+    no re-grade under it, is refused (G36)."""
     cells: list[dict[str, Any]] = []
     for run_dir in run_dirs:
         plan = Plan.load(run_dir / "plan.json")
         if plan.suite in HELD_OUT and not allow_heldout:
             raise ValueError(f"{run_dir}: acceptance never reads held-out data (suite {plan.suite})")
-        new = regrade.overrides(run_dir) if (run_dir / regrade.OUT).exists() else None
+        path = _regrade_file(run_dir, plan, policy)
+        new = regrade.read_overrides(path) if path is not None else None
         for record in load_records(run_dir / "cells.jsonl"):
             if record.get("kind") != "cell" or record.get("status") != "valid":
                 continue
@@ -59,9 +65,40 @@ def load_cells(run_dirs: Sequence[Path], allow_heldout: bool = False) -> list[di
     return cells
 
 
-def regraded_runs(run_dirs: Sequence[Path]) -> list[str]:
-    """The runs read under today's grader (they carry a ``regrade.json``)."""
-    return [run_dir.name for run_dir in run_dirs if (run_dir / regrade.OUT).exists()]
+def _regrade_file(run_dir: Path, plan: Plan, policy: str | None) -> Path | None:
+    """The re-grade file a run is read under (``regrade.override_path``), or None: its cells as
+    stored. Refused when the run was graded under another policy than the one asked for and has
+    no re-grade under it: its stored grades would be read as that policy's."""
+    registered = regrade.policy_of(plan)
+    wanted = policy or registered
+    path = regrade.override_path(run_dir, wanted)
+    if path is None and wanted != registered:
+        raise FileNotFoundError(
+            f"{run_dir}: its cells were graded under {registered!r} and it has no re-grade under "
+            f"{wanted!r} ({regrade.out_name(wanted)}): run `regrade --run-dir {run_dir} --policy "
+            f"{wanted}` first"
+        )
+    return path
+
+
+def _read_file(run_dir: Path, policy: str | None) -> Path | None:
+    return regrade.override_path(run_dir, policy or regrade.registered_policy(run_dir))
+
+
+def regraded_runs(run_dirs: Sequence[Path], policy: str | None = None) -> list[str]:
+    """The runs read under a re-grade (they carry a re-grade file for the policy read)."""
+    return [run_dir.name for run_dir in run_dirs if _read_file(run_dir, policy) is not None]
+
+
+def regrade_files(run_dirs: Sequence[Path], policy: str | None = None) -> dict[str, str]:
+    """run name -> the re-grade file read for it (``regrade.override_path``), for re-graded runs
+    (G36: which policy's grades were read)."""
+    out: dict[str, str] = {}
+    for run_dir in run_dirs:
+        path = _read_file(run_dir, policy)
+        if path is not None:
+            out[run_dir.name] = path.name
+    return out
 
 
 def compared(cells: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -165,9 +202,12 @@ def _verdict(passed: bool | None) -> str:
 
 
 def acceptance(
-    run_dirs: Sequence[Path], resamples: int = 10_000, allow_heldout: bool = False
+    run_dirs: Sequence[Path],
+    resamples: int = 10_000,
+    allow_heldout: bool = False,
+    policy: str | None = None,
 ) -> dict[str, Any]:
-    cells, one_arm = compared(load_cells(run_dirs, allow_heldout=allow_heldout))
+    cells, one_arm = compared(load_cells(run_dirs, allow_heldout=allow_heldout, policy=policy))
     arm = {a: [c for c in cells if c.get("arm") == a] for a in ARMS}
     has_guard = bool(arm["on"])
     out: dict[str, Any] = {
@@ -175,7 +215,8 @@ def acceptance(
         "cells": {a: len(arm[a]) for a in ARMS},
         "tasks_compared": len({c["task"] for c in cells}),
         "one_arm_tasks": one_arm,
-        "regraded_runs": regraded_runs(run_dirs),
+        "regraded_runs": regraded_runs(run_dirs, policy),
+        "regrade_files": regrade_files(run_dirs, policy),
     }
 
     def opp(cs: list[dict]) -> list[dict]:
@@ -335,6 +376,13 @@ def _fmt_diff(d: dict[str, Any] | None) -> str:
     return f"{d['estimate']:+.1%} [{d['ci'][0]:+.1%}, {d['ci'][1]:+.1%}] ({d['tasks']} tasks)"
 
 
+def _files_text(files: dict[str, str] | None) -> str:
+    """Which re-grade file each re-graded run was read under (G36: one per policy)."""
+    if not files:
+        return ""
+    return " Re-grade files: " + ", ".join(f"{run}: {name}" for run, name in files.items()) + "."
+
+
 def render(a: dict[str, Any]) -> str:
     lines = [
         "# Acceptance targets (dev only; ARCHITECTURE-v0.2 §5.2)",
@@ -349,6 +397,7 @@ def render(a: dict[str, Any]) -> str:
         )
         + (
             f" Read under today's grader (re-graded): {', '.join(a['regraded_runs'])}."
+            + _files_text(a.get("regrade_files"))
             if a.get("regraded_runs")
             else ""
         ),
@@ -520,12 +569,17 @@ def end_to_end_ms(cells: list[dict]) -> list[float]:
 
 
 def gate(
-    run_dirs: Sequence[Path], thresholds: GateThresholds | None = None, resamples: int = 4000
+    run_dirs: Sequence[Path],
+    thresholds: GateThresholds | None = None,
+    resamples: int = 4000,
+    policy: str | None = None,
 ) -> dict[str, Any]:
-    """PASS or FAIL per target, on dev (GO/NO-GO) or on the held-out study (the release gate)."""
+    """PASS or FAIL per target, on dev (GO/NO-GO) or on the held-out study (the release gate).
+    ``policy``: the protected-file policy whose grades are read (G36; default: each run's
+    registered policy, its re-grade file where one exists)."""
     th = thresholds or GateThresholds()
-    a = acceptance(run_dirs, resamples=resamples, allow_heldout=True)
-    cells, _ = compared(load_cells(run_dirs, allow_heldout=True))
+    a = acceptance(run_dirs, resamples=resamples, allow_heldout=True, policy=policy)
+    cells, _ = compared(load_cells(run_dirs, allow_heldout=True, policy=policy))
     arm = {x: [c for c in cells if c.get("arm") == x] for x in ARMS}
     out: dict[str, Any] = {
         "thresholds": asdict(th),
@@ -533,6 +587,7 @@ def gate(
         "tasks_compared": a.get("tasks_compared"),
         "one_arm_tasks": a.get("one_arm_tasks", []),
         "regraded_runs": a.get("regraded_runs", []),
+        "regrade_files": a.get("regrade_files", {}),
     }
 
     def put(key: str, passed: bool | None, why: str) -> None:
@@ -615,4 +670,7 @@ def render_gate(g: dict[str, Any]) -> str:
         scope += f"; left out (one arm only): {', '.join(g['one_arm_tasks'])}"
     if g.get("regraded_runs"):
         scope += f"; re-graded runs read under today's grader: {', '.join(g['regraded_runs'])}"
+        files = g.get("regrade_files") or {}
+        if files:
+            scope += f" ({', '.join(f'{run}: {name}' for run, name in files.items())})"
     return f"GATE {g['overall']}: {line}\n{reasons}\n{scope}\n"

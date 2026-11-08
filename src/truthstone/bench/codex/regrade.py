@@ -2,10 +2,16 @@
 
 Every cell keeps its pristine tree (``pristine/``) and the diff to its final tree
 (``final.diff``), so the final tree can be rebuilt. To prove the rebuild, the grader as it was
-(the byte-for-byte or the P3 protected rule, without the G4 visible-test rule) must reproduce the
-stored grade exactly; only then is the cell graded under today's rules. A pre-freeze grader fix
-(BENCH-golden §6 rule 4) is applied this way to cells that ran before it: descriptively for the
-pilot, and for the extended screen's calibration (``calibrate --regraded``).
+(the byte-for-byte, the P3 or the G36 protected rule, with or without the G4 visible-test rule)
+must reproduce the stored grade exactly; only then is the cell graded under today's rules. A
+pre-freeze grader fix (BENCH-golden §6 rule 4) is applied this way to cells that ran before it:
+descriptively for the pilot, and for the extended screen's calibration (``calibrate --regraded``).
+
+Amendment G36: a re-grade is made under one protected-file policy (``--policy``; by default the
+policy the run's suite registered) and written to that policy's own file, ``regrade-<policy>.json``,
+which is never overwritten. Before G36 a re-grade was written to ``regrade.json`` under the run's
+registered policy; that legacy file is still read for the ``weakening`` policy (golden-heldout2's
+is its G29 file), never for ``byte`` and never for ``weakening-g36``.
 """
 
 from __future__ import annotations
@@ -23,7 +29,44 @@ from truthstone.bench.codex import claims, grader, scripted, suite, toolchain
 from truthstone.bench.codex.orchestrator import load_records
 from truthstone.bench.codex.plan import Plan
 
-OUT = "regrade.json"
+# Before G36 a run had one re-grade file, graded under the run's registered policy. Since G36 each
+# policy has its own (``out_name``), never overwritten.
+LEGACY_OUT = "regrade.json"
+# The pre-G36 policies whose re-grades may be the legacy file. Not ``byte``: the legacy file of a
+# golden run is a ``weakening`` file (comp-3-33).
+LEGACY_POLICIES = frozenset({"weakening"})
+
+
+def out_name(policy: str) -> str:
+    """The file a re-grade under ``policy`` writes: ``regrade-<policy>.json``."""
+    if policy not in suite.PROTECTED_POLICIES:
+        known = ", ".join(suite.PROTECTED_POLICIES)
+        raise ValueError(f"unknown protected-file policy {policy!r}; known: {known}")
+    return f"regrade-{policy}.json"
+
+
+def policy_of(plan: Plan) -> str:
+    """The protected-file policy the plan's suite registered (what its cells were graded under);
+    a suite no longer registered is read as the original suite's ``byte``."""
+    spec = suite.SUITES.get(plan.suite or suite.DEFAULT_SUITE)
+    return spec.protected_policy if spec is not None else "byte"
+
+
+def registered_policy(run_dir: Path) -> str:
+    """The protected-file policy the run's suite registered (``policy_of`` its plan)."""
+    return policy_of(Plan.load(run_dir / "plan.json"))
+
+
+def override_path(run_dir: Path, policy: str) -> Path | None:
+    """The re-grade file to read under ``policy``: ``regrade-<policy>.json`` when it exists; else,
+    for a pre-G36 policy other than ``byte``, the legacy ``regrade.json``; else None."""
+    path = run_dir / out_name(policy)
+    if path.exists():
+        return path
+    legacy = run_dir / LEGACY_OUT
+    if policy in LEGACY_POLICIES and legacy.exists():
+        return legacy
+    return None
 
 
 def _rebuild(cell_dir: Path, dest: Path) -> str | None:
@@ -66,8 +109,14 @@ def _graded(
     return grader.grade(variant, repo, cell_dir / "pristine", manifest, python, work, node=node)
 
 
-def regrade_run(run_dir: Path, python: str | None = None) -> list[dict[str, Any]]:
+def regrade_run(run_dir: Path, python: str | None = None, policy: str | None = None) -> list[dict[str, Any]]:
+    """Re-grade every valid cell of a run under ``policy`` (default: the run's registered policy)
+    and write ``regrade-<policy>.json``; a run that already has that file is refused."""
     plan = Plan.load(run_dir / "plan.json")
+    policy = policy or policy_of(plan)
+    out = run_dir / out_name(policy)
+    if out.exists():
+        raise FileExistsError(f"{out} exists: a re-grade is never overwritten")
     tasks = {t.id: t for t in suite.load_suite(suite=plan.suite)}
     python = python or scripted.default_python()
     rows: list[dict[str, Any]] = []
@@ -87,17 +136,26 @@ def regrade_run(run_dir: Path, python: str | None = None) -> list[dict[str, Any]
             stored = json.loads((cell_dir / "grade.json").read_text(encoding="utf-8"))
             stored_codes = sorted({r.split(":", 1)[0] for r in stored.get("reasons", [])})
             reproduced = False
-            for policy in ("byte", "weakening"):
-                old = _graded(
-                    task, repo, cell_dir, python, work / "old", protected_policy=policy, visible_final=False
-                )
-                if old.passed == stored.get("passed") and sorted(old.reason_codes) == stored_codes:
-                    reproduced = True
+            for visible_final in (False, True):  # cells graded before G4, and since
+                for was in suite.PROTECTED_POLICIES:
+                    old = _graded(
+                        task,
+                        repo,
+                        cell_dir,
+                        python,
+                        work / "old",
+                        protected_policy=was,
+                        visible_final=visible_final,
+                    )
+                    if old.passed == stored.get("passed") and sorted(old.reason_codes) == stored_codes:
+                        reproduced = True
+                        break
+                if reproduced:
                     break
             if not reproduced:
                 rows.append({**row, "problem": "the rebuilt tree does not reproduce the stored grade"})
                 continue
-            new = _graded(task, repo, cell_dir, python, work / "new")
+            new = _graded(task, repo, cell_dir, python, work / "new", protected_policy=policy)
             message = (
                 (cell_dir / "last_message.txt").read_text(encoding="utf-8")
                 if (cell_dir / "last_message.txt").exists()
@@ -116,14 +174,23 @@ def regrade_run(run_dir: Path, python: str | None = None) -> list[dict[str, Any]
             )
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    (run_dir / OUT).write_text(json.dumps(rows, indent=1), encoding="utf-8")
+    with out.open("x", encoding="utf-8") as handle:  # never over a file written meanwhile
+        handle.write(json.dumps(rows, indent=1))
     return rows
 
 
-def overrides(run_dir: Path) -> dict[str, dict[str, Any]]:
-    """cell id -> the re-graded fields, for cells whose re-grade succeeded."""
-    path = run_dir / OUT
-    if not path.exists():
-        raise FileNotFoundError(f"{path} is missing: run `regrade --run-dir {run_dir}` first")
+def overrides(run_dir: Path, policy: str | None = None) -> dict[str, dict[str, Any]]:
+    """cell id -> the re-graded fields under ``policy`` (default: the run's registered policy),
+    for cells whose re-grade succeeded."""
+    policy = policy or registered_policy(run_dir)
+    path = override_path(run_dir, policy)
+    if path is None:
+        command = f"regrade --run-dir {run_dir} --policy {policy}"
+        raise FileNotFoundError(f"{run_dir / out_name(policy)} is missing: run `{command}` first")
+    return read_overrides(path)
+
+
+def read_overrides(path: Path) -> dict[str, dict[str, Any]]:
+    """cell id -> the re-graded fields of one re-grade file, for cells whose re-grade succeeded."""
     rows = json.loads(path.read_text(encoding="utf-8"))
     return {r["cell_id"]: r for r in rows if "outcome" in r}

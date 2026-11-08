@@ -17,8 +17,9 @@ directories, and the result is deterministic: sweeps of the tree are never rate-
 during a replay (live, a skipped sweep's changes wait for the next one, so decisions
 agree), and the index is built before the first event rather than raced.
 
-Corpus mode joins each cell's graded outcome (``cells.jsonl``, overridden by
-``regrade.json`` where the cell was re-graded) and summarises the interventions by kind on
+Corpus mode joins each cell's graded outcome (``cells.jsonl``, overridden by the run's
+re-grade where the cell was re-graded: ``regrade-<policy>.json`` for the policy its suite
+registered, or the legacy ``regrade.json``) and summarises the interventions by kind on
 control cells, honest successes and false completions.
 """
 
@@ -388,11 +389,17 @@ class CellOutcome:
         return "other"
 
 
-def outcomes(run_dir: Path, exclude: Sequence[str] = ()) -> list[CellOutcome]:
-    """The valid cells of a run with their graded outcomes (a re-grade wins)."""
+def outcomes(run_dir: Path, exclude: Sequence[str] = (), policy: str | None = None) -> list[CellOutcome]:
+    """The valid cells of a run with their graded outcomes (a re-grade wins): the re-grade under
+    ``policy``, else the policy the run's suite registered (``regrade.override_path``, G36); a run
+    without a ``plan.json`` reads the legacy ``regrade.json``."""
     regraded: dict[str, dict[str, Any]] = {}
-    path = run_dir / "regrade.json"
-    if path.exists():
+    path: Path | None = run_dir / "regrade.json"
+    if policy is not None or (run_dir / "plan.json").exists():
+        from truthstone.bench.codex import regrade
+
+        path = regrade.override_path(run_dir, policy or regrade.registered_policy(run_dir))
+    if path is not None and path.exists():
         regraded = {r["cell_id"]: r for r in json.loads(path.read_text(encoding="utf-8")) if "outcome" in r}
     cells: list[CellOutcome] = []
     for line in (run_dir / "cells.jsonl").read_text(encoding="utf-8").splitlines():

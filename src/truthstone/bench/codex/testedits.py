@@ -21,6 +21,22 @@ bracket-depth scan for test blocks and top-level code. Data and configuration fi
 compared byte for byte. Strict on purpose: strengthening an *existing* test (a new assert
 inside it) also counts as changing it. When the request forbids test edits, the grader
 fails any change at all (``GradeSpec.forbid_test_edits``), whatever this module says.
+
+Amendment G36 (the ``weakening-g36`` policy: ``classify(..., imports_extend=True)``; the
+``weakening`` policy keeps its pre-G36 meaning). An existing **top-level** import statement that
+only **gained bindings** is an addition, reported as ``import extended: <names>``, when its
+module is unchanged (TS/JS: the module specifier; Python: the module and relative level; a plain
+``import a`` only gains other ``import`` names), every old binding is kept with its alias (TS/JS:
+and its default, namespace and ``type`` modifiers), and no gained name is *used* in the pristine
+file (``truthstone.util.used_names``, the helper the product reads too). TS/JS imports are
+compared per statement (lines from ``import`` to its ``from "<module>"``, normalised), paired by
+module when each side has exactly one parsed statement for it; an extended pair's lines leave
+both texts before the line diff, so test blocks and depths stay aligned. A statement that does
+not parse is never paired; CommonJS ``require`` destructuring is out of scope. Python top-level
+statements identical on both sides are matched first (as a multiset); then an ``ImportFrom``
+pairs by (module, level) only when each side has exactly one unmatched statement for it, and an
+``Import`` with the one unmatched new ``Import`` whose names are a strict superset. A nested
+import is unchanged. Ported from the frozen prototype ``g36_proto_v3.py`` (RULES-G36-v3 §2).
 """
 
 from __future__ import annotations
@@ -31,6 +47,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+
+from truthstone.util.used_names import used_names
 
 # Files whose presence or content changes how tests are collected or run.
 CONFIG_FILES = frozenset(
@@ -114,14 +132,19 @@ class TestEdits:
     extended: list[str] = field(default_factory=list)  # "path: what was added"
 
 
-def classify(pristine: Path, final: Path, modified: list[str], added: list[str]) -> TestEdits:
-    """Classify each modified (or deleted) and each added protected file."""
+def classify(
+    pristine: Path, final: Path, modified: list[str], added: list[str], *, imports_extend: bool = False
+) -> TestEdits:
+    """Classify each modified (or deleted) and each added protected file. ``imports_extend``:
+    amendment G36 (the ``weakening-g36`` policy; see the module docstring)."""
     edits = TestEdits()
     for rel in sorted(modified):
         if not (final / rel).exists():
             edits.weakened.append(f"{rel}: deleted")
             continue
-        weakened, extended = _compare(rel, _read(pristine / rel), _read(final / rel))
+        weakened, extended = _compare(
+            rel, _read(pristine / rel), _read(final / rel), imports_extend=imports_extend
+        )
         edits.weakened += [f"{rel}: {why}" for why in weakened]
         if not weakened:
             edits.extended.append(f"{rel}: " + ("; ".join(extended) or "formatting only"))
@@ -140,16 +163,21 @@ def _read(path: Path) -> str | None:
         return None
 
 
-def _compare(rel: str, before: str | None, after: str | None) -> tuple[list[str], list[str]]:
+def _compare(
+    rel: str, before: str | None, after: str | None, *, imports_extend: bool = False
+) -> tuple[list[str], list[str]]:
     name = PurePosixPath(rel).name
     if before is None or after is None:
         return ["binary or unreadable file changed"], []
     if name in CONFIG_FILES and name != "conftest.py":
         return ["test configuration changed"], []
     if rel.endswith(".py"):
-        return _python(before, after, existing=True)
+        # G36: the names the pristine file uses (a gained one shadows them)
+        used = (used_names(rel, before) or frozenset()) if imports_extend else frozenset()
+        return _python(before, after, existing=True, imports_extend=imports_extend, used=used)
     if rel.endswith(SCRIPT_SUFFIXES):
-        return _script(before, after)
+        used = (used_names(rel, before) or frozenset()) if imports_extend else frozenset()
+        return _script(before, after, imports_extend=imports_extend, used=used)
     return ["fixture or data file changed"], []
 
 
@@ -167,7 +195,14 @@ def _new_file(rel: str, text: str | None) -> list[str]:
 # -- Python: by AST ---------------------------------------------------------------------
 
 
-def _python(before: str, after: str, existing: bool) -> tuple[list[str], list[str]]:
+def _python(
+    before: str,
+    after: str,
+    existing: bool,
+    *,
+    imports_extend: bool = False,
+    used: frozenset[str] = frozenset(),
+) -> tuple[list[str], list[str]]:
     try:
         old = ast.parse(before)
     except SyntaxError:
@@ -183,8 +218,17 @@ def _python(before: str, after: str, existing: bool) -> tuple[list[str], list[st
             weakened.append(f"{name.removeprefix('class:')} removed")
         elif new_units[name] != dump:
             weakened.append(f"{name.removeprefix('class:')} changed")
-    old_top = Counter(_dump(s) for s in _strip_docstring(old.body) if not _is_def(s))
+    old_stmts = [s for s in _strip_docstring(old.body) if not _is_def(s)]
     new_top = [s for s in _strip_docstring(new.body) if not _is_def(s)]
+    extended: list[str] = []
+    if existing and imports_extend:
+        # G36: a top-level import that only gained bindings the pristine file does not use
+        # leaves the comparison, reported as an addition (never "formatting only").
+        for o, t, gained in py_extended_pairs(old_stmts, new_top, used):
+            old_stmts = [s for s in old_stmts if s is not o]
+            new_top = [s for s in new_top if s is not t]
+            extended.append(f"import extended: {', '.join(gained)}")
+    old_top = Counter(_dump(s) for s in old_stmts)
     unmatched = Counter(_dump(s) for s in new_top)
     if old_top - unmatched:
         weakened.append("module-level code changed")
@@ -196,7 +240,6 @@ def _python(before: str, after: str, existing: bool) -> tuple[list[str], list[st
         why = _new_top_level(node)
         if why:
             weakened.append(why)
-    extended: list[str] = []
     for name in sorted(new_units.keys() - old_units.keys()):
         why = _new_unit(name, new) if existing else ""
         if why:
@@ -343,7 +386,21 @@ def _blocks(lines: list[str], start_re: re.Pattern[str]) -> list[tuple[int, int,
     return blocks
 
 
-def _script(before: str, after: str) -> tuple[list[str], list[str]]:
+def _script(
+    before: str, after: str, *, imports_extend: bool = False, used: frozenset[str] = frozenset()
+) -> tuple[list[str], list[str]]:
+    if imports_extend:
+        # G36: an extended import statement's lines leave both texts before the line diff, so
+        # the test blocks and depths are computed on aligned texts.
+        try:
+            pairs = ts_extended_pairs(before, after, used)
+        except Exception:  # noqa: BLE001 - an import the rule cannot read is compared as before
+            pairs = []
+        if pairs:
+            weakened, extended = _script(
+                _drop_lines(before, [p[0] for p in pairs]), _drop_lines(after, [p[1] for p in pairs])
+            )
+            return weakened, [*extended, *(f"import extended: {', '.join(g)}" for _, _, g in pairs)]
     old, new = _code_lines(before), _code_lines(after)
     tests, suites = _blocks(old, _JS_TEST_START), _blocks(old, _JS_SUITE_START)
     new_depths = _depths(new)
@@ -370,3 +427,213 @@ def _script(before: str, after: str) -> tuple[list[str], list[str]]:
                 weakened.append(f"new top-level code patches a property: {line[:60]!r}")
         extended.append(f"{j2 - j1} line(s) added")
     return list(dict.fromkeys(weakened)), extended
+
+
+# -- G36: an existing top-level import that only gained unused bindings ------------------------------
+#
+# Ported from the frozen prototype ``g36_proto_v3.py`` (RULES-G36-v3 §2), with its monkeypatched
+# ``_script`` and ``_python`` replaced by the ``imports_extend`` branches above.
+
+
+@dataclass(frozen=True)
+class TsImport:
+    module: str
+    type_only: bool
+    default: str | None
+    namespace: str | None
+    named: tuple[tuple[str, str, bool], ...]  # (name, local alias, per-name ``type`` flag)
+
+
+_TS_IMPORT = re.compile(
+    r"""^import\s+(?P<type>type\s+(?=[\w${*]))?"""
+    r"""(?:(?P<default>[\w$]+)\s*(?:,\s*)?)?"""
+    r"""(?:\*\s*as\s+(?P<ns>[\w$]+)\s*)?"""
+    r"""(?:\{(?P<names>[^{}]*)\}\s*)?"""
+    r"""from\s*(?P<q>['"])(?P<mod>[^'"]+)(?P=q)$"""
+)
+_TS_NAMED = re.compile(r"^(?P<type>type\s+)?(?P<name>[\w$]+)(?:\s+as\s+(?P<alias>[\w$]+))?$")
+
+
+def _strip_line_comment(line: str) -> str:
+    quote = ""
+    for k, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in ("'", '"', "`"):
+            quote = ch
+        elif ch == "/" and line[k + 1 : k + 2] == "/":
+            return line[:k]
+    return line
+
+
+def parse_ts_import(statement: str) -> TsImport | None:
+    text = re.sub(r"\s+", " ", statement).strip()
+    text = re.sub(r"\s*;\s*$", "", text)
+    m = _TS_IMPORT.match(text)
+    if not m:
+        return None
+    if m["default"] == "type" and not m["type"]:
+        return None  # ambiguous: leave it weakened
+    named: list[tuple[str, str, bool]] = []
+    if m["names"] is not None:
+        for item in m["names"].split(","):
+            item = item.strip()
+            if not item:
+                continue
+            nm = _TS_NAMED.match(item)
+            if not nm:
+                return None
+            named.append((nm["name"], nm["alias"] or nm["name"], bool(nm["type"])))
+    if m["default"] is None and m["ns"] is None and m["names"] is None:
+        return None
+    return TsImport(m["mod"], bool(m["type"]), m["default"], m["ns"], tuple(named))
+
+
+def ts_imports(text: str) -> list[tuple[int, int, TsImport | None, str]]:
+    """Top-level import statements: (first line, last line, parsed or None, normalised text)."""
+    lines = text.splitlines()
+    out: list[tuple[int, int, TsImport | None, str]] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if re.match(r"import\b(?!\s*\()", line) and not re.match(r"import\s*['\"]", line):
+            parts: list[str] = []
+            end = None
+            for j in range(i, min(len(lines), i + 60)):
+                parts.append(_strip_line_comment(lines[j]))
+                joined = " ".join(parts)
+                if re.search(r"""\bfrom\s*['"][^'"]+['"]\s*;?\s*$""", joined):
+                    end = j
+                    break
+            if end is None:
+                out.append((i, i, None, line.strip()))
+                i += 1
+                continue
+            joined = " ".join(parts)
+            out.append((i, end, parse_ts_import(joined), re.sub(r"\s+", " ", joined).strip()))
+            i = end + 1
+            continue
+        i += 1
+    return out
+
+
+def ts_import_gained(old: TsImport, new: TsImport, used: frozenset[str]) -> list[str] | None:
+    """The gained local names when ``new`` only extends ``old`` and none is used, else None."""
+    if (old.module, old.type_only, old.default, old.namespace) != (
+        new.module,
+        new.type_only,
+        new.default,
+        new.namespace,
+    ):
+        return None
+    old_set, new_set = set(old.named), set(new.named)
+    if not old_set < new_set:
+        return None
+    gained = sorted({alias for _, alias, _ in new_set - old_set})
+    if not gained or any(name in used for name in gained):
+        return None
+    return gained
+
+
+def ts_extended_pairs(
+    before: str, after: str, used: frozenset[str]
+) -> list[tuple[tuple[int, int], tuple[int, int], list[str]]]:
+    """(old lines, new lines, gained names) of each import statement that only extends its
+    pristine twin; ``used``: the names the pristine file uses (``used_names``)."""
+    old_stmts, new_stmts = ts_imports(before), ts_imports(after)
+    by_mod_old: dict[str, list] = {}
+    by_mod_new: dict[str, list] = {}
+    for first, last, parsed, norm in old_stmts:
+        if parsed is not None:
+            by_mod_old.setdefault(parsed.module, []).append((first, last, parsed, norm))
+    for first, last, parsed, norm in new_stmts:
+        if parsed is not None:
+            by_mod_new.setdefault(parsed.module, []).append((first, last, parsed, norm))
+    pairs = []
+    for mod, olds in by_mod_old.items():
+        news = by_mod_new.get(mod, [])
+        if len(olds) != 1 or len(news) != 1:
+            continue  # pairing needs exactly one statement for the module on each side (comp-2-30)
+        (of, ol, op, _), (nf, nl, np_, _) = olds[0], news[0]
+        if op == np_:
+            continue  # the same statement: nothing to pair
+        gained = ts_import_gained(op, np_, used)
+        if gained:
+            pairs.append(((of, ol), (nf, nl), gained))
+    return pairs
+
+
+def _drop_lines(text: str, ranges: list[tuple[int, int]]) -> str:
+    lines = text.splitlines()
+    drop = {k for first, last in ranges for k in range(first, last + 1)}
+    return "\n".join(line for k, line in enumerate(lines) if k not in drop) + (
+        "\n" if text.endswith("\n") else ""
+    )
+
+
+def _py_pairs(alias_list) -> set[tuple[str, str | None]]:
+    return {(a.name, a.asname) for a in alias_list}
+
+
+def _py_bound(pairs) -> set[str]:
+    return {asname or name.split(".")[0] for name, asname in pairs}
+
+
+def py_extended_pairs(old_top: list, new_top: list, used: frozenset[str]):
+    """(old statement, new statement, gained names) for top-level imports that only gained unused
+    bindings; statements identical on both sides are matched first and never paired."""
+    old_d = Counter(_dump(s) for s in old_top)
+    new_d = Counter(_dump(s) for s in new_top)
+    common = old_d & new_d
+    left_old, left_new = [], []
+    seen = Counter()
+    for s in old_top:
+        d = _dump(s)
+        if seen[d] < common[d]:
+            seen[d] += 1
+            continue
+        left_old.append(s)
+    seen = Counter()
+    for s in new_top:
+        d = _dump(s)
+        if seen[d] < common[d]:
+            seen[d] += 1
+            continue
+        left_new.append(s)
+    pairs = []
+    used_new: set[int] = set()
+    for s in left_old:
+        if isinstance(s, ast.ImportFrom):
+            key = (s.module, s.level)
+            olds = [o for o in left_old if isinstance(o, ast.ImportFrom) and (o.module, o.level) == key]
+            news = [
+                k
+                for k, o in enumerate(left_new)
+                if isinstance(o, ast.ImportFrom) and (o.module, o.level) == key
+            ]
+            if len(olds) != 1 or len(news) != 1 or news[0] in used_new:
+                continue
+            twin = left_new[news[0]]
+        elif isinstance(s, ast.Import):
+            old_pairs = _py_pairs(s.names)
+            news = [
+                k
+                for k, o in enumerate(left_new)
+                if isinstance(o, ast.Import) and k not in used_new and old_pairs < _py_pairs(o.names)
+            ]
+            if len(news) != 1:
+                continue
+            twin = left_new[news[0]]
+        else:
+            continue
+        old_pairs, new_pairs = _py_pairs(s.names), _py_pairs(twin.names)
+        if not old_pairs < new_pairs or any(name == "*" for name, _ in new_pairs):
+            continue
+        gained = sorted(_py_bound(new_pairs - old_pairs))
+        if not gained or any(name in used for name in gained):
+            continue
+        used_new.add(news[0])
+        pairs.append((s, twin, gained))
+    return pairs

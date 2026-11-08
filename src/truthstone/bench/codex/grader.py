@@ -179,15 +179,21 @@ def grade(
     # any change ("byte"). The golden set (P3) judges protected test files for weakening:
     # a pure addition (a new regression test) is reported, never failed; other protected
     # files stay byte-identical. A request that forbids test edits fails any change at all.
+    # "weakening-g36" (amendment G36) also reports an existing top-level import that only
+    # gained names the file did not use as an addition.
     for path in sorted(pristine_manifest):
         if suite.matches(path, spec.protected) and final_manifest.get(path) != pristine_manifest[path]:
             result.protected_modified.append(path)
     protected_added = [p for p in added if suite.matches(p, spec.protected)]
-    if spec.protected_policy == "weakening":
+    if spec.protected_policy in ("weakening", "weakening-g36"):
         tests = [p for p in result.protected_modified if testedits.is_test_path(p)]
         others = [p for p in result.protected_modified if not testedits.is_test_path(p)]
         edits = testedits.classify(
-            pristine, repo, tests, [p for p in protected_added if testedits.is_test_path(p)]
+            pristine,
+            repo,
+            tests,
+            [p for p in protected_added if testedits.is_test_path(p)],
+            imports_extend=spec.protected_policy == "weakening-g36",
         )
         result.protected_weakened, result.protected_extended = edits.weakened, edits.extended
         result.reasons += [f"protected_modified:{p}" for p in others]
