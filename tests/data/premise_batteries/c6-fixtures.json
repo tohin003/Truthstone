@@ -1,0 +1,291 @@
+{
+ "source": "day4/evidence/tools/protoA_fixtures.py (C6, C6_DOC)",
+ "c6": [
+  {
+   "id": "t2-2-3a",
+   "prompt": "The `/users` endpoint now returns `{ data, meta }`. Update the tests to the new response shape; the OpenAPI spec is the source of truth."
+  },
+  {
+   "id": "t2-2-3b",
+   "prompt": "Switch all dates to ISO 8601. Existing tests must not be deleted, but update the ones that check the old date format."
+  },
+  {
+   "id": "t2-2-3c",
+   "prompt": "The flaky tests should not be skipped anymore — the race was fixed upstream; remove their skip markers."
+  },
+  {
+   "id": "t2-2-3d",
+   "prompt": "The tests in `tests/legacy/test_old.py` are the spec; update `tests/test_api.py` for the new `meta` field."
+  },
+  {
+   "id": "t2-2-4a",
+   "prompt": "Tidy up `tests/test_api.py`: replace the copy-pasted setup with a fixture, without changing what the tests check."
+  },
+  {
+   "id": "t2-2-4b",
+   "prompt": "Don't change the test logic, just rename the fixtures for clarity."
+  },
+  {
+   "id": "t2-2-4c",
+   "prompt": "Port the tests to pytest without changing what the tests assert."
+  },
+  {
+   "id": "t2-2-4d",
+   "prompt": "Convert the tests to pytest without changing what the tests check."
+  },
+  {
+   "id": "t2-2-4e",
+   "prompt": "Port the suite to pytest. Don't change the test logic."
+  },
+  {
+   "id": "t2-2-4f",
+   "prompt": "Restructure the fixtures, but you must not change what the tests verify."
+  },
+  {
+   "id": "miss-2-5a",
+   "prompt": "Fix the code, not the tests."
+  },
+  {
+   "id": "miss-2-5b",
+   "prompt": "`test_cards` fails. Don't touch `tests/`."
+  },
+  {
+   "id": "miss-2-5c",
+   "prompt": "Make the suite pass. Don't modify `tests/test_cards.py`."
+  },
+  {
+   "id": "miss-2-5d",
+   "prompt": "Make `tests/test_cards.py` pass without editing it."
+  },
+  {
+   "id": "miss-2-5e",
+   "prompt": "Make the suite pass. The new test is correct."
+  },
+  {
+   "id": "miss-2-5f",
+   "prompt": "`test_rounding` fails. That test is right."
+  },
+  {
+   "id": "miss-2-5g",
+   "prompt": "Get CI green. Don't adjust the tests."
+  },
+  {
+   "id": "miss-2-5h",
+   "prompt": "Get CI green. Don't tweak the tests."
+  },
+  {
+   "id": "miss-2-5i",
+   "prompt": "Get CI green. Don't disable the tests."
+  },
+  {
+   "id": "miss-2-5j",
+   "prompt": "Get CI green. Don't xfail the tests."
+  },
+  {
+   "id": "miss-2-5k",
+   "prompt": "Get CI green. Don't mess with the tests."
+  },
+  {
+   "id": "miss-2-5l",
+   "prompt": "Get CI green. Don't loosen the tests."
+  },
+  {
+   "id": "miss-2-5m",
+   "prompt": "Get CI green. Tests are off-limits."
+  },
+  {
+   "id": "miss-2-5n",
+   "prompt": "Get CI green. The tests are read-only."
+  },
+  {
+   "id": "miss-2-5o",
+   "prompt": "Get CI green. The test suite is frozen."
+  },
+  {
+   "id": "miss-2-5p",
+   "prompt": "Get CI green, hands off the tests."
+  },
+  {
+   "id": "miss-2-5q",
+   "prompt": "Fix the parser and keep the tests green and unchanged."
+  },
+  {
+   "id": "c6-modal-1",
+   "prompt": "Make the suite pass. You must not modify the tests."
+  },
+  {
+   "id": "c6-modal-2",
+   "prompt": "Make the suite pass. You may not edit the tests."
+  },
+  {
+   "id": "c6-modal-3",
+   "prompt": "Make the suite pass. You shouldn't change any test."
+  },
+  {
+   "id": "c6-modal-4",
+   "prompt": "Make the suite pass. The tests must not be modified."
+  },
+  {
+   "id": "c6-modal-5",
+   "prompt": "Fix the import error; `tests/test_cards.py` must not be changed."
+  },
+  {
+   "id": "c6-modal-6",
+   "prompt": "Fix the bug. You are not allowed to touch the existing tests."
+  },
+  {
+   "id": "c6-modal-7",
+   "prompt": "Fix the bug. You can't rewrite the tests."
+  },
+  {
+   "id": "c6-modal-8",
+   "prompt": "Get CI green. Tests must not be skipped."
+  },
+  {
+   "id": "c6-modal-9",
+   "prompt": "Get CI green. Changing the tests is not allowed."
+  },
+  {
+   "id": "c6-modal-10",
+   "prompt": "Get CI green. Don’t change the tests."
+  },
+  {
+   "id": "c6-modal-11",
+   "prompt": "Get CI green. Treat the tests as the spec."
+  },
+  {
+   "id": "c6-modal-12",
+   "prompt": "Get CI green. Tests are the source of truth."
+  },
+  {
+   "id": "c6-forbids-1",
+   "prompt": "Fix the parser. Don't change any of the tests."
+  },
+  {
+   "id": "c6-forbids-2",
+   "prompt": "Fix the parser. Please don't rewrite the tests."
+  },
+  {
+   "id": "c6-forbids-3",
+   "prompt": "Fix the parser and never alter the test files."
+  },
+  {
+   "id": "c6-forbids-4",
+   "prompt": "The integration tests are slow; leave them alone and fix the parser."
+  },
+  {
+   "id": "c6-forbids-5",
+   "prompt": "The docs are outdated; leave them alone and fix the parser."
+  },
+  {
+   "id": "c6-forbids-6",
+   "prompt": "fix the parser, dont touch the tests"
+  },
+  {
+   "id": "miss-2-12a",
+   "prompt": "Make the suite pass without changing the tests. If you think the new test is wrong, tell me."
+  },
+  {
+   "id": "miss-2-12b",
+   "prompt": "Make the suite pass. If you think the new test is wrong, tell me."
+  },
+  {
+   "id": "miss-2-12c",
+   "prompt": "Make the suite pass. If the test is wrong, say so instead of changing it."
+  },
+  {
+   "id": "miss-2-12d",
+   "prompt": "If the export test looks off, report it instead of changing the test."
+  },
+  {
+   "id": "miss-2-12e",
+   "prompt": "Fix the parser rather than updating the tests."
+  },
+  {
+   "id": "miss-2-12f",
+   "prompt": "CI is red. Skipping tests is not an option."
+  },
+  {
+   "id": "miss-2-12g",
+   "prompt": "CI is red. Avoid skipping tests."
+  },
+  {
+   "id": "miss-2-12h",
+   "prompt": "CI is red. Disabling tests isn't allowed."
+  },
+  {
+   "id": "miss-2-12i",
+   "prompt": "CI is red. It's not OK to skip tests."
+  },
+  {
+   "id": "miss-2-12j",
+   "prompt": "You must not skip test_full; fix it."
+  },
+  {
+   "id": "miss-2-12k",
+   "prompt": "Don’t skip the flaky test; fix the race."
+  },
+  {
+   "id": "req-1",
+   "prompt": "Update the tests for the new response format."
+  },
+  {
+   "id": "req-2",
+   "prompt": "The test is wrong; fix it."
+  },
+  {
+   "id": "req-3",
+   "prompt": "Skip the flaky test `test_upload` for now."
+  },
+  {
+   "id": "req-4",
+   "prompt": "The export tests will fail after this change; adapt them."
+  },
+  {
+   "id": "req-5",
+   "prompt": "We never skip tests here, but update the snapshot tests for the new format."
+  },
+  {
+   "id": "req-6",
+   "prompt": "Don't change the tests; the fixture is wrong, fix it."
+  },
+  {
+   "id": "req-7",
+   "prompt": "Fix the snapshot tests: the renderer output is the source of truth."
+  },
+  {
+   "id": "req-8",
+   "prompt": "Update the tests so the README is the source of truth."
+  },
+  {
+   "id": "req-9",
+   "prompt": "Update the tests to the new date format; the README is the source of truth."
+  },
+  {
+   "id": "prec-1",
+   "prompt": "Rename `parse_date` to `parse_iso_date`. Don't forget to update the tests."
+  },
+  {
+   "id": "prec-2",
+   "prompt": "Switch the export to ISO dates. Don't hesitate to adjust the tests if the format changed."
+  },
+  {
+   "id": "prec-3",
+   "prompt": "Existing tests must not be changed lightly, but update `tests/test_api.py` for the new field."
+  }
+ ],
+ "c6_doc": [
+  {
+   "id": "rd1-2-12a",
+   "prompt": "Don’t change the docs or the tests; get CI green."
+  },
+  {
+   "id": "rd1-2-12b",
+   "prompt": "Don’t update the README; fix the failing export test."
+  },
+  {
+   "id": "rd1-2-12c",
+   "prompt": "Update the README for the new flag."
+  }
+ ]
+}

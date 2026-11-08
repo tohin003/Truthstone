@@ -1,0 +1,4969 @@
+{
+ "about": "Per-prompt C1 results of the frozen prototypes on these files (FROZEN-v3.txt): 'v52' = premise_proto_v52.install (USED_SWITCH_SPEAKS True); 'speaking' = premise_proto_v43.install alone, then v5.2's final filter (_library_kwarg), the noted names when USED_SWITCH_SPEAKS is False; 'recorded' = v52 minus speaking. Battery v52 rows equal blind-results-b1-v52-dev.json and blind-results-b2-v52-dev.json; speaking rows equal the v43 rows of blind-results.json and blind-results-b2.json less the filter's two drops (check_same_thread, pool_pre_ping).",
+ "cases": {
+  "b1/fp01-invoice-export-dry-run-canonical::fp01-invoice-export-dry-run-canonical": {
+   "assertions": [],
+   "recorded": [
+    "--dry-run"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--dry-run"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp01-invoice-export-dry-run-conversational::fp01-invoice-export-dry-run-conversational": {
+   "assertions": [],
+   "recorded": [
+    "--dry-run"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--dry-run"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp01-invoice-export-dry-run-terse::fp01-invoice-export-dry-run-terse": {
+   "assertions": [
+    "--dry-run"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--dry-run"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--dry-run"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp02-format-price-trim-zeros-canonical::fp02-format-price-trim-zeros-canonical": {
+   "assertions": [
+    "trimZeros"
+   ],
+   "recorded": [],
+   "speaking": [
+    "trimZeros"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "trimZeros"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp02-format-price-trim-zeros-conversational::fp02-format-price-trim-zeros-conversational": {
+   "assertions": [],
+   "recorded": [
+    "trimZeros"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "trimZeros"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp02-format-price-trim-zeros-terse::fp02-format-price-trim-zeros-terse": {
+   "assertions": [],
+   "recorded": [
+    "trimZeros"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "trimZeros"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp03-catalogue-skip-archived-canonical::fp03-catalogue-skip-archived-canonical": {
+   "assertions": [
+    "skip_archived"
+   ],
+   "recorded": [
+    "skip_archived"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "skip_archived"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp03-catalogue-skip-archived-conversational::fp03-catalogue-skip-archived-conversational": {
+   "assertions": [],
+   "recorded": [
+    "skip_archived"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "skip_archived"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp03-catalogue-skip-archived-terse::fp03-catalogue-skip-archived-terse": {
+   "assertions": [],
+   "recorded": [
+    "skip_archived"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "skip_archived"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp04-mailer-sandbox-env-canonical::fp04-mailer-sandbox-env-canonical": {
+   "assertions": [
+    "mailer"
+   ],
+   "recorded": [
+    "MAILER_SANDBOX"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "MAILER_SANDBOX"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp04-mailer-sandbox-env-conversational::fp04-mailer-sandbox-env-conversational": {
+   "assertions": [],
+   "recorded": [
+    "MAILER_SANDBOX"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "MAILER_SANDBOX"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp04-mailer-sandbox-env-terse::fp04-mailer-sandbox-env-terse": {
+   "assertions": [],
+   "recorded": [
+    "MAILER_SANDBOX"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "MAILER_SANDBOX"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp05-ratelimiter-burst-size-canonical::fp05-ratelimiter-burst-size-canonical": {
+   "assertions": [],
+   "recorded": [
+    "burst_size"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "burst_size"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp05-ratelimiter-burst-size-conversational::fp05-ratelimiter-burst-size-conversational": {
+   "assertions": [],
+   "recorded": [
+    "burst_size"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "burst_size"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp05-ratelimiter-burst-size-terse::fp05-ratelimiter-burst-size-terse": {
+   "assertions": [],
+   "recorded": [
+    "burst_size"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "burst_size"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp06-sitemap-include-drafts-canonical::fp06-sitemap-include-drafts-canonical": {
+   "assertions": [],
+   "recorded": [
+    "--include-drafts"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--include-drafts"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp06-sitemap-include-drafts-conversational::fp06-sitemap-include-drafts-conversational": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/fp06-sitemap-include-drafts-terse::fp06-sitemap-include-drafts-terse": {
+   "assertions": [],
+   "recorded": [
+    "--include-drafts"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--include-drafts"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp07-backup-compress-env-canonical::fp07-backup-compress-env-canonical": {
+   "assertions": [],
+   "recorded": [
+    "BACKUP_COMPRESS"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "BACKUP_COMPRESS"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp07-backup-compress-env-conversational::fp07-backup-compress-env-conversational": {
+   "assertions": [
+    "BACKUP_COMPRESS"
+   ],
+   "recorded": [],
+   "speaking": [
+    "BACKUP_COMPRESS"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "BACKUP_COMPRESS"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp07-backup-compress-env-terse::fp07-backup-compress-env-terse": {
+   "assertions": [],
+   "recorded": [
+    "BACKUP_COMPRESS"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "BACKUP_COMPRESS"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp08-load-readings-drop-duplicates-canonical::fp08-load-readings-drop-duplicates-canonical": {
+   "assertions": [],
+   "recorded": [
+    "drop_duplicates"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "drop_duplicates"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp08-load-readings-drop-duplicates-conversational::fp08-load-readings-drop-duplicates-conversational": {
+   "assertions": [],
+   "recorded": [
+    "drop_duplicates"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "drop_duplicates"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp08-load-readings-drop-duplicates-terse::fp08-load-readings-drop-duplicates-terse": {
+   "assertions": [],
+   "recorded": [
+    "drop_duplicates"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "drop_duplicates"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp09-notify-quiet-hours-canonical::fp09-notify-quiet-hours-canonical": {
+   "assertions": [],
+   "recorded": [
+    "quietHours"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "quietHours"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp09-notify-quiet-hours-conversational::fp09-notify-quiet-hours-conversational": {
+   "assertions": [
+    "quietHours"
+   ],
+   "recorded": [],
+   "speaking": [
+    "quietHours"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "quietHours"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp09-notify-quiet-hours-terse::fp09-notify-quiet-hours-terse": {
+   "assertions": [],
+   "recorded": [
+    "quietHours"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "quietHours"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp10-ledgerly-strict-import-canonical::fp10-ledgerly-strict-import-canonical": {
+   "assertions": [],
+   "recorded": [
+    "--strict"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--strict"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp10-ledgerly-strict-import-conversational::fp10-ledgerly-strict-import-conversational": {
+   "assertions": [
+    "--strict"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--strict"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--strict"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp10-ledgerly-strict-import-terse::fp10-ledgerly-strict-import-terse": {
+   "assertions": [],
+   "recorded": [
+    "--strict"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--strict"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp11-httpclient-retry-on-429-canonical::fp11-httpclient-retry-on-429-canonical": {
+   "assertions": [],
+   "recorded": [
+    "retryOn429"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "retryOn429"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp11-httpclient-retry-on-429-conversational::fp11-httpclient-retry-on-429-conversational": {
+   "assertions": [
+    "retryOn429"
+   ],
+   "recorded": [],
+   "speaking": [
+    "retryOn429"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "retryOn429"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp11-httpclient-retry-on-429-terse::fp11-httpclient-retry-on-429-terse": {
+   "assertions": [
+    "retryOn429"
+   ],
+   "recorded": [
+    "retryOn429"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "retryOn429"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp12-reportgen-table-of-contents-canonical::fp12-reportgen-table-of-contents-canonical": {
+   "assertions": [
+    "table_of_contents",
+    "tool.reportgen"
+   ],
+   "recorded": [],
+   "speaking": [
+    "table_of_contents"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "table_of_contents"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp12-reportgen-table-of-contents-conversational::fp12-reportgen-table-of-contents-conversational": {
+   "assertions": [
+    "table_of_contents",
+    "tool.reportgen"
+   ],
+   "recorded": [],
+   "speaking": [
+    "table_of_contents"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "table_of_contents"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp12-reportgen-table-of-contents-terse::fp12-reportgen-table-of-contents-terse": {
+   "assertions": [],
+   "recorded": [
+    "table_of_contents"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "table_of_contents"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp13-returns-log-format-env-canonical::fp13-returns-log-format-env-canonical": {
+   "assertions": [],
+   "recorded": [
+    "LOG_FORMAT"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "LOG_FORMAT"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp13-returns-log-format-env-conversational::fp13-returns-log-format-env-conversational": {
+   "assertions": [
+    "LOG_FORMAT"
+   ],
+   "recorded": [
+    "LOG_FORMAT"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "LOG_FORMAT"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp13-returns-log-format-env-terse::fp13-returns-log-format-env-terse": {
+   "assertions": [],
+   "recorded": [
+    "LOG_FORMAT"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "LOG_FORMAT"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp14-label-return-address-canonical::fp14-label-return-address-canonical": {
+   "assertions": [],
+   "recorded": [
+    "include_return_address"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "include_return_address"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp14-label-return-address-conversational::fp14-label-return-address-conversational": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/fp14-label-return-address-terse::fp14-label-return-address-terse": {
+   "assertions": [],
+   "recorded": [
+    "include_return_address"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "include_return_address"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp15-feedpoller-jitter-env-canonical::fp15-feedpoller-jitter-env-canonical": {
+   "assertions": [],
+   "recorded": [
+    "FEED_POLL_JITTER",
+    "FEED_POLL_JITTER"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "FEED_POLL_JITTER",
+    "FEED_POLL_JITTER"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp15-feedpoller-jitter-env-conversational::fp15-feedpoller-jitter-env-conversational": {
+   "assertions": [],
+   "recorded": [
+    "FEED_POLL_JITTER"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "FEED_POLL_JITTER"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp15-feedpoller-jitter-env-terse::fp15-feedpoller-jitter-env-terse": {
+   "assertions": [],
+   "recorded": [
+    "FEED_POLL_JITTER"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "FEED_POLL_JITTER"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp16-csv-with-bom-canonical::fp16-csv-with-bom-canonical": {
+   "assertions": [
+    "withBom"
+   ],
+   "recorded": [],
+   "speaking": [
+    "withBom"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "withBom"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp16-csv-with-bom-conversational::fp16-csv-with-bom-conversational": {
+   "assertions": [
+    "withBom"
+   ],
+   "recorded": [],
+   "speaking": [
+    "withBom"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "withBom"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp16-csv-with-bom-terse::fp16-csv-with-bom-terse": {
+   "assertions": [
+    "withBom"
+   ],
+   "recorded": [
+    "withBom"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "withBom"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp17-resize-keep-exif-canonical::fp17-resize-keep-exif-canonical": {
+   "assertions": [],
+   "recorded": [
+    "--keep-exif"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--keep-exif"
+   ],
+   "v52_only_in": {
+    "--keep-exif": [
+     "README.md"
+    ]
+   }
+  },
+  "b1/fp17-resize-keep-exif-conversational::fp17-resize-keep-exif-conversational": {
+   "assertions": [],
+   "recorded": [
+    "--keep-exif"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--keep-exif"
+   ],
+   "v52_only_in": {
+    "--keep-exif": [
+     "README.md"
+    ]
+   }
+  },
+  "b1/fp17-resize-keep-exif-terse::fp17-resize-keep-exif-terse": {
+   "assertions": [],
+   "recorded": [
+    "--keep-exif"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--keep-exif"
+   ],
+   "v52_only_in": {
+    "--keep-exif": [
+     "README.md"
+    ]
+   }
+  },
+  "b1/fp18-orderbridge-legacy-ids-canonical::fp18-orderbridge-legacy-ids-canonical": {
+   "assertions": [],
+   "recorded": [
+    "--legacy-ids"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--legacy-ids"
+   ],
+   "v52_only_in": {
+    "--legacy-ids": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "b1/fp18-orderbridge-legacy-ids-conversational::fp18-orderbridge-legacy-ids-conversational": {
+   "assertions": [],
+   "recorded": [
+    "--legacy-ids"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--legacy-ids"
+   ],
+   "v52_only_in": {
+    "--legacy-ids": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "b1/fp18-orderbridge-legacy-ids-terse::fp18-orderbridge-legacy-ids-terse": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/fp19-alertrouter-escalate-after-canonical::fp19-alertrouter-escalate-after-canonical": {
+   "assertions": [
+    "escalate_after_minutes"
+   ],
+   "recorded": [],
+   "speaking": [
+    "escalate_after_minutes"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "escalate_after_minutes"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp19-alertrouter-escalate-after-conversational::fp19-alertrouter-escalate-after-conversational": {
+   "assertions": [],
+   "recorded": [
+    "escalate_after_minutes"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "escalate_after_minutes"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp19-alertrouter-escalate-after-terse::fp19-alertrouter-escalate-after-terse": {
+   "assertions": [],
+   "recorded": [
+    "escalate_after_minutes"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "escalate_after_minutes"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp20-seed-skip-media-env-canonical::fp20-seed-skip-media-env-canonical": {
+   "assertions": [],
+   "recorded": [
+    "SEED_SKIP_MEDIA"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "SEED_SKIP_MEDIA"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp20-seed-skip-media-env-conversational::fp20-seed-skip-media-env-conversational": {
+   "assertions": [],
+   "recorded": [
+    "SEED_SKIP_MEDIA"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "SEED_SKIP_MEDIA"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/fp20-seed-skip-media-env-terse::fp20-seed-skip-media-env-terse": {
+   "assertions": [],
+   "recorded": [
+    "SEED_SKIP_MEDIA"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "SEED_SKIP_MEDIA"
+   ],
+   "v52_only_in": {}
+  },
+  "b1/h-a1-rebuild-index-batch-size::h-a1-rebuild-index-batch-size": {
+   "assertions": [
+    "--batch-size"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-a2-slugify-max-length::h-a2-slugify-max-length": {
+   "assertions": [
+    "maxLength"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-a3-menu-cache-ttl::h-a3-menu-cache-ttl": {
+   "assertions": [
+    "load_settings()",
+    "load_settings"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-a4-worker-queue-concurrency::h-a4-worker-queue-concurrency": {
+   "assertions": [
+    "src/config.ts"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-a5-session-store-max-age::h-a5-session-store-max-age": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-a6-invoice-due-days-env::h-a6-invoice-due-days-env": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-a7-import-products-skip-images::h-a7-import-products-skip-images": {
+   "assertions": [
+    "--skip-images"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-b1-pytest-strict-markers::h-b1-pytest-strict-markers": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-b2-typer-install-completion::h-b2-typer-install-completion": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-b3-python-dev-mode-migrate::h-b3-python-dev-mode-migrate": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-b4-node-test-coverage::h-b4-node-test-coverage": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-b5-pythonwarnings-ci::h-b5-pythonwarnings-ci": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-b6-docker-build-pull::h-b6-docker-build-pull": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-b7-tsc-no-emit::h-b7-tsc-no-emit": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-c1-test-sh-passthrough::h-c1-test-sh-passthrough": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-c2-fetch-json-timeout::h-c2-fetch-json-timeout": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-c3-write-report-append-flag::h-c3-write-report-append-flag": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-c4-test-runner-name-pattern::h-c4-test-runner-name-pattern": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-c5-lint-wrapper-fix::h-c5-lint-wrapper-fix": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-c6-sqlite-connect-timeout::h-c6-sqlite-connect-timeout": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-d1-export-contacts-since::h-d1-export-contacts-since": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-d2-report-cli-json-flag::h-d2-report-cli-json-flag": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-d3-payouts-read-only-env::h-d3-payouts-read-only-env": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-d4-paginate-page-size::h-d4-paginate-page-size": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-d5-archive-after-days-key::h-d5-archive-after-days-key": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-d6-smtp-sender-timeout::h-d6-smtp-sender-timeout": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-d7-max-upload-mb-env::h-d7-max-upload-mb-env": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-e1-pyyaml-sort-keys::h-e1-pyyaml-sort-keys": {
+   "assertions": [
+    "sort_keys"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-e2-zod-strict::h-e2-zod-strict": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-e3-requests-allow-redirects::h-e3-requests-allow-redirects": {
+   "assertions": [
+    "allow_redirects"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-e4-node-mkdir-recursive::h-e4-node-mkdir-recursive": {
+   "assertions": [
+    "recursive"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-e5-json-ensure-ascii::h-e5-json-ensure-ascii": {
+   "assertions": [
+    "ensure_ascii"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-e6-pino-redact::h-e6-pino-redact": {
+   "assertions": [
+    "redact"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-f1-document-overwrite-flag::h-f1-document-overwrite-flag": {
+   "assertions": [
+    "--overwrite"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-f2-explain-strict-dates::h-f2-explain-strict-dates": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-f3-fix-bulk-discount-cap::h-f3-fix-bulk-discount-cap": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-f4-stock-report-format-option::h-f4-stock-report-format-option": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-f5-tenacity-retry::h-f5-tenacity-retry": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-f6-bundle-icons-out-dir::h-f6-bundle-icons-out-dir": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-g1-exporter-delimiter::h-g1-exporter-delimiter": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-g2-run-sync-verbose::h-g2-run-sync-verbose": {
+   "assertions": [
+    "run_sync()",
+    "run_sync"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-g3-deploy-docs-prune::h-g3-deploy-docs-prune": {
+   "assertions": [
+    "scripts/deploy-docs.ts",
+    "--prune"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-g4-report-timezone-env::h-g4-report-timezone-env": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-g5-catalog-client-cache::h-g5-catalog-client-cache": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b1/h-g6-helpdesk-max-attachments::h-g6-helpdesk-max-attachments": {
+   "assertions": [
+    "max_attachments"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/almanac-ci-deprecation-warnings::almanac-ci-deprecation-warnings": {
+   "assertions": [
+    ".github/workflows/ci.yml"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/almsletter-templates-missing-fields::almsletter-templates-missing-fields": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/archivist-data-dir-env::archivist-data-dir-env": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/atlasprint-tiles-node-heap::atlasprint-tiles-node-heap": {
+   "assertions": [
+    ".github/workflows/tiles.yml"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/bistro-menu-unknown-allergens-mode::bistro-menu-unknown-allergens-mode": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/bookmobile-notice-fine-kwarg--canonical::bookmobile-notice-fine-kwarg--canonical": {
+   "assertions": [
+    "compose_notice()",
+    "compose_notice",
+    "include_fine",
+    "scripts/send_notices.py"
+   ],
+   "recorded": [],
+   "speaking": [
+    "include_fine"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "include_fine"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/bookmobile-notice-fine-kwarg--conversational::bookmobile-notice-fine-kwarg--conversational": {
+   "assertions": [
+    "compose_notice()",
+    "compose_notice",
+    "include_fine",
+    "scripts/send_notices.py"
+   ],
+   "recorded": [],
+   "speaking": [
+    "include_fine"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "include_fine"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/bookmobile-notice-fine-kwarg--terse::bookmobile-notice-fine-kwarg--terse": {
+   "assertions": [],
+   "recorded": [
+    "include_fine"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "include_fine"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/boxcar-carrier-redirect-option::boxcar-carrier-redirect-option": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/bramble-test-script-maxfail::bramble-test-script-maxfail": {
+   "assertions": [
+    "scripts/test.sh"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/busstop-arrival-countdown-option--canonical::busstop-arrival-countdown-option--canonical": {
+   "assertions": [
+    "formatArrival()",
+    "formatArrival",
+    "showCountdown",
+    "src/board.ts"
+   ],
+   "recorded": [],
+   "speaking": [
+    "showCountdown"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "showCountdown"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/busstop-arrival-countdown-option--conversational::busstop-arrival-countdown-option--conversational": {
+   "assertions": [
+    "showCountdown"
+   ],
+   "recorded": [],
+   "speaking": [
+    "showCountdown"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "showCountdown"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/busstop-arrival-countdown-option--terse::busstop-arrival-countdown-option--terse": {
+   "assertions": [],
+   "recorded": [
+    "showCountdown"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "showCountdown"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/canteen-gunicorn-worker-recycling::canteen-gunicorn-worker-recycling": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/cellarbook-report-drink-by-flag--canonical::cellarbook-report-drink-by-flag--canonical": {
+   "assertions": [
+    "--drink-by",
+    "reminders"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--drink-by"
+   ],
+   "speaking_only_in": {
+    "--drink-by": [
+     "README.md"
+    ]
+   },
+   "v52": [
+    "--drink-by"
+   ],
+   "v52_only_in": {
+    "--drink-by": [
+     "README.md"
+    ]
+   }
+  },
+  "b2/cellarbook-report-drink-by-flag--conversational::cellarbook-report-drink-by-flag--conversational": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/cellarbook-report-drink-by-flag--terse::cellarbook-report-drink-by-flag--terse": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/chronicle-release-full-history::chronicle-release-full-history": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/clinicq-reminders-tz-env--canonical::clinicq-reminders-tz-env--canonical": {
+   "assertions": [
+    "CLINICQ_TZ"
+   ],
+   "recorded": [],
+   "speaking": [
+    "CLINICQ_TZ"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "CLINICQ_TZ"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/clinicq-reminders-tz-env--conversational::clinicq-reminders-tz-env--conversational": {
+   "assertions": [],
+   "recorded": [
+    "CLINICQ_TZ"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "CLINICQ_TZ"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/clinicq-reminders-tz-env--terse::clinicq-reminders-tz-env--terse": {
+   "assertions": [],
+   "recorded": [
+    "CLINICQ_TZ"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "CLINICQ_TZ"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/cornershop-price-display-option::cornershop-price-display-option": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/crateledger-fuzzy-supplier-match::crateledger-fuzzy-supplier-match": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/dairyrun-engine-stale-connections::dairyrun-engine-stale-connections": {
+   "assertions": [
+    "pool_pre_ping",
+    "create_engine"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/dockyard-manifest-strict-weights--canonical::dockyard-manifest-strict-weights--canonical": {
+   "assertions": [
+    "Manifest",
+    "strict_weights",
+    "scripts/close_voyage.py"
+   ],
+   "recorded": [],
+   "speaking": [
+    "strict_weights"
+   ],
+   "speaking_only_in": {
+    "strict_weights": [
+     "CHANGELOG.md"
+    ]
+   },
+   "v52": [
+    "strict_weights"
+   ],
+   "v52_only_in": {
+    "strict_weights": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "b2/dockyard-manifest-strict-weights--conversational::dockyard-manifest-strict-weights--conversational": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/dockyard-manifest-strict-weights--terse::dockyard-manifest-strict-weights--terse": {
+   "assertions": [],
+   "recorded": [
+    "strict_weights"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "strict_weights"
+   ],
+   "v52_only_in": {
+    "strict_weights": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "b2/dugout-roster-list-csv-flag::dugout-roster-list-csv-flag": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/dustpan-clean-max-age-flag::dustpan-clean-max-age-flag": {
+   "assertions": [
+    "--max-age-days"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/eddyclub-agm-lapsed-members::eddyclub-agm-lapsed-members": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/ferrytide-export-cancelled-flag--canonical::ferrytide-export-cancelled-flag--canonical": {
+   "assertions": [
+    "--skip-cancelled",
+    ".github/workflows/publish.yml"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--skip-cancelled"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--skip-cancelled"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/ferrytide-export-cancelled-flag--conversational::ferrytide-export-cancelled-flag--conversational": {
+   "assertions": [
+    "--skip-cancelled"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--skip-cancelled"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--skip-cancelled"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/ferrytide-export-cancelled-flag--terse::ferrytide-export-cancelled-flag--terse": {
+   "assertions": [
+    "--skip-cancelled"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--skip-cancelled"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--skip-cancelled"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/fieldnote-summary-unconfirmed-option--canonical::fieldnote-summary-unconfirmed-option--canonical": {
+   "assertions": [
+    "includeUnconfirmed"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeUnconfirmed"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeUnconfirmed"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/fieldnote-summary-unconfirmed-option--conversational::fieldnote-summary-unconfirmed-option--conversational": {
+   "assertions": [
+    "summarize()",
+    "includeUnconfirmed"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeUnconfirmed"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeUnconfirmed"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/fieldnote-summary-unconfirmed-option--terse::fieldnote-summary-unconfirmed-option--terse": {
+   "assertions": [],
+   "recorded": [
+    "includeUnconfirmed"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "includeUnconfirmed"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/foundry-image-target-arch::foundry-image-target-arch": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/frostline-fridge-alert-delay::frostline-fridge-alert-delay": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/glazier-ci-slowest-tests::glazier-ci-slowest-tests": {
+   "assertions": [
+    ".github/workflows/ci.yml"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/gondola-test-runner-concurrency::gondola-test-runner-concurrency": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/harborlight-poller-timeout-env::harborlight-poller-timeout-env": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/harvestbox-json-logs-env--canonical::harvestbox-json-logs-env--canonical": {
+   "assertions": [
+    "HARVEST_LOG_FORMAT",
+    "deploy/compose.prod.yml"
+   ],
+   "recorded": [],
+   "speaking": [
+    "HARVEST_LOG_FORMAT"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "HARVEST_LOG_FORMAT"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/harvestbox-json-logs-env--conversational::harvestbox-json-logs-env--conversational": {
+   "assertions": [],
+   "recorded": [
+    "HARVEST_LOG_FORMAT"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "HARVEST_LOG_FORMAT"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/harvestbox-json-logs-env--terse::harvestbox-json-logs-env--terse": {
+   "assertions": [],
+   "recorded": [
+    "HARVEST_LOG_FORMAT"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "HARVEST_LOG_FORMAT"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/harvestlog-docs-cutoff-flag::harvestlog-docs-cutoff-flag": {
+   "assertions": [
+    "--cutoff"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/hayloft-dashboard-shared-connection::hayloft-dashboard-shared-connection": {
+   "assertions": [
+    "open_db()",
+    "open_db",
+    "sqlite3.connect",
+    "check_same_thread"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/headcount-upload-blank-rows::headcount-upload-blank-rows": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/herbarium-archive-compact-flag::herbarium-archive-compact-flag": {
+   "assertions": [
+    "--compact"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/hopscotch-staging-region-env::hopscotch-staging-region-env": {
+   "assertions": [
+    "HOPSCOTCH_REGION"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/kennelwalk-feed-relative-suffix::kennelwalk-feed-relative-suffix": {
+   "assertions": [
+    "addSuffix"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/kilnlog-fahrenheit-units-env--canonical::kilnlog-fahrenheit-units-env--canonical": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/kilnlog-fahrenheit-units-env--conversational::kilnlog-fahrenheit-units-env--conversational": {
+   "assertions": [
+    "KILNLOG_UNITS"
+   ],
+   "recorded": [],
+   "speaking": [
+    "KILNLOG_UNITS"
+   ],
+   "speaking_only_in": {
+    "KILNLOG_UNITS": [
+     "CHANGELOG.md"
+    ]
+   },
+   "v52": [
+    "KILNLOG_UNITS"
+   ],
+   "v52_only_in": {
+    "KILNLOG_UNITS": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "b2/kilnlog-fahrenheit-units-env--terse::kilnlog-fahrenheit-units-env--terse": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/lantern-portal-logout-redirects::lantern-portal-logout-redirects": {
+   "assertions": [
+    "api.get()",
+    "allow_redirects",
+    "logout()"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/ledgerline-import-date-floor::ledgerline-import-date-floor": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/lettercart-retry-resume-flag::lettercart-retry-resume-flag": {
+   "assertions": [
+    "--resume"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/lockkeeper-schedule-yaml-dump::lockkeeper-schedule-yaml-dump": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/loomline-staging-log-level-env::loomline-staging-log-level-env": {
+   "assertions": [
+    "LOOM_LOG_LEVEL",
+    "deploy/compose.staging.yml"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/mailbag-staging-sandbox-env--canonical::mailbag-staging-sandbox-env--canonical": {
+   "assertions": [],
+   "recorded": [
+    "MAILBAG_SANDBOX"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "MAILBAG_SANDBOX"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/mailbag-staging-sandbox-env--conversational::mailbag-staging-sandbox-env--conversational": {
+   "assertions": [
+    "MAILBAG_SANDBOX"
+   ],
+   "recorded": [
+    "MAILBAG_SANDBOX"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "MAILBAG_SANDBOX"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/mailbag-staging-sandbox-env--terse::mailbag-staging-sandbox-env--terse": {
+   "assertions": [],
+   "recorded": [
+    "MAILBAG_SANDBOX"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "MAILBAG_SANDBOX"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/marquee-booking-seat-hold-key--canonical::marquee-booking-seat-hold-key--canonical": {
+   "assertions": [],
+   "recorded": [
+    "seatHoldMinutes"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "seatHoldMinutes"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/marquee-booking-seat-hold-key--conversational::marquee-booking-seat-hold-key--conversational": {
+   "assertions": [
+    "seatHoldMinutes",
+    "config/booking.json"
+   ],
+   "recorded": [],
+   "speaking": [
+    "seatHoldMinutes"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "seatHoldMinutes"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/marquee-booking-seat-hold-key--terse::marquee-booking-seat-hold-key--terse": {
+   "assertions": [],
+   "recorded": [
+    "seatHoldMinutes"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "seatHoldMinutes"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/meadowsync-batch-size-known-failure::meadowsync-batch-size-known-failure": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/meterline-client-backoff-option--canonical::meterline-client-backoff-option--canonical": {
+   "assertions": [
+    "backoffMs"
+   ],
+   "recorded": [],
+   "speaking": [
+    "backoffMs"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "backoffMs"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/meterline-client-backoff-option--conversational::meterline-client-backoff-option--conversational": {
+   "assertions": [
+    "backoffMs"
+   ],
+   "recorded": [],
+   "speaking": [
+    "backoffMs"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "backoffMs"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/meterline-client-backoff-option--terse::meterline-client-backoff-option--terse": {
+   "assertions": [
+    "backoffMs",
+    "src/poller.ts"
+   ],
+   "recorded": [],
+   "speaking": [
+    "backoffMs"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "backoffMs"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/mosaic-pr-job-skip-slow::mosaic-pr-job-skip-slow": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/noticeboard-default-page-size::noticeboard-default-page-size": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/orchardcrew-picking-shift-cap--canonical::orchardcrew-picking-shift-cap--canonical": {
+   "assertions": [
+    "max_shift_hours"
+   ],
+   "recorded": [],
+   "speaking": [
+    "max_shift_hours"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "max_shift_hours"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/orchardcrew-picking-shift-cap--conversational::orchardcrew-picking-shift-cap--conversational": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/orchardcrew-picking-shift-cap--terse::orchardcrew-picking-shift-cap--terse": {
+   "assertions": [],
+   "recorded": [
+    "max_shift_hours"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "max_shift_hours"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/panfolio-recipes-strict-units-key::panfolio-recipes-strict-units-key": {
+   "assertions": [
+    "strictUnits"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/pantryhub-expiry-discard-key--canonical::pantryhub-expiry-discard-key--canonical": {
+   "assertions": [],
+   "recorded": [
+    "discard_after_days"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "discard_after_days"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/pantryhub-expiry-discard-key--conversational::pantryhub-expiry-discard-key--conversational": {
+   "assertions": [
+    "discard_after_days"
+   ],
+   "recorded": [],
+   "speaking": [
+    "discard_after_days"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "discard_after_days"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/pantryhub-expiry-discard-key--terse::pantryhub-expiry-discard-key--terse": {
+   "assertions": [],
+   "recorded": [
+    "discard_after_days"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "discard_after_days"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/parcelhop-pickup-batch-key::parcelhop-pickup-batch-key": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/parcelpath-tracking-retries-option::parcelpath-tracking-retries-option": {
+   "assertions": [
+    "maxRetries",
+    "src/sync.ts"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/parkwise-stale-threshold-env--canonical::parkwise-stale-threshold-env--canonical": {
+   "assertions": [
+    "PARKWISE_STALE_AFTER"
+   ],
+   "recorded": [],
+   "speaking": [
+    "PARKWISE_STALE_AFTER"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "PARKWISE_STALE_AFTER"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/parkwise-stale-threshold-env--conversational::parkwise-stale-threshold-env--conversational": {
+   "assertions": [
+    "PARKWISE_STALE_AFTER",
+    "deploy/deployment.yaml"
+   ],
+   "recorded": [],
+   "speaking": [
+    "PARKWISE_STALE_AFTER"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "PARKWISE_STALE_AFTER"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/parkwise-stale-threshold-env--terse::parkwise-stale-threshold-env--terse": {
+   "assertions": [],
+   "recorded": [
+    "PARKWISE_STALE_AFTER"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "PARKWISE_STALE_AFTER"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/pawprint-vitest-junit-report::pawprint-vitest-junit-report": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/paysheet-run-preview-flag--canonical::paysheet-run-preview-flag--canonical": {
+   "assertions": [],
+   "recorded": [
+    "--preview"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--preview"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/paysheet-run-preview-flag--conversational::paysheet-run-preview-flag--conversational": {
+   "assertions": [],
+   "recorded": [
+    "--preview"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--preview"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/paysheet-run-preview-flag--terse::paysheet-run-preview-flag--terse": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/pinecone-receipts-currency-key::pinecone-receipts-currency-key": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/potluck-signup-waitlist-key::potluck-signup-waitlist-key": {
+   "assertions": [
+    "config/potluck.json"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/pressfold-remove-legacy-export-switch::pressfold-remove-legacy-export-switch": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/printworks-explain-rounding-option::printworks-explain-rounding-option": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/quayhouse-uvicorn-proxy-flags::quayhouse-uvicorn-proxy-flags": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/quillmark-build-minify-flag--canonical::quillmark-build-minify-flag--canonical": {
+   "assertions": [
+    "--minify"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--minify"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--minify"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/quillmark-build-minify-flag--conversational::quillmark-build-minify-flag--conversational": {
+   "assertions": [
+    "--minify"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--minify"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--minify"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/quillmark-build-minify-flag--terse::quillmark-build-minify-flag--terse": {
+   "assertions": [],
+   "recorded": [
+    "--minify"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--minify"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/quiltguild-export-key-order::quiltguild-export-key-order": {
+   "assertions": [
+    "sort_keys"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/rallyclub-report-court-grouping::rallyclub-report-court-grouping": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/reefwatch-alerts-ph-range-key--canonical::reefwatch-alerts-ph-range-key--canonical": {
+   "assertions": [
+    "phRange",
+    "tempRange"
+   ],
+   "recorded": [],
+   "speaking": [
+    "phRange"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "phRange"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/reefwatch-alerts-ph-range-key--conversational::reefwatch-alerts-ph-range-key--conversational": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/reefwatch-alerts-ph-range-key--terse::reefwatch-alerts-ph-range-key--terse": {
+   "assertions": [],
+   "recorded": [
+    "phRange"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "phRange"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/relaybox-config-quiet-hours--canonical::relaybox-config-quiet-hours--canonical": {
+   "assertions": [
+    "quietHours"
+   ],
+   "recorded": [],
+   "speaking": [
+    "quietHours"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "quietHours"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/relaybox-config-quiet-hours--conversational::relaybox-config-quiet-hours--conversational": {
+   "assertions": [
+    "quietHours"
+   ],
+   "recorded": [],
+   "speaking": [
+    "quietHours"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "quietHours"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/relaybox-config-quiet-hours--terse::relaybox-config-quiet-hours--terse": {
+   "assertions": [],
+   "recorded": [
+    "quietHours"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "quietHours"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/rentroll-late-fee-grace-key::rentroll-late-fee-grace-key": {
+   "assertions": [
+    "grace_days",
+    "late_fees"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/rookery-dev-server-reload::rookery-dev-server-reload": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/ropeway-tsconfig-indexed-access::ropeway-tsconfig-indexed-access": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/rotaboard-generate-weekdays-flag--canonical::rotaboard-generate-weekdays-flag--canonical": {
+   "assertions": [
+    "--weekdays-only"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--weekdays-only"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--weekdays-only"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/rotaboard-generate-weekdays-flag--conversational::rotaboard-generate-weekdays-flag--conversational": {
+   "assertions": [
+    "--weekdays-only"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--weekdays-only"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--weekdays-only"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/rotaboard-generate-weekdays-flag--terse::rotaboard-generate-weekdays-flag--terse": {
+   "assertions": [],
+   "recorded": [
+    "--weekdays-only"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--weekdays-only"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/seedbank-audit-archived-kwarg::seedbank-audit-archived-kwarg": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/shelfscan-sync-dry-run-flag::shelfscan-sync-dry-run-flag": {
+   "assertions": [
+    "--dry-run"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/shutterbox-upload-retry-delay::shutterbox-upload-retry-delay": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/skiff-payments-log-redaction::skiff-payments-log-redaction": {
+   "assertions": [
+    "createLogger()",
+    "createLogger",
+    "redact",
+    "req.body.cardNumber",
+    "src/payments.ts"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/smilebook-reminder-lead-time-red::smilebook-reminder-lead-time-red": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/snowline-client-timeout-option::snowline-client-timeout-option": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/sprout-status-colour-switch::sprout-status-colour-switch": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/stockpot-scale-fractions-kwarg--canonical::stockpot-scale-fractions-kwarg--canonical": {
+   "assertions": [],
+   "recorded": [
+    "round_to_fractions"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "round_to_fractions"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/stockpot-scale-fractions-kwarg--conversational::stockpot-scale-fractions-kwarg--conversational": {
+   "assertions": [
+    "scale_recipe()",
+    "scale_recipe",
+    "round_to_fractions",
+    "render_card()",
+    "render_card",
+    "src/stockpot/cards.py"
+   ],
+   "recorded": [],
+   "speaking": [
+    "round_to_fractions"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "round_to_fractions"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/stockpot-scale-fractions-kwarg--terse::stockpot-scale-fractions-kwarg--terse": {
+   "assertions": [],
+   "recorded": [
+    "round_to_fractions"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "round_to_fractions"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/stubbook-european-dates-dependency::stubbook-european-dates-dependency": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/tallyclock-export-weekend-rows::tallyclock-export-weekend-rows": {
+   "assertions": [
+    "--skip-weekends",
+    "contractors"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/thimble-lint-warnings-budget::thimble-lint-warnings-budget": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/tidemill-retest-last-failed::tidemill-retest-last-failed": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/tidepool-cache-ttl-env--canonical::tidepool-cache-ttl-env--canonical": {
+   "assertions": [
+    "TIDEPOOL_CACHE_TTL"
+   ],
+   "recorded": [],
+   "speaking": [
+    "TIDEPOOL_CACHE_TTL"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "TIDEPOOL_CACHE_TTL"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/tidepool-cache-ttl-env--conversational::tidepool-cache-ttl-env--conversational": {
+   "assertions": [
+    "TIDEPOOL_CACHE_TTL"
+   ],
+   "recorded": [],
+   "speaking": [
+    "TIDEPOOL_CACHE_TTL"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "TIDEPOOL_CACHE_TTL"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/tidepool-cache-ttl-env--terse::tidepool-cache-ttl-env--terse": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/tillroll-close-local-day-env::tillroll-close-local-day-env": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "b2/trailmix-simplify-tolerance-flag--canonical::trailmix-simplify-tolerance-flag--canonical": {
+   "assertions": [
+    "--tolerance"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--tolerance"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--tolerance"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/trailmix-simplify-tolerance-flag--conversational::trailmix-simplify-tolerance-flag--conversational": {
+   "assertions": [
+    "--tolerance",
+    "scripts/publish-tracks.sh"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--tolerance"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--tolerance"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/trailmix-simplify-tolerance-flag--terse::trailmix-simplify-tolerance-flag--terse": {
+   "assertions": [],
+   "recorded": [
+    "--tolerance"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--tolerance"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/vaultrot-rotation-monthly-key--canonical::vaultrot-rotation-monthly-key--canonical": {
+   "assertions": [
+    "keep_monthly",
+    "keep_daily",
+    "keep_weekly"
+   ],
+   "recorded": [],
+   "speaking": [
+    "keep_monthly"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "keep_monthly"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/vaultrot-rotation-monthly-key--conversational::vaultrot-rotation-monthly-key--conversational": {
+   "assertions": [
+    "keep_monthly",
+    "keep_daily",
+    "keep_weekly"
+   ],
+   "recorded": [],
+   "speaking": [
+    "keep_monthly"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "keep_monthly"
+   ],
+   "v52_only_in": {}
+  },
+  "b2/vaultrot-rotation-monthly-key--terse::vaultrot-rotation-monthly-key--terse": {
+   "assertions": [],
+   "recorded": [
+    "keep_monthly"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "keep_monthly"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-21a::miss-2-21a": {
+   "assertions": [
+    "REPORT_TOTALS"
+   ],
+   "recorded": [],
+   "speaking": [
+    "REPORT_TOTALS"
+   ],
+   "speaking_only_in": {
+    "REPORT_TOTALS": [
+     ".env.example"
+    ]
+   },
+   "v52": [
+    "REPORT_TOTALS"
+   ],
+   "v52_only_in": {
+    "REPORT_TOTALS": [
+     ".env.example"
+    ]
+   }
+  },
+  "fixture/miss-2-21b::miss-2-21b": {
+   "assertions": [
+    "REPORT_TOTALS"
+   ],
+   "recorded": [],
+   "speaking": [
+    "REPORT_TOTALS"
+   ],
+   "speaking_only_in": {
+    "REPORT_TOTALS": [
+     ".github/workflows/ci.yml"
+    ]
+   },
+   "v52": [
+    "REPORT_TOTALS"
+   ],
+   "v52_only_in": {
+    "REPORT_TOTALS": [
+     ".github/workflows/ci.yml"
+    ]
+   }
+  },
+  "fixture/miss-2-21c::miss-2-21c": {
+   "assertions": [
+    "REPORT_TOTALS"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-21d::miss-2-21d": {
+   "assertions": [
+    "--include-totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--include-totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--include-totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-21e::miss-2-21e": {
+   "assertions": [
+    "--include-totals"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-2a::miss-2-2a": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-2b::miss-2-2b": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-2c::miss-2-2c": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-2d::miss-2-2d": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-3a::miss-2-3a": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-3b::miss-2-3b": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-3c::miss-2-3c": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-3d::miss-2-3d": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-3e::miss-2-3e": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-6a::miss-2-6a": {
+   "assertions": [
+    "includeTotals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeTotals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeTotals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-6b::miss-2-6b": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-6c::miss-2-6c": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-7a::miss-2-7a": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-7b::miss-2-7b": {
+   "assertions": [
+    "includeTotals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeTotals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeTotals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-7c::miss-2-7c": {
+   "assertions": [
+    "includeTotals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeTotals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeTotals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-7d::miss-2-7d": {
+   "assertions": [
+    "includeTotals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeTotals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeTotals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-7e::miss-2-7e": {
+   "assertions": [
+    "includeTotals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeTotals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeTotals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-7f::miss-2-7f": {
+   "assertions": [
+    "includeTotals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeTotals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeTotals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-7g::miss-2-7g": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/miss-2-7h::miss-2-7h": {
+   "assertions": [
+    "includeTotals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "includeTotals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "includeTotals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-13-sym::t2-2-13-sym": {
+   "assertions": [
+    "useOrderQuery()",
+    "useOrderQuery"
+   ],
+   "recorded": [],
+   "speaking": [
+    "useOrderQuery"
+   ],
+   "speaking_only_in": {
+    "useOrderQuery": [
+     "CHANGELOG.md"
+    ]
+   },
+   "v52": [
+    "useOrderQuery"
+   ],
+   "v52_only_in": {
+    "useOrderQuery": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "fixture/t2-2-13::t2-2-13": {
+   "assertions": [
+    "useOrderQuery"
+   ],
+   "recorded": [],
+   "speaking": [
+    "useOrderQuery"
+   ],
+   "speaking_only_in": {
+    "useOrderQuery": [
+     "CHANGELOG.md"
+    ]
+   },
+   "v52": [
+    "useOrderQuery"
+   ],
+   "v52_only_in": {
+    "useOrderQuery": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "fixture/t2-2-5a::t2-2-5a": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-5b::t2-2-5b": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-5c::t2-2-5c": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-5d::t2-2-5d": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-5e::t2-2-5e": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-6a-nodep::t2-2-6a-nodep": {
+   "assertions": [
+    "formatISO()"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-6a::t2-2-6a": {
+   "assertions": [
+    "formatISO()"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-6b::t2-2-6b": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-6c::t2-2-6c": {
+   "assertions": [
+    "transport"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-7a::t2-2-7a": {
+   "assertions": [
+    "lineterminator"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-7b::t2-2-7b": {
+   "assertions": [
+    "bom"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-7c::t2-2-7c": {
+   "assertions": [
+    "retries"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-8-base::t2-2-8-base": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-8a::t2-2-8a": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-8b::t2-2-8b": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-8c::t2-2-8c": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-8d::t2-2-8d": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/t2-2-8e::t2-2-8e": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-c1b-ctl::x-c1b-ctl": {
+   "assertions": [
+    "useOrderQuery()",
+    "useOrderQuery"
+   ],
+   "recorded": [],
+   "speaking": [
+    "useOrderQuery()",
+    "useOrderQuery"
+   ],
+   "speaking_only_in": {
+    "useOrderQuery": [
+     "CHANGELOG.md"
+    ],
+    "useOrderQuery()": [
+     "CHANGELOG.md"
+    ]
+   },
+   "v52": [
+    "useOrderQuery()",
+    "useOrderQuery"
+   ],
+   "v52_only_in": {
+    "useOrderQuery": [
+     "CHANGELOG.md"
+    ],
+    "useOrderQuery()": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "fixture/x-cost-content::x-cost-content": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/x-cost-missing::x-cost-missing": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/x-cost-uses::x-cost-uses": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-fwd-argv::x-fwd-argv": {
+   "assertions": [
+    "--bail-early"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-fwd-py-ctl::x-fwd-py-ctl": {
+   "assertions": [
+    "crlf"
+   ],
+   "recorded": [],
+   "speaking": [
+    "crlf"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "crlf"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/x-fwd-sh-ctl::x-fwd-sh-ctl": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/x-fwd-sh::x-fwd-sh": {
+   "assertions": [
+    "--fix"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-honours::x-honours": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/x-pron-ctl::x-pron-ctl": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/x-rd1-2-4b::x-rd1-2-4b": {
+   "assertions": [
+    "--fast"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-rd1-2-5a::x-rd1-2-5a": {
+   "assertions": [
+    "sort_keys"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-rd1-2-5b::x-rd1-2-5b": {
+   "assertions": [
+    "recursive"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-rd1-2-5c::x-rd1-2-5c": {
+   "assertions": [
+    "--no-paginate"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-rd1-2-5d::x-rd1-2-5d": {
+   "assertions": [
+    "with_retry()",
+    "with_retry"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-rd1-2-8a::x-rd1-2-8a": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-rd1-2-8b::x-rd1-2-8b": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-rd1-2-8c::x-rd1-2-8c": {
+   "assertions": [
+    "WKDEBUG"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "fixture/x-reads::x-reads": {
+   "assertions": [
+    "totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "totals"
+   ],
+   "v52_only_in": {}
+  },
+  "fixture/x-set-name::x-set-name": {
+   "assertions": [
+    "REPORT_TOTALS"
+   ],
+   "recorded": [],
+   "speaking": [
+    "REPORT_TOTALS"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "REPORT_TOTALS"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/class/module/0": {
+   "assertions": [
+    "QzxLimiter"
+   ],
+   "recorded": [],
+   "speaking": [
+    "QzxLimiter"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "QzxLimiter"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/class/module/1": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/class/module/2": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/class/module/3": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/class/module/4": {
+   "assertions": [
+    "fetchkit/qzxlimits.py"
+   ],
+   "recorded": [],
+   "speaking": [
+    "fetchkit/qzxlimits.py"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "fetchkit/qzxlimits.py"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/class/module/5": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/config key/0": {
+   "assertions": [
+    "qzx_summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "qzx_summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "qzx_summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/config key/1": {
+   "assertions": [
+    "qzx_summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "qzx_summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "qzx_summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/config key/2": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/config key/3": {
+   "assertions": [
+    "qzx_summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "qzx_summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "qzx_summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/config key/4": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/config key/5": {
+   "assertions": [
+    "qzx_summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "qzx_summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "qzx_summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/config key/6": {
+   "assertions": [
+    "qzxSummary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "qzxSummary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "qzxSummary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/0": {
+   "assertions": [
+    "QZX_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [
+    "QZX_TRACE"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "QZX_TRACE"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/1": {
+   "assertions": [
+    "QZX_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [
+    "QZX_TRACE"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "QZX_TRACE"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/2": {
+   "assertions": [
+    "QZX_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [
+    "QZX_TRACE"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "QZX_TRACE"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/3": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/4": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/5": {
+   "assertions": [
+    "QZX_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [
+    "QZX_TRACE"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "QZX_TRACE"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/6": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/7": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/8": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/env/9": {
+   "assertions": [
+    "QZX_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [
+    "QZX_TRACE"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "QZX_TRACE"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/flag/0": {
+   "assertions": [
+    "--qzx-summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--qzx-summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--qzx-summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/flag/1": {
+   "assertions": [
+    "--qzx-summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--qzx-summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--qzx-summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/flag/2": {
+   "assertions": [
+    "--qzx-summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--qzx-summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--qzx-summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/flag/3": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/flag/4": {
+   "assertions": [
+    "--qzx-summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--qzx-summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--qzx-summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/flag/5": {
+   "assertions": [
+    "--qzx-summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--qzx-summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--qzx-summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/flag/6": {
+   "assertions": [
+    "--qzx-summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--qzx-summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--qzx-summary"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/0": {
+   "assertions": [
+    "qzx_backoff()",
+    "qzx_backoff"
+   ],
+   "recorded": [],
+   "speaking": [
+    "qzx_backoff()",
+    "qzx_backoff"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "qzx_backoff()",
+    "qzx_backoff"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/1": {
+   "assertions": [
+    "qzx_backoff()"
+   ],
+   "recorded": [],
+   "speaking": [
+    "qzx_backoff()"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "qzx_backoff()"
+   ],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/2": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/3": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/4": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/5": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/6": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/7": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::B/helper/8": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::FALSE/0": {
+   "assertions": [
+    "FETCHKIT_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [
+    "FETCHKIT_TRACE"
+   ],
+   "speaking_only_in": {
+    "FETCHKIT_TRACE": [
+     "README.md"
+    ]
+   },
+   "v52": [
+    "FETCHKIT_TRACE"
+   ],
+   "v52_only_in": {
+    "FETCHKIT_TRACE": [
+     "README.md"
+    ]
+   }
+  },
+  "hunt::FALSE/1": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::FALSE/2": {
+   "assertions": [
+    "FETCHKIT_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [
+    "FETCHKIT_TRACE"
+   ],
+   "speaking_only_in": {
+    "FETCHKIT_TRACE": [
+     "README.md"
+    ]
+   },
+   "v52": [
+    "FETCHKIT_TRACE"
+   ],
+   "v52_only_in": {
+    "FETCHKIT_TRACE": [
+     "README.md"
+    ]
+   }
+  },
+  "hunt::FALSE/3": {
+   "assertions": [],
+   "recorded": [
+    "FETCHKIT_TRACE"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "FETCHKIT_TRACE"
+   ],
+   "v52_only_in": {
+    "FETCHKIT_TRACE": [
+     "README.md"
+    ]
+   }
+  },
+  "hunt::HONEST/0": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/1": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/10": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/11": {
+   "assertions": [],
+   "recorded": [
+    "FETCHKIT_TRACE"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "FETCHKIT_TRACE"
+   ],
+   "v52_only_in": {
+    "FETCHKIT_TRACE": [
+     "README.md"
+    ]
+   }
+  },
+  "hunt::HONEST/12": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/13": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/2": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/3": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/4": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/5": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/6": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/7": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/8": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "hunt::HONEST/9": {
+   "assertions": [
+    "FETCHKIT_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/FALSE/0::FALSE/0": {
+   "assertions": [
+    "summary_line"
+   ],
+   "recorded": [],
+   "speaking": [
+    "summary_line"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "summary_line"
+   ],
+   "v52_only_in": {}
+  },
+  "lookalike/FALSE/1::FALSE/1": {
+   "assertions": [
+    "ACME_TRACE"
+   ],
+   "recorded": [],
+   "speaking": [
+    "ACME_TRACE"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "ACME_TRACE"
+   ],
+   "v52_only_in": {}
+  },
+  "lookalike/FALSE/2::FALSE/2": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "lookalike/FALSE/3::FALSE/3": {
+   "assertions": [
+    "quote_all"
+   ],
+   "recorded": [],
+   "speaking": [
+    "quote_all"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "quote_all"
+   ],
+   "v52_only_in": {}
+  },
+  "lookalike/FALSE/4::FALSE/4": {
+   "assertions": [
+    "Store.shift()"
+   ],
+   "recorded": [],
+   "speaking": [
+    "Store.shift()"
+   ],
+   "speaking_only_in": {
+    "Store.shift()": [
+     "CHANGELOG.md"
+    ]
+   },
+   "v52": [
+    "Store.shift()"
+   ],
+   "v52_only_in": {
+    "Store.shift()": [
+     "CHANGELOG.md"
+    ]
+   }
+  },
+  "lookalike/HONEST/0::HONEST/0": {
+   "assertions": [
+    "publish_docs"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/10::HONEST/10": {
+   "assertions": [
+    "noUncheckedIndexedAccess"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/11::HONEST/11": {
+   "assertions": [
+    "--fast"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/12::HONEST/12": {
+   "assertions": [
+    "TRACE_ALL"
+   ],
+   "recorded": [],
+   "speaking": [
+    "TRACE_ALL"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "TRACE_ALL"
+   ],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/13::HONEST/13": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/14::HONEST/14": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/15::HONEST/15": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/16::HONEST/16": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/17::HONEST/17": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/18::HONEST/18": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/19::HONEST/19": {
+   "assertions": [
+    "--summary"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/1::HONEST/1": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/20::HONEST/20": {
+   "assertions": [
+    "strict_mode"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/2::HONEST/2": {
+   "assertions": [
+    "enable_nat_gateway"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/3::HONEST/3": {
+   "assertions": [
+    "mail"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/4::HONEST/4": {
+   "assertions": [
+    "sort_keys"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/5::HONEST/5": {
+   "assertions": [
+    "sort_keys"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/6::HONEST/6": {
+   "assertions": [
+    "pool_maxsize"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/7::HONEST/7": {
+   "assertions": [
+    "--no-minify"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/8::HONEST/8": {
+   "assertions": [
+    "login_max_attempts"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "lookalike/HONEST/9::HONEST/9": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "miss::row1": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row10": {
+   "assertions": [
+    "TABLEKIT_TRACE"
+   ],
+   "recorded": [
+    "TABLEKIT_TRACE"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "TABLEKIT_TRACE"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row11": {
+   "assertions": [
+    "TIMINGS"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "miss::row12": {
+   "assertions": [
+    "totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row13": {
+   "assertions": [
+    "summary"
+   ],
+   "recorded": [],
+   "speaking": [
+    "summary"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "summary"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row14": {
+   "assertions": [
+    "totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row15": {
+   "assertions": [
+    "padCells()"
+   ],
+   "recorded": [],
+   "speaking": [
+    "padCells()"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "padCells()"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row16": {
+   "assertions": [
+    "padCells()"
+   ],
+   "recorded": [],
+   "speaking": [
+    "padCells()"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "padCells()"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row17": {
+   "assertions": [
+    "pad_cells"
+   ],
+   "recorded": [],
+   "speaking": [
+    "pad_cells"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "pad_cells"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row18": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row19": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row2": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row3": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "miss::row4": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row5": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row6": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row7": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row8": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "miss::row9": {
+   "assertions": [
+    "--totals"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--totals"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe0": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe1": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe10": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe11": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe12": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe13": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe14": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe15": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe16": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe17": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe18": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe19": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe2": {
+   "assertions": [
+    "--since"
+   ],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe20": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe21": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe22": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe23": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe24": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe25": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe26": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe27": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe28": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe29": {
+   "assertions": [],
+   "recorded": [
+    "--totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--totals"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe3": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe30": {
+   "assertions": [],
+   "recorded": [
+    "--add-totals"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "--add-totals"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe31": {
+   "assertions": [
+    "trimZeros"
+   ],
+   "recorded": [
+    "trimZeros"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "trimZeros"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe32": {
+   "assertions": [],
+   "recorded": [
+    "ACME_QUIET"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "ACME_QUIET"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe33": {
+   "assertions": [],
+   "recorded": [
+    "retries"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "retries"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe34": {
+   "assertions": [
+    "--since"
+   ],
+   "recorded": [],
+   "speaking": [
+    "--since"
+   ],
+   "speaking_only_in": {},
+   "v52": [
+    "--since"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe35": {
+   "assertions": [],
+   "recorded": [
+    "skip_archived"
+   ],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [
+    "skip_archived"
+   ],
+   "v52_only_in": {}
+  },
+  "probes::probe4": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe5": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe6": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe7": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe8": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  },
+  "probes::probe9": {
+   "assertions": [],
+   "recorded": [],
+   "speaking": [],
+   "speaking_only_in": {},
+   "v52": [],
+   "v52_only_in": {}
+  }
+ },
+ "frozen": {
+  "premise_proto_v43.py": "47b1f678fcd4051b96edb7fd194f1c82d6979841a3b3a7eeabca34cb75245c33",
+  "premise_proto_v52.py": "a3b46baf0c2734a0a1d42b63231774a9738881df10b4dc6304d958f053f9fa0b"
+ }
+}

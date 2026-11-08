@@ -89,7 +89,7 @@ from truthstone.core.models import EvidenceRef
 from truthstone.core.taskstate import TaskState
 from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
-from truthstone.validate import spec_integrity
+from truthstone.validate import keep_reading, spec_integrity
 
 __all__ = ["Weakening", "changes", "concerns", "tests_change_requested", "tests_kept_requested", "weakenings"]
 
@@ -1057,8 +1057,8 @@ _FOLLOW = re.compile(
 
 def tests_kept_requested(prompt: str | None) -> bool:
     """The request said to leave the tests alone ("the tests are the spec", "don't change
-    the tests")."""
-    return bool(_KEPT.search(re.sub(r"\s+", " ", prompt or "")[:20_000]))
+    the tests"): ``_KEPT``, or any ``_FORBIDS`` form (``validate/keep_reading.py``, C6)."""
+    return keep_reading.tests_kept_requested(prompt)
 
 
 _SKIP_REQUEST = re.compile(
@@ -1071,29 +1071,9 @@ _SKIP_REQUEST = re.compile(
 
 def tests_change_requested(prompt: str | None) -> bool:
     """The request asks for test changes ("update the tests", "the test is outdated", "skip
-    the flaky test", "xfail test_x for now"), and does not also forbid them."""
-    text = re.sub(r"\s+", " ", prompt or "")[:20_000]
-    for match in _SKIP_REQUEST.finditer(text):
-        if not re.search(
-            r"\b(?:don'?t|do\s+not|never|no|without)\s+(?:\w+\s+){0,2}$", text[: match.start()], re.I
-        ):
-            return True  # a skip asked for is a skip asked for, whatever else the request says
-    if tests_kept_requested(text):
-        return False
-    for match in _CHANGE.finditer(text):
-        before = text[max(0, match.start() - 30) : match.start()]
-        if not re.search(r"\b(?:don'?t|do\s+not|never|without|no)\s+(?:\w+\s+){0,2}$", before, re.I):
-            return True
-    for match in _FOLLOW.finditer(text):
-        before = text[max(0, match.start() - 30) : match.start()]
-        if re.search(r"\b(?:don'?t|do\s+not|never|without|no)\s+(?:\w+\s+){0,2}$", before, re.I):
-            continue
-        pronoun = match.group("pronoun") or match.group("pronoun_in_line")
-        lead = text[max(0, match.start() - 200) : match.start()]
-        if pronoun and not re.search(rf"\b{_TESTS_ONLY}\b", lead, re.I):
-            continue  # "adapt them", "bring them in line": only right after words about tests
-        return True
-    return False
+    the flaky test", "xfail test_x for now"), and does not also forbid them (C6:
+    ``validate/keep_reading.py`` reads ``_SKIP_REQUEST``, ``_CHANGE`` and ``_FOLLOW``)."""
+    return keep_reading.tests_change_requested(prompt)
 
 
 # -- the concern -------------------------------------------------------------------------------------------

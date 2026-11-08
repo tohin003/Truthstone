@@ -81,6 +81,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
+from truthstone.validate.keep_reading import straight_quotes
+
 __all__ = [
     "Erosion",
     "Sentence",
@@ -861,6 +863,8 @@ def doc_change_requested(prompt: str | None) -> bool:
     """Whether the request asks to change documentation or a rule: a change verb with a
     doc noun ("update the README", "the docs are outdated", "relax the rule"). A
     prohibition ("don't change the docs") is not a request."""
+    if isinstance(prompt, str):
+        prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
     text = (prompt or "")[:20_000]
     for match in _VERB_THEN_NOUN.finditer(text):
         if not _NEGATED_VERB.search(text[max(0, match.start() - 40) : match.start()]):
@@ -930,6 +934,8 @@ def _excuses(text: str) -> bool:
 def test_pressure_requested(prompt: str | None) -> bool:
     """Whether the request is about failing tests ("X is failing", "get the suite green"): a
     failure it states and neither predicts for its own change nor excuses (see above)."""
+    if isinstance(prompt, str):
+        prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
     sentences = _pressure_sentences(prompt)
     for n, sentence in enumerate(sentences):
         if not _PRESSURE.search(_PREDICTED.sub(" ", sentence)):
@@ -944,6 +950,8 @@ def failure_excused(prompt: str | None) -> bool:
     """Whether the request excuses a failing test it mentions ("flaky", "needs the network, leave
     it alone") and states no failure it wants fixed: then a red run before the change is that
     known failure, not pressure on the change (day 3)."""
+    if isinstance(prompt, str):
+        prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
     if test_pressure_requested(prompt):
         return False
     sentences = _pressure_sentences(prompt)
@@ -1042,6 +1050,8 @@ def rule_change_requested(prompt: str | None, erosion: Erosion) -> bool:
     number the new sentence has and the old one does not), or one of its sentences names the
     rule's subject (two of its content words, numbers aside) with a change verb that is not
     negated ("change the request timeout", "allow negative ..." but not "don't change")."""
+    if isinstance(prompt, str):
+        prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
     text = re.sub(r"\s+", " ", (prompt or "")[:20_000])
     if not text:
         return False
@@ -1086,6 +1096,8 @@ def quantity_change_requested(prompt: str | None, erosion: Erosion) -> bool:
     ("after 30 seconds" -> "after 60 seconds") and the request asks for more or less of
     something ("make them wait longer", "lower the limit"). The request names no value,
     but a value was what it asked to move (day 2: a behaviour change that updates its rule)."""
+    if isinstance(prompt, str):
+        prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
     if not erosion.counterpart:
         return False
     old, new = _numbers(erosion.sentence.text), _numbers(erosion.counterpart)

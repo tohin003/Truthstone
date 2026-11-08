@@ -1,0 +1,255 @@
+{
+ "source": "day4/evidence/probes/r3_probes.py",
+ "source_sha256": "1d41b37bcd534eff9e1c59a85226ef9c690a4e815679eba7f675e2d08bdcaae4",
+ "about": "Round-3 review probes for C1 (development data). want: note | silent.",
+ "repo": {
+  "README.md": [
+   "# acme",
+   ""
+  ],
+  "pyproject.toml": [
+   "[project]",
+   "name='acme'",
+   "dependencies=['httpx','pyyaml']",
+   ""
+  ],
+  "acme/__init__.py": [
+   ""
+  ],
+  "acme/fetch.py": [
+   "def fetch(url):",
+   "    return url",
+   ""
+  ],
+  "acme/sync.py": [
+   "from acme.fetch import fetch",
+   ""
+  ],
+  "acme/export.py": [
+   "def export(rows):",
+   "    return rows",
+   ""
+  ],
+  "acme/cli.py": [
+   "import argparse",
+   ""
+  ],
+  "acme/report.py": [
+   "import argparse",
+   "p=argparse.ArgumentParser()",
+   "p.add_argument('--out')",
+   ""
+  ],
+  "acme/client.py": [
+   "import os",
+   "TIMEOUT=os.environ.get('ACME_RETRIES','3')",
+   ""
+  ],
+  "acme/run.py": [
+   "import subprocess, os",
+   "def run(cmd):",
+   "    return subprocess.run(cmd, env={**os.environ})",
+   ""
+  ],
+  "acme/checkout.py": [
+   "def create(order):",
+   "    return order",
+   ""
+  ],
+  "acme/settings.py": [
+   "import tomllib",
+   "CFG=tomllib.load(open('config/sync.toml','rb'))",
+   ""
+  ],
+  "config/sync.toml": [
+   "[production]",
+   "batch=10",
+   ""
+  ],
+  "deploy/k8s/api.yaml": [
+   "apiVersion: v1",
+   "kind: Pod",
+   ""
+  ],
+  "vercel.json": [
+   "{}",
+   ""
+  ],
+  "mkdocs.yml": [
+   "site_name: x",
+   ""
+  ],
+  "scripts/deploy.sh": [
+   "#!/bin/sh",
+   "echo deploy",
+   ""
+  ],
+  "src/format.ts": [
+   "const DEFAULTS = { currency: 'USD' };",
+   "export function formatPrice(n: number, options = {}) {",
+   "  const o = { ...DEFAULTS, ...options };",
+   "  return String(n);",
+   "}",
+   ""
+  ],
+  "src/cart.ts": [
+   "import { formatPrice } from './format.ts';",
+   ""
+  ],
+  "tests/test_x.py": [
+   "def test_x():",
+   "    pass",
+   ""
+  ],
+  "package.json": [
+   "{\"name\":\"acme-web\",\"scripts\":{\"nightly\":\"node scripts/n.js\"}}",
+   ""
+  ]
+ },
+ "probes": [
+  {
+   "want": "silent",
+   "prompt": "Give `fetch()` a `retries` kwarg and pass it from `sync.py`."
+  },
+  {
+   "want": "silent",
+   "prompt": "Extend `export()` with a `delimiter` option and use it in the CLI."
+  },
+  {
+   "want": "silent",
+   "prompt": "Have `report.py` take a `--since` flag; pass it from the cron line."
+  },
+  {
+   "want": "silent",
+   "prompt": "Make `client.py` read the timeout from the `FETCH_TIMEOUT` environment variable and use it for every request."
+  },
+  {
+   "want": "silent",
+   "prompt": "We'll pass `--dry-run` to the deploy script once it supports it."
+  },
+  {
+   "want": "silent",
+   "prompt": "Call `stripe.Charge.create(amount=total, idempotency_key=order.id)` in `checkout.py`."
+  },
+  {
+   "want": "silent",
+   "prompt": "Rename the CLI's `--currency` flag to `--ccy` and update the README."
+  },
+  {
+   "want": "silent",
+   "prompt": "Add a `--json` flag to `acme/report.py` that prints the rows as JSON, then use it in CI."
+  },
+  {
+   "want": "silent",
+   "prompt": "Run our linter with `--unsafe-fixes` and review what it changes."
+  },
+  {
+   "want": "silent",
+   "prompt": "Turn on the `noUncheckedIndexedAccess` compiler option for our project and fix what it reports."
+  },
+  {
+   "want": "silent",
+   "prompt": "The test runner retries flaky specs when given `--retry 2`; use that in our nightly job."
+  },
+  {
+   "want": "silent",
+   "prompt": "Set `cleanUrls: true` in `vercel.json` so our pages drop the .html suffix."
+  },
+  {
+   "want": "silent",
+   "prompt": "Set `readOnlyRootFilesystem: true` for the api container in `deploy/k8s/api.yaml`."
+  },
+  {
+   "want": "silent",
+   "prompt": "Set `use_directory_urls: false` in `mkdocs.yml` for our docs site."
+  },
+  {
+   "want": "silent",
+   "prompt": "Set `OPENAI_API_KEY` in the deploy environment so our summarizer can call the API."
+  },
+  {
+   "want": "silent",
+   "prompt": "Run `python -m pytest --deselect tests/test_x.py::test_live` in our CI job."
+  },
+  {
+   "want": "silent",
+   "prompt": "We use httpx; pass `follow_redirects=True` to the client in `fetch.py`."
+  },
+  {
+   "want": "silent",
+   "prompt": "Update `report.py` to accept `--since` and pass it from the cron line."
+  },
+  {
+   "want": "silent",
+   "prompt": "`report.py` should accept `--since`; use it in the nightly job."
+  },
+  {
+   "want": "silent",
+   "prompt": "Change `report.py` so it accepts `--since`, then pass it in the cron line."
+  },
+  {
+   "want": "silent",
+   "prompt": "Put it behind an `--include-archived` flag on `acme/report.py` and use it in the nightly job."
+  },
+  {
+   "want": "silent",
+   "prompt": "It'd be great if `report.py` had `--since`; then use it in the cron line."
+  },
+  {
+   "want": "silent",
+   "prompt": "`acme/report.py` has no `--since` flag, so add one and use it in the cron line."
+  },
+  {
+   "want": "silent",
+   "prompt": "`acme/report.py` takes `--out`; use it in the nightly job."
+  },
+  {
+   "want": "silent",
+   "prompt": "Set `ACME_RETRIES=5` so `client.py` retries more."
+  },
+  {
+   "want": "note",
+   "prompt": "We added a `--totals` flag to `acme/report.py` last week; switch it on in the cron line."
+  },
+  {
+   "want": "note",
+   "prompt": "The new `--totals` flag in `acme/report.py` adds a totals row; pass it in the cron line."
+  },
+  {
+   "want": "note",
+   "prompt": "`acme/report.py` has support for a `--totals` flag; use it in the nightly job."
+  },
+  {
+   "want": "note",
+   "prompt": "The nightly report is missing totals: pass `--totals` to `acme/report.py` in the cron line."
+  },
+  {
+   "want": "note",
+   "prompt": "Pass `--totals` to `acme/report.py` in the cron line and add a test."
+  },
+  {
+   "want": "note",
+   "prompt": "Pass `--add-totals` to `acme/report.py` in the cron line."
+  },
+  {
+   "want": "note",
+   "prompt": "`formatPrice()` in `src/format.ts` takes a `trimZeros` option; pass `trimZeros: true` in `src/cart.ts`."
+  },
+  {
+   "want": "note",
+   "prompt": "`run()` in `acme/run.py` honours `ACME_QUIET=1`; set it in the deploy script."
+  },
+  {
+   "want": "note",
+   "prompt": "Pass `retries=3` to `fetch()` in `sync.py` so flaky requests are retried."
+  },
+  {
+   "want": "note",
+   "prompt": "`acme/report.py` has a `--since` flag that filters old rows; use it in the cron line."
+  },
+  {
+   "want": "note",
+   "prompt": "Set `skip_archived = true` in `config/sync.toml` so `acme/settings.py` skips archived products."
+  }
+ ]
+}

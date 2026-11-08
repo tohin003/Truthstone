@@ -40,7 +40,7 @@ from truthstone.core.models import Decision, Finding
 from truthstone.core.store import ProjectStore
 from truthstone.core.taskstate import TaskState
 from truthstone.daemon import degraded
-from truthstone.intent import premise
+from truthstone.intent import dead_switch, premise
 from truthstone.intent.models import TaskSpec
 from truthstone.planning import integrity as integrity_note
 from truthstone.repo import symbols_ts
@@ -139,6 +139,9 @@ class Workspace:
         self.premises_noted: dict[str, set[str]] = {}
         # Task id -> the deny its first file edit gets after a premise note (T4), once.
         self.premise_holds: dict[str, str] = {}
+        # Tasks whose edit rule D held (a request-named switch written where nothing reads it,
+        # ``intent/dead_switch.py``): once per task.
+        self.dead_switch_held: set[str] = set()
         # Sessions already given the integrity note (``[notes] integrity``): once per session.
         self.integrity_noted: set[str] = set()
         # Shell commands' changes, each holding its place on its task's timeline until a
@@ -367,6 +370,7 @@ class Workspace:
             self._tasks.pop(task_id, None)
             self._task_sessions.pop(task_id, None)
             self.premise_holds.pop(task_id, None)
+            self.dead_switch_held.discard(task_id)
         self._session_tasks.pop(session_id, None)
         self.session_waivers.discard(session_id)
         self.premises_noted.pop(session_id, None)
@@ -866,6 +870,49 @@ class Guard:
         return True
 
     def _on_pre_tool_use(self, event: AgentEvent, ws: Workspace) -> Decision:
+        """Action Validator (SPEC §18), then rule D on an edit it allows (C1-D)."""
+        return self._dead_switch_hold(event, ws, self._pre_tool_use_decision(event, ws))
+
+    @staticmethod
+    def _dead_switch_hold(event: AgentEvent, ws: Workspace, decision: Decision) -> Decision:
+        """Rule D (``intent/dead_switch.py``, C1-D): an allowed file edit that writes a switch the
+        task's request names into a place where switches are set, while no code reads it, is held
+        once per task, with the premise hold's record. The re-issued edit proceeds. A name the
+        session's prompt-time note already named is not held again. A rule that cannot run says
+        nothing: the decision stands."""
+        if decision.action is not DecisionAction.ALLOW or not event.is_mutating or event.is_delete:
+            return decision
+        try:
+            task = str(event.task_id or "")
+            if not task or task in ws.dead_switch_held:
+                return decision
+            state = ws.event_task_state(event)
+            spec = getattr(state, "spec", None) if state is not None else None
+            prompt = getattr(spec, "prompt", "") or ""
+            if not prompt or not ws.index.is_built:
+                return decision
+            root = Path(ws.root)
+            edits = dead_switch.edited_lines(event, root)
+            this = dead_switch.edited_file(event, root)
+            skip = set(ws.premises_noted.get(event.session_id or "", set()))
+            found = dead_switch.dead_switches(
+                prompt, root, list(ws.index.files), edits, this_file=this, skip=skip
+            )
+        except Exception:  # noqa: BLE001 - a rule that cannot run says nothing
+            return decision
+        if not found:
+            return decision
+        name, rel = found[0]
+        ws.dead_switch_held.add(task)
+        text = dead_switch.HOLD.format(name=name, where=f"`{rel}`")
+        return Decision(
+            action=DecisionAction.CHALLENGE,
+            level=EscalationLevel.HOST_CHALLENGE,
+            reason=text,
+            findings=[premise.hold_finding(text)],
+        )
+
+    def _pre_tool_use_decision(self, event: AgentEvent, ws: Workspace) -> Decision:
         """Action Validator (SPEC §18), which runs the Evidence Engine inside it."""
         # SPEC §7/§8: read-only tools never leave Level 0. This short-circuit is what
         # keeps ordinary exploration free.

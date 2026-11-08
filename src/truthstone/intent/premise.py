@@ -56,6 +56,14 @@ on routine work.
   "use its existing `field_validator`", "We already depend on requests, so reuse its `Session`").
   Never one after "our", "my" or "the project's": those are the project's own.
 * Silent while the index is not built, and once per name per session (the caller keeps that).
+
+**C1 (day 4).** ``intent/premise_switch.py`` adds names beside today's assertions, ported from the
+frozen prototypes v4.3 and v5.2: a switch tied to the project's present behaviour and pointed back
+to ("… when `X=1` is set: switch that on"), and a switch the request uses that the project's own
+code owns. A symbol found only in history files is noted (C1b); the env switch-on rule is skipped
+when a tool is named in the name's clause (C1c); a library's keyword argument is never noted (v5.2's
+final filter). ``premise_switch.USED_SWITCH_SPEAKS`` says whether the used-switch rule's names are
+noted or only recorded (``Premise.recorded``).
 """
 
 from __future__ import annotations
@@ -63,6 +71,7 @@ from __future__ import annotations
 import builtins
 import json
 import re
+import sys
 import tomllib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -70,6 +79,7 @@ from pathlib import Path
 
 from truthstone.core.enums import ChallengeCategory, EscalationLevel, FailureMode, Severity, Verdict
 from truthstone.core.models import EvidenceRef, Finding
+from truthstone.intent import premise_switch
 
 SUBJECT = "false_premise"  # the intervention kind (core/profile.py)
 ONLY_IN = "`{name}` appears only in {files}, and no code in this repository reads it"
@@ -237,6 +247,10 @@ class Premise:
     missing: list[Assertion] = field(default_factory=list)
     # name -> the non-code files it occurs in, for a switch that only those mention
     only_in: dict[str, list[str]] = field(default_factory=dict)
+    # Names the used-switch rule found while it only records (``premise_switch.USED_SWITCH_SPEAKS``
+    # False): what C1 v5.2 would have noted beyond ``missing``. Never noted, held, put on
+    # ``spec.premises`` or given to ``premise_unmet``.
+    recorded: list[Assertion] = field(default_factory=list)
 
     @property
     def note(self) -> str:
@@ -249,15 +263,26 @@ class Premise:
             names = shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " and " + shown[-1]
             parts.append(f"{names} {'appears' if len(shown) == 1 else 'appear'} nowhere in this repository")
         for a in [a for a in self.missing if a.name in self.only_in][:3]:
-            files = self.only_in[a.name]
-            listed = ", ".join(files[:3]) + (f" and {len(files) - 3} more" if len(files) > 3 else "")
-            parts.append(ONLY_IN.format(name=a.name, files=listed))
+            # C1b: a symbol only history files mention is one no code defines
+            template = premise_switch._DEFINES if a.kind == "symbol" else ONLY_IN
+            listed = premise_switch.listed_files(self.only_in[a.name])
+            parts.append(template.format(name=a.name, files=listed))
         return "; ".join(parts) + ", " + TAIL.format(**self._finishes())
 
     def _finishes(self) -> dict[str, str]:
         """The note's and the hold's wording of what to build, what "not done" says, and what a
         workaround leaves missing, for one name or several."""
         shown = self.missing[:3]
+        if len(shown) == 1 and shown[0].name in self.only_in and shown[0].kind == "symbol":
+            listed = f"`{shown[0].name}`"
+            return {  # C1b: the symbol itself is what is missing
+                "build": f"build {listed} itself",
+                "works": "it works",
+                "it": "it",
+                "missing": f"{listed} does not exist",
+                "still": f"{listed} stays missing",
+                "left": f"{listed} missing",
+            }
         names = [f"`{a.name}`" for a in shown]
         listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
         if len(shown) > 1:
@@ -293,8 +318,14 @@ class Premise:
         clauses, says = [], []
         for a in self.missing[:3]:
             files = self.only_in.get(a.name)
-            if files:
-                listed = ", ".join(files[:3]) + (f" and {len(files) - 3} more" if len(files) > 3 else "")
+            if files and a.kind == "symbol":
+                listed = premise_switch.listed_files(files)
+                clauses.append(
+                    f"`{a.name}`, but it appears only in {listed}, and no code in this repository defines it"
+                )
+                says.append(f"There is no `{a.name}` in this repository's code; only {listed} mention it")
+            elif files:
+                listed = premise_switch.listed_files(files)
                 clauses.append(
                     f"`{a.name}`, but it appears only in {listed}, and no code in this repository reads it"
                 )
@@ -356,8 +387,9 @@ def _sentences(text: str) -> list[tuple[int, str]]:
 
 
 def _external(name: str) -> bool:
-    """Things a repository does not define: URLs, package specs, headers, versions, dates, and
-    the language's own names (Python's builtins, the JavaScript globals)."""
+    """Things a repository does not define: URLs, package specs, headers, versions, dates, the
+    language's own names (Python's builtins, the JavaScript globals), and a fixed list of tool,
+    runtime and framework switches (C1)."""
     lowered = name.lower()
     head = name.removesuffix("()").partition(".")[0]
     return (
@@ -366,6 +398,7 @@ def _external(name: str) -> bool:
         or re.fullmatch(r"v?\d+(?:[.\-/]\d+)*\w*", name) is not None
         or (re.fullmatch(r"[A-Z/:\-]+", name) is not None and not _ENV.fullmatch(name))
         or head in _LANGUAGE_NAMES
+        or premise_switch._fixed_external(name)  # C1: a tool's, runtime's or framework's own switch
     )
 
 
@@ -480,7 +513,16 @@ def _asserted(
     or pytest setting), which no repository defines until the change is made (audit of 66e1617:
     12 of 22 ordinary enable/turn-on requests were noted). With "already", "existing",
     "currently" or "is supposed to" the request does say the behaviour exists, for any name.
+
+    C1c (day 4): an environment name whose own clause names a tool is that tool's, unless the
+    sentence says the behaviour exists today.
     """
+    if (
+        kind == "env"
+        and not _EXISTING_BEHAVIOUR.search(sentence)
+        and _TOOL_NAMED.search(_clause(sentence, offset, len(name)))
+    ):
+        return False
     before = sentence[:offset]
     after = sentence[offset + len(name) :]
     clause = _clause(sentence, offset, len(name))
@@ -522,7 +564,14 @@ def _asserted(
 
 
 def assertions(prompt: str) -> list[Assertion]:
-    """The names a prompt asserts exist, in order, without names it asks to create."""
+    """The names a prompt asserts exist, in order, without names it asks to create: today's
+    (``_today_assertions``) and C1's (``premise_switch.assertions``), never a name only the
+    used-switch rule asserts. Read by ``premise_unmet`` and the engine's ``again``."""
+    return premise_switch.assertions(sys.modules[__name__], prompt)
+
+
+def _today_assertions(prompt: str) -> list[Assertion]:
+    """Today's rule: the names a prompt asserts exist, in order, without names it asks to create."""
     created: set[str] = set()
     out: dict[str, Assertion] = {}
     for _start, sentence in _sentences(prompt or ""):
@@ -605,11 +654,11 @@ _TOOL_OWNED = re.compile(
 )
 
 
-def _code_file(path: str) -> bool:
+def _code_file(path: str, suffixes: frozenset[str] | None = None) -> bool:
     name = path.rpartition("/")[2]
     lowered = name.lower()
     return (
-        Path(lowered).suffix in _CODE_SUFFIXES
+        Path(lowered).suffix in (_CODE_SUFFIXES if suffixes is None else suffixes)
         or lowered in _CODE_NAMES
         or lowered.startswith(("dockerfile.", "makefile."))
     )
@@ -657,13 +706,20 @@ def dot_config_files(root: Path) -> list[str]:
 
 
 def resolve(
-    assertions_: Iterable[Assertion], root: Path, files: Iterable[str]
+    assertions_: Iterable[Assertion],
+    root: Path,
+    files: Iterable[str],
+    code_suffixes: frozenset[str] | None = None,
+    switch_kinds: frozenset[str] | None = None,
 ) -> list[tuple[Assertion, list[str]]]:
     """The assertions the repository does not back, each with the non-code files it occurs in:
     ``[]`` for no occurrence at all (no file at the path, no whole-word occurrence of a key in
     any text file; a dotted name's last part only counts in code), or the files, for a switch
     asserted to work already that no code file and no tool's configuration mentions. Unknown
-    or unreadable means resolved: precision first."""
+    or unreadable means resolved: precision first.
+
+    ``code_suffixes`` and ``switch_kinds`` replace ``_CODE_SUFFIXES`` and ``_SWITCH_KINDS`` for
+    this call only: C1's check widens both (rd1-2-9), and ``premise_unmet`` keeps today's."""
     pending = list(assertions_)
     if not pending:
         return []
@@ -713,7 +769,7 @@ def resolve(
             text = full.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        code = _code_file(rel)
+        code = _code_file(rel, code_suffixes)
         read_here = code or _tool_owned(rel)
         if code and env_keys - found:
             # A settings class, a computed key, the whole environment: read, though not spelled.
@@ -735,7 +791,9 @@ def resolve(
         only = sorted({rel for key in assertion.keys for rel in elsewhere.get(key, [])})
         if not only:
             out.append((assertion, []))
-        elif assertion.existing and assertion.kind in _SWITCH_KINDS:
+        elif assertion.existing and assertion.kind in (
+            _SWITCH_KINDS if switch_kinds is None else switch_kinds
+        ):
             out.append((assertion, only))
     return out
 
@@ -834,15 +892,7 @@ def library_api(name: str, prompt: str, packages: set[str]) -> bool:
 
 def check(prompt: str, root: Path, files: Iterable[str] | None, already: set[str] | None = None) -> Premise:
     """The premise note for ``prompt``: the asserted names nothing in ``root`` has. Silent
-    without a file list (the index is not built) and for names already noted."""
-    if files is None or not prompt:
-        return Premise()
-    asserted = [a for a in assertions(prompt) if not already or a.name not in already]
-    if asserted:
-        packages = _packages(root, prompt)
-        if packages:
-            asserted = [a for a in asserted if not library_api(a.name, prompt, packages)]
-    if not asserted:
-        return Premise()
-    unbacked = resolve(asserted, root, files)
-    return Premise(missing=[a for a, _ in unbacked], only_in={a.name: only for a, only in unbacked if only})
+    without a file list (the index is not built) and for names already noted. Today's rule and
+    C1 (``premise_switch.check``): what speaks is on ``missing``, what C1's used-switch rule
+    only records is on ``recorded``."""
+    return premise_switch.check(sys.modules[__name__], prompt, root, files, already)
