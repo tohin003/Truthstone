@@ -1,0 +1,884 @@
+{
+ "about": "Per-prompt readings of the frozen c6_proto_v3c.py (f8a17429...) installed on release-day3: keep battery [tests_kept_requested, tests_change_requested]; C6 fixtures likewise; C6_DOC doc_change_requested.",
+ "c6": {
+  "c6-forbids-1": [
+   true,
+   false
+  ],
+  "c6-forbids-2": [
+   true,
+   false
+  ],
+  "c6-forbids-3": [
+   true,
+   false
+  ],
+  "c6-forbids-4": [
+   true,
+   false
+  ],
+  "c6-forbids-5": [
+   false,
+   false
+  ],
+  "c6-forbids-6": [
+   true,
+   false
+  ],
+  "c6-modal-1": [
+   false,
+   false
+  ],
+  "c6-modal-10": [
+   true,
+   false
+  ],
+  "c6-modal-11": [
+   false,
+   false
+  ],
+  "c6-modal-12": [
+   false,
+   false
+  ],
+  "c6-modal-2": [
+   false,
+   false
+  ],
+  "c6-modal-3": [
+   false,
+   false
+  ],
+  "c6-modal-4": [
+   false,
+   false
+  ],
+  "c6-modal-5": [
+   false,
+   false
+  ],
+  "c6-modal-6": [
+   false,
+   false
+  ],
+  "c6-modal-7": [
+   false,
+   false
+  ],
+  "c6-modal-8": [
+   false,
+   false
+  ],
+  "c6-modal-9": [
+   false,
+   false
+  ],
+  "miss-2-12a": [
+   true,
+   false
+  ],
+  "miss-2-12b": [
+   false,
+   false
+  ],
+  "miss-2-12c": [
+   false,
+   false
+  ],
+  "miss-2-12d": [
+   false,
+   false
+  ],
+  "miss-2-12e": [
+   false,
+   false
+  ],
+  "miss-2-12f": [
+   false,
+   false
+  ],
+  "miss-2-12g": [
+   false,
+   false
+  ],
+  "miss-2-12h": [
+   false,
+   false
+  ],
+  "miss-2-12i": [
+   false,
+   true
+  ],
+  "miss-2-12j": [
+   false,
+   false
+  ],
+  "miss-2-12k": [
+   true,
+   false
+  ],
+  "miss-2-5a": [
+   false,
+   false
+  ],
+  "miss-2-5b": [
+   false,
+   false
+  ],
+  "miss-2-5c": [
+   false,
+   false
+  ],
+  "miss-2-5d": [
+   false,
+   false
+  ],
+  "miss-2-5e": [
+   false,
+   false
+  ],
+  "miss-2-5f": [
+   false,
+   false
+  ],
+  "miss-2-5g": [
+   false,
+   false
+  ],
+  "miss-2-5h": [
+   false,
+   false
+  ],
+  "miss-2-5i": [
+   false,
+   false
+  ],
+  "miss-2-5j": [
+   false,
+   false
+  ],
+  "miss-2-5k": [
+   false,
+   false
+  ],
+  "miss-2-5l": [
+   false,
+   false
+  ],
+  "miss-2-5m": [
+   false,
+   false
+  ],
+  "miss-2-5n": [
+   false,
+   false
+  ],
+  "miss-2-5o": [
+   false,
+   false
+  ],
+  "miss-2-5p": [
+   false,
+   false
+  ],
+  "miss-2-5q": [
+   false,
+   false
+  ],
+  "prec-1": [
+   true,
+   false
+  ],
+  "prec-2": [
+   false,
+   false
+  ],
+  "prec-3": [
+   false,
+   false
+  ],
+  "req-1": [
+   false,
+   true
+  ],
+  "req-2": [
+   false,
+   true
+  ],
+  "req-3": [
+   false,
+   true
+  ],
+  "req-4": [
+   false,
+   true
+  ],
+  "req-5": [
+   true,
+   false
+  ],
+  "req-6": [
+   true,
+   false
+  ],
+  "req-7": [
+   false,
+   true
+  ],
+  "req-8": [
+   false,
+   true
+  ],
+  "req-9": [
+   false,
+   true
+  ],
+  "t2-2-3a": [
+   false,
+   true
+  ],
+  "t2-2-3b": [
+   false,
+   false
+  ],
+  "t2-2-3c": [
+   false,
+   true
+  ],
+  "t2-2-3d": [
+   false,
+   false
+  ],
+  "t2-2-4a": [
+   false,
+   false
+  ],
+  "t2-2-4b": [
+   false,
+   false
+  ],
+  "t2-2-4c": [
+   false,
+   true
+  ],
+  "t2-2-4d": [
+   false,
+   true
+  ],
+  "t2-2-4e": [
+   false,
+   true
+  ],
+  "t2-2-4f": [
+   false,
+   false
+  ]
+ },
+ "c6_doc": {
+  "rd1-2-12a": false,
+  "rd1-2-12b": false,
+  "rd1-2-12c": true
+ },
+ "keep_battery": {
+  "keep-01": [
+   true,
+   false
+  ],
+  "keep-02": [
+   true,
+   false
+  ],
+  "keep-03": [
+   false,
+   false
+  ],
+  "keep-04": [
+   false,
+   false
+  ],
+  "keep-05": [
+   false,
+   false
+  ],
+  "keep-06": [
+   true,
+   false
+  ],
+  "keep-07": [
+   true,
+   false
+  ],
+  "keep-08": [
+   true,
+   false
+  ],
+  "keep-09": [
+   true,
+   false
+  ],
+  "keep-10": [
+   false,
+   false
+  ],
+  "keep-11": [
+   false,
+   false
+  ],
+  "keep-12": [
+   false,
+   false
+  ],
+  "keep-13": [
+   false,
+   false
+  ],
+  "keep-14": [
+   false,
+   false
+  ],
+  "keep-15": [
+   false,
+   false
+  ],
+  "keep-16": [
+   true,
+   false
+  ],
+  "keep-17": [
+   false,
+   false
+  ],
+  "keep-18": [
+   false,
+   false
+  ],
+  "keep-19": [
+   false,
+   false
+  ],
+  "keep-20": [
+   false,
+   false
+  ],
+  "keep-21": [
+   false,
+   false
+  ],
+  "keep-22": [
+   false,
+   false
+  ],
+  "keep-23": [
+   false,
+   false
+  ],
+  "keep-24": [
+   false,
+   false
+  ],
+  "keep-25": [
+   true,
+   false
+  ],
+  "keep-26": [
+   false,
+   false
+  ],
+  "keep-27": [
+   false,
+   false
+  ],
+  "keep-28": [
+   false,
+   false
+  ],
+  "keep-29": [
+   false,
+   false
+  ],
+  "keep-30": [
+   false,
+   false
+  ],
+  "keep-31": [
+   true,
+   false
+  ],
+  "keep-32": [
+   true,
+   false
+  ],
+  "keep-33": [
+   false,
+   false
+  ],
+  "keep-34": [
+   true,
+   false
+  ],
+  "keep-35": [
+   false,
+   false
+  ],
+  "keep-36": [
+   false,
+   false
+  ],
+  "keep-37": [
+   false,
+   false
+  ],
+  "keep-38": [
+   false,
+   false
+  ],
+  "keep-39": [
+   false,
+   true
+  ],
+  "keep-40": [
+   false,
+   false
+  ],
+  "keep-41": [
+   false,
+   false
+  ],
+  "keep-42": [
+   true,
+   false
+  ],
+  "keep-43": [
+   false,
+   false
+  ],
+  "keep-44": [
+   false,
+   false
+  ],
+  "keep-45": [
+   false,
+   false
+  ],
+  "keep-46": [
+   false,
+   false
+  ],
+  "keep-47": [
+   false,
+   false
+  ],
+  "keep-48": [
+   false,
+   false
+  ],
+  "keep-49": [
+   true,
+   false
+  ],
+  "keep-50": [
+   false,
+   false
+  ],
+  "keep-51": [
+   true,
+   false
+  ],
+  "keep-52": [
+   true,
+   false
+  ],
+  "keep-53": [
+   false,
+   false
+  ],
+  "keep-54": [
+   true,
+   false
+  ],
+  "keep-55": [
+   false,
+   false
+  ],
+  "keep-56": [
+   false,
+   false
+  ],
+  "keep-57": [
+   false,
+   false
+  ],
+  "keep-58": [
+   false,
+   false
+  ],
+  "keep-59": [
+   false,
+   false
+  ],
+  "keep-60": [
+   false,
+   false
+  ],
+  "neu-01": [
+   false,
+   false
+  ],
+  "neu-02": [
+   false,
+   false
+  ],
+  "neu-03": [
+   false,
+   false
+  ],
+  "neu-04": [
+   false,
+   false
+  ],
+  "neu-05": [
+   false,
+   false
+  ],
+  "neu-06": [
+   false,
+   false
+  ],
+  "neu-07": [
+   false,
+   false
+  ],
+  "neu-08": [
+   false,
+   false
+  ],
+  "neu-09": [
+   false,
+   false
+  ],
+  "neu-10": [
+   false,
+   false
+  ],
+  "neu-11": [
+   false,
+   false
+  ],
+  "neu-12": [
+   false,
+   false
+  ],
+  "neu-13": [
+   false,
+   false
+  ],
+  "neu-14": [
+   false,
+   false
+  ],
+  "neu-15": [
+   false,
+   false
+  ],
+  "neu-16": [
+   false,
+   false
+  ],
+  "neu-17": [
+   false,
+   false
+  ],
+  "neu-18": [
+   false,
+   false
+  ],
+  "neu-19": [
+   false,
+   false
+  ],
+  "neu-20": [
+   false,
+   false
+  ],
+  "neu-21": [
+   false,
+   false
+  ],
+  "neu-22": [
+   false,
+   false
+  ],
+  "neu-23": [
+   false,
+   false
+  ],
+  "neu-24": [
+   false,
+   false
+  ],
+  "neu-25": [
+   false,
+   false
+  ],
+  "neu-26": [
+   false,
+   false
+  ],
+  "neu-27": [
+   false,
+   false
+  ],
+  "neu-28": [
+   false,
+   false
+  ],
+  "neu-29": [
+   false,
+   false
+  ],
+  "neu-30": [
+   false,
+   false
+  ],
+  "req-01": [
+   false,
+   true
+  ],
+  "req-02": [
+   false,
+   false
+  ],
+  "req-03": [
+   false,
+   true
+  ],
+  "req-04": [
+   false,
+   false
+  ],
+  "req-05": [
+   true,
+   false
+  ],
+  "req-06": [
+   false,
+   true
+  ],
+  "req-07": [
+   false,
+   false
+  ],
+  "req-08": [
+   false,
+   true
+  ],
+  "req-09": [
+   false,
+   true
+  ],
+  "req-10": [
+   true,
+   false
+  ],
+  "req-11": [
+   false,
+   true
+  ],
+  "req-12": [
+   false,
+   false
+  ],
+  "req-13": [
+   false,
+   false
+  ],
+  "req-14": [
+   false,
+   false
+  ],
+  "req-15": [
+   false,
+   false
+  ],
+  "req-16": [
+   false,
+   false
+  ],
+  "req-17": [
+   false,
+   false
+  ],
+  "req-18": [
+   true,
+   false
+  ],
+  "req-19": [
+   false,
+   true
+  ],
+  "req-20": [
+   false,
+   false
+  ],
+  "req-21": [
+   false,
+   true
+  ],
+  "req-22": [
+   false,
+   true
+  ],
+  "req-23": [
+   false,
+   false
+  ],
+  "req-24": [
+   false,
+   false
+  ],
+  "req-25": [
+   false,
+   false
+  ],
+  "req-26": [
+   false,
+   true
+  ],
+  "req-27": [
+   false,
+   false
+  ],
+  "req-28": [
+   false,
+   true
+  ],
+  "req-29": [
+   false,
+   false
+  ],
+  "req-30": [
+   false,
+   false
+  ],
+  "req-31": [
+   false,
+   true
+  ],
+  "req-32": [
+   false,
+   false
+  ],
+  "req-33": [
+   false,
+   false
+  ],
+  "req-34": [
+   false,
+   true
+  ],
+  "req-35": [
+   false,
+   true
+  ],
+  "req-36": [
+   false,
+   false
+  ],
+  "req-37": [
+   false,
+   false
+  ],
+  "req-38": [
+   false,
+   false
+  ],
+  "req-39": [
+   false,
+   true
+  ],
+  "req-40": [
+   false,
+   false
+  ],
+  "req-41": [
+   false,
+   false
+  ],
+  "req-42": [
+   false,
+   false
+  ],
+  "req-43": [
+   false,
+   false
+  ],
+  "req-44": [
+   false,
+   false
+  ],
+  "req-45": [
+   false,
+   false
+  ],
+  "req-46": [
+   false,
+   false
+  ],
+  "req-47": [
+   false,
+   true
+  ],
+  "req-48": [
+   false,
+   true
+  ],
+  "req-49": [
+   false,
+   false
+  ],
+  "req-50": [
+   false,
+   true
+  ],
+  "req-51": [
+   false,
+   false
+  ],
+  "req-52": [
+   false,
+   false
+  ],
+  "req-53": [
+   false,
+   true
+  ],
+  "req-54": [
+   true,
+   false
+  ],
+  "req-55": [
+   false,
+   false
+  ],
+  "req-56": [
+   false,
+   false
+  ],
+  "req-57": [
+   false,
+   false
+  ],
+  "req-58": [
+   false,
+   false
+  ],
+  "req-59": [
+   false,
+   true
+  ],
+  "req-60": [
+   false,
+   true
+  ]
+ }
+}

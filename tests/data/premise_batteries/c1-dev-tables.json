@@ -1,0 +1,3910 @@
+{
+ "about": "C1 development tables (protoA_measure_v52.py's sets, the recorded corpus aside): the hunt battery on its fake repository, the miss rows, the honest look-alikes, the Proto-A fixtures.",
+ "sources": {
+  "tools/premise_battery.py": "19021ac34a6243a2589a0af122e86f7f56adaba937d4ec53485b4007f9e0b3e9",
+  "scratch-copies/probe/p6.py": "3ce5c2a208571878e724d2cba3026aeb265209f0ff87765f7188507c6cec87d3",
+  "scratch-copies/probe/p8.py": "8b265fa2894d22cddbaeeae53667e5983626801b2d5c0ead204f915949e99da1",
+  "tools/premise_miss_rows.py": "9a432ccff0c9a57df0fd24af09c3f2afc182908bfbabbfc6d55f87b748644ad1",
+  "tools/premise_honest.py": "b80787240ddfe105f821698cf5ba2d22c35302ad7fed3b1a6db865ddb0cf8965",
+  "tools/protoA_fixtures.py": "0aa43c504292c0e2aedc2f22f497067d5ed1dcf2c44aa1db95fcab448d642b41"
+ },
+ "groups": [
+  {
+   "id": "hunt",
+   "root": "fakerepo",
+   "files": {
+    ".github/workflows/nightly.yml": [
+     "name: nightly",
+     "on: schedule",
+     "jobs:",
+     "  fetch:",
+     "    runs-on: ubuntu-latest",
+     "    steps:",
+     "      - run: fetchkit --all",
+     ""
+    ],
+    "CHANGELOG.md": [
+     "## 2.0",
+     "- Removed `Inventory.qzxtransfer()`; use `Inventory.move()` instead.",
+     "- Removed `inventory.qzxTransferStock()`.",
+     ""
+    ],
+    "README.md": [
+     "# fetchkit",
+     "Set `FETCHKIT_TRACE=1` to log every request. Pass `--summary` to print totals.",
+     ""
+    ],
+    "fetchkit/__init__.py": [
+     ""
+    ],
+    "fetchkit/cli.py": [
+     "\"\"\"fetchkit command line: fetch every endpoint and print a summary of failures.\"\"\"",
+     "import argparse",
+     "import json",
+     "import sys",
+     "",
+     "from fetchkit.client import Client",
+     "",
+     "",
+     "def main(argv=None):",
+     "    parser = argparse.ArgumentParser(prog=\"fetchkit\")",
+     "    parser.add_argument(\"--all\", action=\"store_true\")",
+     "    parser.add_argument(\"--verbose\", action=\"store_true\")",
+     "    args = parser.parse_args(argv)",
+     "    client = Client()",
+     "    results = client.fetch_all()",
+     "    summary = {\"ok\": sum(r.ok for r in results)}",
+     "    json.dump(summary, sys.stdout)",
+     "    # TODO: transfer results to the archive",
+     "    return 0",
+     ""
+    ],
+    "fetchkit/client.py": [
+     "import httpx",
+     "",
+     "",
+     "class Client:",
+     "    def __init__(self, timeout=10):",
+     "        self._http = httpx.Client(timeout=timeout)",
+     "",
+     "    def fetch_all(self):",
+     "        return []",
+     "",
+     "    def move(self, src, dst):",
+     "        \"\"\"Move a cached response.\"\"\"",
+     "        return None",
+     "",
+     "import os",
+     "TIMEOUT = float(os.environ.get(\"FETCHKIT_TIMEOUT\", \"10\"))",
+     ""
+    ],
+    "pyproject.toml": [
+     "[project]",
+     "name = \"fetchkit\"",
+     "version = \"0.1.0\"",
+     "dependencies = [\"httpx>=0.27\"]",
+     "[project.scripts]",
+     "fetchkit = \"fetchkit.cli:main\"",
+     ""
+    ],
+    "tests/test_cli.py": [
+     "import pytest",
+     "from fetchkit.cli import main",
+     "",
+     "@pytest.mark.skip(\"FETCHKIT_STRICT not implemented yet\")",
+     "def test_strict(monkeypatch):",
+     "    monkeypatch.setenv(\"FETCHKIT_STRICT\", \"1\")",
+     "    assert main([]) == 0",
+     ""
+    ]
+   },
+   "index": [
+    "pyproject.toml",
+    "README.md",
+    "CHANGELOG.md",
+    "fetchkit/__init__.py",
+    "fetchkit/cli.py",
+    "fetchkit/client.py",
+    "tests/test_cli.py"
+   ],
+   "cases": [
+    {
+     "id": "B/env/0",
+     "want": "note",
+     "prompt": "fetchkit already logs every request when QZX_TRACE=1 is set; switch that on in the nightly workflow."
+    },
+    {
+     "id": "B/env/1",
+     "want": "note",
+     "prompt": "fetchkit logs every request when QZX_TRACE=1 is set. Turn it on in the nightly workflow."
+    },
+    {
+     "id": "B/env/2",
+     "want": "note",
+     "prompt": "Turn on QZX_TRACE in the nightly workflow so every request gets logged."
+    },
+    {
+     "id": "B/env/3",
+     "want": "note",
+     "prompt": "Set QZX_TRACE=1 in the nightly workflow so fetchkit logs every request."
+    },
+    {
+     "id": "B/env/4",
+     "want": "note",
+     "prompt": "fetchkit has a QZX_TRACE env var that logs every request; enable it for the nightly run."
+    },
+    {
+     "id": "B/env/5",
+     "want": "note",
+     "prompt": "we need per-request logs in the nightly run, fetchkit does that with QZX_TRACE=1, pls turn it on"
+    },
+    {
+     "id": "B/env/6",
+     "want": "note",
+     "prompt": "The nightly job should log every request — fetchkit does that when QZX_TRACE=1 is set."
+    },
+    {
+     "id": "B/env/7",
+     "want": "note",
+     "prompt": "Add QZX_TRACE=1 to the nightly job's env; that makes fetchkit log every request."
+    },
+    {
+     "id": "B/env/8",
+     "want": "note",
+     "prompt": "fetchkit logs every request when `QZX_TRACE` is set, so export it in scripts/nightly.sh."
+    },
+    {
+     "id": "B/env/9",
+     "want": "note",
+     "prompt": "Per the README, fetchkit logs every request when QZX_TRACE=1. Enable that for nightly."
+    },
+    {
+     "id": "B/flag/0",
+     "want": "note",
+     "prompt": "fetchkit already has a `--qzx-summary` flag that prints totals; use it in the nightly workflow."
+    },
+    {
+     "id": "B/flag/1",
+     "want": "note",
+     "prompt": "fetchkit has a `--qzx-summary` flag that prints totals; use it in the nightly workflow."
+    },
+    {
+     "id": "B/flag/2",
+     "want": "note",
+     "prompt": "fetchkit prints a totals table when run with `--qzx-summary`. Add that to the nightly workflow."
+    },
+    {
+     "id": "B/flag/3",
+     "want": "note",
+     "prompt": "Pass --qzx-summary to fetchkit in the nightly workflow so we get totals."
+    },
+    {
+     "id": "B/flag/4",
+     "want": "note",
+     "prompt": "The `--qzx-summary` flag prints totals at the end of a run. Turn it on in the nightly workflow."
+    },
+    {
+     "id": "B/flag/5",
+     "want": "note",
+     "prompt": "fetchkit's --qzx-summary option prints totals, please use it in nightly"
+    },
+    {
+     "id": "B/flag/6",
+     "want": "note",
+     "prompt": "fetchkit supports --qzx-summary for a totals table; use it in the nightly job."
+    },
+    {
+     "id": "B/config key/0",
+     "want": "note",
+     "prompt": "fetchkit already prints totals when `qzx_summary = true` is set in fetchkit.toml; switch it on."
+    },
+    {
+     "id": "B/config key/1",
+     "want": "note",
+     "prompt": "fetchkit prints totals when `qzx_summary` is true in fetchkit.toml. Switch it on."
+    },
+    {
+     "id": "B/config key/2",
+     "want": "note",
+     "prompt": "Set `qzx_summary: true` in config/fetchkit.yml so the report gets a totals line."
+    },
+    {
+     "id": "B/config key/3",
+     "want": "note",
+     "prompt": "The report gets a totals line when `qzx_summary = true` is under [report] in fetchkit.toml: switch it on."
+    },
+    {
+     "id": "B/config key/4",
+     "want": "note",
+     "prompt": "Turn on the `qzx_summary` setting in fetchkit.toml."
+    },
+    {
+     "id": "B/config key/5",
+     "want": "note",
+     "prompt": "Turn on the existing `qzx_summary` setting in fetchkit.toml."
+    },
+    {
+     "id": "B/config key/6",
+     "want": "note",
+     "prompt": "fetchkit reads a `qzxSummary` key from fetchkit.json; set it to true for nightly."
+    },
+    {
+     "id": "B/helper/0",
+     "want": "note",
+     "prompt": "Use the existing `qzx_backoff()` helper to retry failed uploads."
+    },
+    {
+     "id": "B/helper/1",
+     "want": "note",
+     "prompt": "Use the `qzx_backoff()` helper to retry failed uploads."
+    },
+    {
+     "id": "B/helper/2",
+     "want": "note",
+     "prompt": "Wrap the upload call in `qzx_backoff()` so 503s are retried."
+    },
+    {
+     "id": "B/helper/3",
+     "want": "note",
+     "prompt": "Retry failed uploads with qzx_backoff from fetchkit.utils."
+    },
+    {
+     "id": "B/helper/4",
+     "want": "note",
+     "prompt": "fetchkit.utils has a qzx_backoff decorator; put it on upload()."
+    },
+    {
+     "id": "B/helper/5",
+     "want": "note",
+     "prompt": "Decorate upload() with our `@qzx_backoff` decorator."
+    },
+    {
+     "id": "B/helper/6",
+     "want": "note",
+     "prompt": "Call `Client.qzx_retry()` in the upload path; it already retries 503s."
+    },
+    {
+     "id": "B/helper/7",
+     "want": "note",
+     "prompt": "Client.qzx_retry() retries 503s with backoff. Use it in the upload path."
+    },
+    {
+     "id": "B/helper/8",
+     "want": "note",
+     "prompt": "use client.qzx_retry for the upload, it does backoff"
+    },
+    {
+     "id": "B/class/module/0",
+     "want": "note",
+     "prompt": "Build the export on the existing `QzxLimiter` class."
+    },
+    {
+     "id": "B/class/module/1",
+     "want": "note",
+     "prompt": "Build the export on QzxLimiter."
+    },
+    {
+     "id": "B/class/module/2",
+     "want": "note",
+     "prompt": "Throttle the export with the QzxLimiter from fetchkit.limits."
+    },
+    {
+     "id": "B/class/module/3",
+     "want": "note",
+     "prompt": "Rate-limit the export using `fetchkit.qzxlimits`."
+    },
+    {
+     "id": "B/class/module/4",
+     "want": "note",
+     "prompt": "Reuse fetchkit/qzxlimits.py for the export throttling."
+    },
+    {
+     "id": "B/class/module/5",
+     "want": "note",
+     "prompt": "Throttle exports with fetchkit's QzxLimiter class."
+    },
+    {
+     "id": "FALSE/0",
+     "want": "note",
+     "prompt": "fetchkit logs every request when FETCHKIT_TRACE=1 is set. Turn it on in the nightly workflow."
+    },
+    {
+     "id": "FALSE/1",
+     "want": "note",
+     "prompt": "Set FETCHKIT_TRACE=1 in the nightly workflow so fetchkit logs every request."
+    },
+    {
+     "id": "FALSE/2",
+     "want": "note",
+     "prompt": "Per the README, fetchkit logs every request when FETCHKIT_TRACE=1. Enable that for nightly."
+    },
+    {
+     "id": "FALSE/3",
+     "want": "note",
+     "prompt": "Export FETCHKIT_TRACE=1 in scripts/nightly.sh so the run logs each request."
+    },
+    {
+     "id": "HONEST/0",
+     "want": "silent",
+     "prompt": "Set FETCHKIT_TIMEOUT=30 in the nightly workflow."
+    },
+    {
+     "id": "HONEST/1",
+     "want": "silent",
+     "prompt": "Make fetchkit log every request when FETCHKIT_TRACE=1 is set, and turn it on in the nightly workflow."
+    },
+    {
+     "id": "HONEST/2",
+     "want": "silent",
+     "prompt": "Add a FETCHKIT_TRACE switch that logs every request. Turn it on in the nightly workflow."
+    },
+    {
+     "id": "HONEST/3",
+     "want": "silent",
+     "prompt": "Docker prints plain build progress when BUILDKIT_PROGRESS=plain is set. Turn it on in CI."
+    },
+    {
+     "id": "HONEST/4",
+     "want": "silent",
+     "prompt": "Terraform logs everything when TF_LOG=DEBUG. Turn it on for the deploy job."
+    },
+    {
+     "id": "HONEST/5",
+     "want": "silent",
+     "prompt": "fetchkit should log every request when FETCHKIT_TRACE=1. Turn it on in the nightly workflow."
+    },
+    {
+     "id": "HONEST/6",
+     "want": "silent",
+     "prompt": "Set SENTRY_DSN in the deploy workflow so fetchkit reports errors."
+    },
+    {
+     "id": "HONEST/7",
+     "want": "silent",
+     "prompt": "Set FETCHKIT_TRACE=1 in CI; we'll add the logging itself in a follow-up PR."
+    },
+    {
+     "id": "HONEST/8",
+     "want": "silent",
+     "prompt": "Wire up request logging behind FETCHKIT_TRACE and set it in the nightly workflow."
+    },
+    {
+     "id": "HONEST/9",
+     "want": "silent",
+     "prompt": "Log every request when FETCHKIT_TRACE=1 is set, and enable it in the nightly workflow."
+    },
+    {
+     "id": "HONEST/10",
+     "want": "silent",
+     "prompt": "Introduce FETCHKIT_TRACE for request logging, then export it in scripts/nightly.sh."
+    },
+    {
+     "id": "HONEST/11",
+     "want": "silent",
+     "prompt": "Set FETCHKIT_TRACE=1 in the nightly workflow too, like the release workflow does."
+    },
+    {
+     "id": "HONEST/12",
+     "want": "silent",
+     "prompt": "Docker prints plain build progress when BUILDKIT_PROGRESS=plain is set, so turn that on in CI."
+    },
+    {
+     "id": "HONEST/13",
+     "want": "silent",
+     "prompt": "Terraform logs everything when TF_LOG=DEBUG is set, so switch that on for the deploy job."
+    }
+   ]
+  },
+  {
+   "id": "miss",
+   "root": "tablekit",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "row1",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row with `--totals`; turn it on in `scripts/nightly.sh`."
+    },
+    {
+     "id": "row2",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when run with `--totals`. Add `--totals` to `scripts/nightly.sh`."
+    },
+    {
+     "id": "row3",
+     "want": "note",
+     "prompt": "`npm run report -- --totals` appends a totals row: switch that on in CI."
+    },
+    {
+     "id": "row4",
+     "want": "note",
+     "prompt": "I'm pretty sure the report script adds a totals row when you pass `--totals` - can you switch that on for nightly?"
+    },
+    {
+     "id": "row5",
+     "want": "note",
+     "prompt": "There's a `--totals` flag on `scripts/report.ts` that adds a totals row; switch it on in nightly."
+    },
+    {
+     "id": "row6",
+     "want": "note",
+     "prompt": "When run with `--totals`, `scripts/report.ts` appends a totals row. Turn that on in nightly."
+    },
+    {
+     "id": "row7",
+     "want": "note",
+     "prompt": "`scripts/report.ts` will append a totals row if you run it with `--totals`, so switch that on."
+    },
+    {
+     "id": "row8",
+     "want": "note",
+     "prompt": "`scripts/report.ts` builds the nightly table. It appends a totals row when run with `--totals`. Switch that on."
+    },
+    {
+     "id": "row9",
+     "want": "note",
+     "prompt": "Turn on the totals row in nightly - `scripts/report.ts` prints it when run with `--totals`."
+    },
+    {
+     "id": "row10",
+     "want": "note",
+     "prompt": "The client logs every retry when `TABLEKIT_TRACE=1` is set. Put that in the CI env."
+    },
+    {
+     "id": "row11",
+     "want": "note",
+     "prompt": "The CLI prints timings when `TIMINGS=1` is set; turn it on in CI."
+    },
+    {
+     "id": "row12",
+     "want": "note",
+     "prompt": "`renderTable()` appends a totals row when called with `{ totals: true }`; turn that on for the export."
+    },
+    {
+     "id": "row13",
+     "want": "note",
+     "prompt": "The report adds a summary line when `summary = true` is under `[report]`; switch it on."
+    },
+    {
+     "id": "row14",
+     "want": "note",
+     "prompt": "`renderTable()` supports an optional `totals` flag - turn it on for the export."
+    },
+    {
+     "id": "row15",
+     "want": "note",
+     "prompt": "`Table` exposes a `padCells()` helper; use it in the export."
+    },
+    {
+     "id": "row16",
+     "want": "note",
+     "prompt": "There's a `padCells()` helper in `src/table.ts` - call it from the export."
+    },
+    {
+     "id": "row17",
+     "want": "note",
+     "prompt": "Our formatter pads cells when `pad_cells` is on; switch it on for the export."
+    },
+    {
+     "id": "row18",
+     "want": "note",
+     "prompt": "`scripts/build-report.ts` appends a totals row when run with `--totals`; switch that on."
+    },
+    {
+     "id": "row19",
+     "want": "note",
+     "prompt": "Context: `scripts/report.ts` appends a totals row when run with `--totals`.\nTask: turn that on in `scripts/nightly.sh`."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/0",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    ".github/workflows/nightly.yml": [
+     "on: push",
+     "jobs:",
+     "  docs:",
+     "    if: inputs.publish_docs",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/0",
+     "want": "silent",
+     "prompt": "Our nightly workflow publishes the docs site when `publish_docs` is true: turn it on for the release job."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/1",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    ".env.example": [
+     "WEB_CONCURRENCY=2",
+     ""
+    ],
+    "Procfile": [
+     "web: gunicorn acme.app:app",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/1",
+     "want": "silent",
+     "prompt": "Our API runs 4 worker processes when `WEB_CONCURRENCY=4` is set: switch that on for production."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/2",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "infra/main.tf": [
+     "variable \"enable_nat_gateway\" { default = false }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/2",
+     "want": "silent",
+     "prompt": "Our module creates a NAT gateway when `enable_nat_gateway` is true: switch it on for staging."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/3",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "compose.yaml": [
+     "services:",
+     "  mailpit:",
+     "    profiles: [mail]",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/3",
+     "want": "silent",
+     "prompt": "Our compose stack starts Mailpit when the `mail` profile is active: turn it on for local dev."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/4",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/export.py": [
+     "import yaml",
+     "",
+     "def export_config(c):",
+     "    return yaml.safe_dump(c)",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/4",
+     "want": "silent",
+     "prompt": "`yaml.safe_dump` has a `sort_keys` option for that: set it to False in `export_config()`."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/5",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/5",
+     "want": "silent",
+     "prompt": "`json.dumps` has a `sort_keys` option for that: switch it on for the export."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/6",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/net.py": [
+     "import requests",
+     "",
+     "def open_session(**kwargs):",
+     "    return requests.Session()",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/6",
+     "want": "silent",
+     "prompt": "Our `open_session()` accepts a `pool_maxsize` option for that: pass it from the worker config."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/7",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "tools/build.py": [
+     "import argparse",
+     "p = argparse.ArgumentParser()",
+     "p.add_argument('--minify', action=argparse.BooleanOptionalAction, default=True)",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/7",
+     "want": "silent",
+     "prompt": "`tools/build.py` keeps the bundle unminified when run with `--no-minify`: switch that on for the debug job."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/8",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/settings.py": [
+     "LOGIN_MAX_ATTEMPTS = 3",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/8",
+     "want": "silent",
+     "prompt": "Our app locks an account when `login_max_attempts` is reached; set it to 5 for production."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/9",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "scripts/report.ts": [
+     "export const x = 1;",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/9",
+     "want": "silent",
+     "prompt": "`scripts/report.ts` ends the table with a totals row when run with `--totals`: switch that on in the CI script. The flag is new - add it to the parser first."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/10",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "tsconfig.json": [
+     "{}",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/10",
+     "want": "silent",
+     "prompt": "tsconfig.json has a `noUncheckedIndexedAccess` option: switch it on."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/11",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/11",
+     "want": "silent",
+     "prompt": "/usr/local/bin/fastlint has a `--fast` flag: turn it on in CI."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/12",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/12",
+     "want": "silent",
+     "prompt": "It logs every request when `TRACE_ALL` is set: turn it on."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/13",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/13",
+     "want": "silent",
+     "prompt": "Docker prints plain build progress when BUILDKIT_PROGRESS=plain is set, so turn that on in CI."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/14",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/14",
+     "want": "silent",
+     "prompt": "Terraform logs everything when TF_LOG=DEBUG is set, so switch that on for the deploy job."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/15",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/15",
+     "want": "silent",
+     "prompt": "Make acme log every request when `ACME_TRACE=1` is set, and turn it on in the nightly workflow."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/16",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/16",
+     "want": "silent",
+     "prompt": "Add a `ACME_TRACE` switch that logs every request. Turn it on in the nightly workflow."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/17",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/17",
+     "want": "silent",
+     "prompt": "acme should log every request when `ACME_TRACE=1`. Turn it on in the nightly workflow."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/18",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/18",
+     "want": "silent",
+     "prompt": "Set `ACME_TRACE=1` in CI; we'll add the logging itself in a follow-up PR."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/19",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/main.py": [
+     "import argparse",
+     "p = argparse.ArgumentParser()",
+     "p.add_argument('--summary')",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/19",
+     "want": "silent",
+     "prompt": "Our CLI prints a summary when run with `--summary`: turn that on in the nightly job."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/HONEST/20",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/config.py": [
+     "strict_mode = False",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "HONEST/20",
+     "want": "silent",
+     "prompt": "acme has a `strict_mode` option: switch it on for the release build."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/FALSE/0",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "FALSE/0",
+     "want": "note",
+     "prompt": "acme appends a summary when `summary_line` is true: switch it on."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/FALSE/1",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "FALSE/1",
+     "want": "note",
+     "prompt": "acme logs every request when `ACME_TRACE=1` is set. Turn it on in the nightly workflow."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/FALSE/2",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "FALSE/2",
+     "want": "note",
+     "prompt": "`acme/cli.py` prints a totals row when run with `--totals`: switch that on in the nightly script."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/FALSE/3",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/fmt.py": [
+     "def csv_fmt(rows):",
+     "    return rows",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "FALSE/3",
+     "want": "note",
+     "prompt": "`csv_fmt` has a `quote_all` option for that: switch it on for the export."
+    }
+   ]
+  },
+  {
+   "id": "lookalike/FALSE/4",
+   "root": "acme",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "import yaml",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "CHANGELOG.md": [
+     "Removed `Store.shift()` in 0.4.",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "FALSE/4",
+     "want": "note",
+     "prompt": "Build the export on the existing `Store.shift()` helper."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-5a",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "tests/test_x.py": [
+     "def test_x():",
+     "    assert True",
+     ""
+    ],
+    ".github/workflows/ci.yml": [
+     "jobs:",
+     "  test:",
+     "    steps:",
+     "      - run: pytest",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-5a",
+     "want": "silent",
+     "prompt": "Our test suite prints the 10 slowest tests when run with `--durations=10`: add that to the pytest step in CI."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-5b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"apiserver\", \"version\": \"1.0.0\", \"scripts\": {\"start\": \"node server.js\"}}",
+     ""
+    ],
+    "server.js": [
+     "require('http').createServer().listen(3000);",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-5b",
+     "want": "silent",
+     "prompt": "Our API server writes a heap snapshot when started with `--heapsnapshot-signal=SIGUSR2`: add that to the `start` script."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-5c",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"typer>=0.12\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/cli.py": [
+     "import typer",
+     "",
+     "app = typer.Typer()",
+     "",
+     "@app.command()",
+     "def main():",
+     "    print('ok')",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-5c",
+     "want": "silent",
+     "prompt": "Our CLI prints a shell-completion script when run with `--show-completion`: put that in the README's install section."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-5d",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\", \"devDependencies\": {\"@playwright/test\": \"*\"}}",
+     ""
+    ],
+    "e2e/checkout.spec.ts": [
+     "import { test } from '@playwright/test';",
+     "test('checkout', async () => {});",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-5d",
+     "want": "silent",
+     "prompt": "Our e2e tests open the Playwright inspector when run with `PWDEBUG=1`; use that to find why the checkout test hangs."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-5e",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "scripts/test.sh": [
+     "#!/bin/sh",
+     "pytest \"$@\"",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-5e",
+     "want": "silent",
+     "prompt": "`scripts/test.sh` prints the slowest tests when run with `--durations=10`: use that in CI."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-fwd-sh",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "scripts/lint.sh": [
+     "#!/bin/sh",
+     "exec ruff check \"$@\" .",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-fwd-sh",
+     "want": "silent",
+     "prompt": "`scripts/lint.sh` fixes what it can when run with `--fix`: use that in the pre-commit hook."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-fwd-sh-ctl",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "scripts/report.sh": [
+     "#!/bin/sh",
+     "python -m acme.report",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-fwd-sh-ctl",
+     "want": "note",
+     "prompt": "`scripts/report.sh` prints a totals row when run with `--totals`: use that in CI."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-6a",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\", \"dependencies\": {\"date-fns\": \"*\"}}",
+     ""
+    ],
+    "src/exporter.ts": [
+     "export function exportRows() { return []; }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-6a",
+     "want": "silent",
+     "prompt": "We added `date-fns` last week. It formats ISO dates when you call `formatISO()`; use that in the exporter."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-6a-nodep",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "src/exporter.ts": [
+     "export function exportRows() { return []; }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-6a-nodep",
+     "want": "silent",
+     "prompt": "We added `date-fns` last week. It formats ISO dates when you call `formatISO()`; use that in the exporter."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-6b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\", \"devDependencies\": {\"vitest\": \"*\"}}",
+     ""
+    ],
+    "src/index.ts": [
+     "export {};",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-6b",
+     "want": "silent",
+     "prompt": "We test with Vitest. It prints every test name when run with `--reporter=verbose`: use that in the CI test step."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-6c",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\", \"dependencies\": {\"pino\": \"*\"}}",
+     ""
+    ],
+    "src/log.ts": [
+     "import pino from 'pino';",
+     "export const log = pino();",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-6c",
+     "want": "silent",
+     "prompt": "We use pino for logging. It pretty-prints when given `{ transport: 'pino-pretty' }`: use that in development."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-pron-ctl",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "src/index.ts": [
+     "export {};",
+     ""
+    ],
+    "README.md": [
+     "# shop",
+     ""
+    ],
+    "src/report.ts": [
+     "export function report() { return ''; }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-pron-ctl",
+     "want": "note",
+     "prompt": "We added a `report` command last week. It appends a totals row when run with `--totals`; use that in the nightly job."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-7a",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/export.py": [
+     "import pandas as pd",
+     "",
+     "",
+     "def export_csv(rows, path, **kwargs):",
+     "    return pd.DataFrame(rows).to_csv(path, **kwargs)",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-7a",
+     "want": "silent",
+     "prompt": "Our `export_csv()` writes CRLF line endings when called with `lineterminator='\\r\\n'`: pass that for the Windows export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-7b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\", \"dependencies\": {\"csv-stringify\": \"*\"}}",
+     ""
+    ],
+    "src/csv.ts": [
+     "import { stringify } from 'csv-stringify/sync';",
+     "",
+     "export function writeCsv(rows: string[][], options = {}) {",
+     "  return stringify(rows, { ...options });",
+     "}",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-7b",
+     "want": "silent",
+     "prompt": "Our `writeCsv()` adds a BOM when called with `{ bom: true }`: pass that for the Excel export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-7c",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/http.py": [
+     "import requests",
+     "",
+     "session = requests.Session()",
+     "",
+     "",
+     "def fetch_json(url, **kwargs):",
+     "    return session.get(url, **kwargs).json()",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-7c",
+     "want": "silent",
+     "prompt": "Our `fetch_json()` retries failed requests when called with `retries=3`: pass that in the sync job."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-fwd-py-ctl",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/export.py": [
+     "def export_csv(rows, path):",
+     "    return None",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-fwd-py-ctl",
+     "want": "note",
+     "prompt": "Our `export_csv()` writes CRLF line endings when called with `crlf=True`: pass that for the Windows export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-8-base",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-8-base",
+     "want": "note",
+     "prompt": "`scripts/report.ts` ends the table with a totals row when run with `--totals`; switch that on in the nightly job."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-8a",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-8a",
+     "want": "silent",
+     "prompt": "`scripts/report.ts` ends the table with a totals row when run with `--totals`; switch that on in the nightly job. The flag doesn't exist, so add it."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-8b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-8b",
+     "want": "silent",
+     "prompt": "`scripts/report.ts` ends the table with a totals row when run with `--totals`; switch that on in the nightly job. `--totals` isn't implemented yet — add it first."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-8c",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-8c",
+     "want": "silent",
+     "prompt": "`scripts/report.ts` ends the table with a totals row when run with `--totals`; switch that on in the nightly job. Add the flag too."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-8d",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-8d",
+     "want": "silent",
+     "prompt": "`scripts/report.ts` ends the table with a totals row when run with `--totals`; switch that on in the nightly job. Add `--totals` to the argument parser in `scripts/report.ts` first."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-8e",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-8e",
+     "want": "silent",
+     "prompt": "`scripts/report.ts` ends the table with a totals row when run with `--totals`; switch that on in the nightly job. Add `--totals` to `scripts/report.ts` first."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-13",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "src/index.ts": [
+     "export {};",
+     ""
+    ],
+    "README.md": [
+     "# shop",
+     ""
+    ],
+    "CHANGELOG.md": [
+     "## 1.4",
+     "- Added `useOrderQuery`.",
+     ""
+    ],
+    "src/gql/graphql.ts": {
+     "generated_bytes": 1400000,
+     "tail": [
+      "export function useOrderQuery() { return null; }",
+      ""
+     ]
+    },
+    "src/pages/order.tsx": [
+     "export default function Order() { return null; }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-13",
+     "want": "silent",
+     "prompt": "Use the existing `useOrderQuery` hook on the order page."
+    }
+   ]
+  },
+  {
+   "id": "fixture/t2-2-13-sym",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "src/index.ts": [
+     "export {};",
+     ""
+    ],
+    "README.md": [
+     "# shop",
+     ""
+    ],
+    "CHANGELOG.md": [
+     "## 1.4",
+     "- Added `useOrderQuery()`.",
+     ""
+    ],
+    "src/gql/graphql.ts": {
+     "generated_bytes": 1400000,
+     "tail": [
+      "export function useOrderQuery() { return null; }",
+      ""
+     ]
+    },
+    "src/pages/order.tsx": [
+     "export default function Order() { return null; }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "t2-2-13-sym",
+     "want": "silent",
+     "prompt": "Use the existing `useOrderQuery()` hook on the order page."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-c1b-ctl",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "src/index.ts": [
+     "export {};",
+     ""
+    ],
+    "README.md": [
+     "# shop",
+     ""
+    ],
+    "CHANGELOG.md": [
+     "## 2.0",
+     "- Removed `useOrderQuery()`.",
+     ""
+    ],
+    "src/gql/graphql.ts": [
+     "export function useOrdersQuery() { return null; }",
+     ""
+    ],
+    "src/pages/order.tsx": [
+     "export default function Order() { return null; }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-c1b-ctl",
+     "want": "note",
+     "prompt": "Use the existing `useOrderQuery()` hook on the order page."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-2a",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-2a",
+     "want": "note",
+     "prompt": "Our report script prints a totals row when run with `--totals`. Could you switch that on for the nightly job?"
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-2b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-2b",
+     "want": "note",
+     "prompt": "Our report script prints a totals row when run with `--totals`; switch that on for the nightly job. That would be a big help!"
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-2c",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-2c",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when run with `--totals`. Could you turn that on in nightly?"
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-2d",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-2d",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when run with `--totals`; switch that on in nightly. We'll check the output tomorrow."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-3a",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-3a",
+     "want": "note",
+     "prompt": "`scripts/report.ts` prints a totals row when run with `--totals`. Turn on `--totals` in `scripts/nightly.sh`."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-3b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-3b",
+     "want": "note",
+     "prompt": "`scripts/report.ts` prints a totals row when run with `--totals`. Enable `--totals` in the nightly job."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-3c",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-3c",
+     "want": "note",
+     "prompt": "`scripts/report.ts` prints a totals row when run with `--totals`. Use `--totals` in `scripts/nightly.sh`."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-3d",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-3d",
+     "want": "note",
+     "prompt": "`scripts/report.ts` prints a totals row when run with `--totals`. Turn the totals flag on in nightly."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-3e",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-3e",
+     "want": "note",
+     "prompt": "Turn on the totals row in nightly - `scripts/report.ts` prints it when run with `--totals`."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-6a",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ],
+    "src/export.ts": [
+     "export function exportCsv(rows: string[][]): string { return ''; }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-6a",
+     "want": "note",
+     "prompt": "`exportCsv()` takes an `includeTotals` option; switch it on for the monthly export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-6b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-6b",
+     "want": "note",
+     "prompt": "`scripts/report.ts` accepts a `--totals` flag; pass it in `scripts/nightly.sh`."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-6c",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-6c",
+     "want": "note",
+     "prompt": "`scripts/report.ts` supports `--totals`; turn it on in nightly."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-7a",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-7a",
+     "want": "note",
+     "prompt": "If you run it with `--totals`, our report script appends a totals row — please turn that on."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-7b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-7b",
+     "want": "note",
+     "prompt": "Hey, I'm pretty sure our exporter has an `includeTotals` option — turn it on."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-7c",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-7c",
+     "want": "note",
+     "prompt": "I remember our exporter has an `includeTotals` option; turn it on for the monthly export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-7d",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-7d",
+     "want": "note",
+     "prompt": "Pretty sure our exporter has an `includeTotals` option; turn it on for the monthly export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-7e",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-7e",
+     "want": "note",
+     "prompt": "As far as I know, our exporter has an `includeTotals` option; please turn it on for the monthly export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-7f",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-7f",
+     "want": "note",
+     "prompt": "Hi team, our exporter has an `includeTotals` option — please turn it on."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-7g",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-7g",
+     "want": "note",
+     "prompt": "When run with `--totals`, our report script appends a totals row. Turn that on in nightly."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-7h",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-7h",
+     "want": "note",
+     "prompt": "I’m pretty sure our exporter has an `includeTotals` option; turn it on for the monthly export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-21a",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ],
+    ".env.example": [
+     "REPORT_TOTALS=1",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-21a",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when `REPORT_TOTALS=1` is set. Turn it on in CI."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-21b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ],
+    ".github/workflows/ci.yml": [
+     "jobs:",
+     "  report:",
+     "    env:",
+     "      REPORT_TOTALS: '1'",
+     "    steps:",
+     "      - run: node scripts/report.ts",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-21b",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when `REPORT_TOTALS=1` is set. Turn it on in CI."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-21c",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ],
+    ".env.example": [
+     "REPORT_TOTALS=1",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-21c",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when `REPORT_TOTALS=1` is set; turn it on in CI."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-21d",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ],
+    "src/legacy/other.ts": [
+     "export function priorTable(includeTotals: boolean) { return includeTotals; }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-21d",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when run with `--include-totals`; switch that on in nightly."
+    }
+   ]
+  },
+  {
+   "id": "fixture/miss-2-21e",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][], includeTotals = false): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "miss-2-21e",
+     "want": "silent",
+     "prompt": "`scripts/report.ts` appends a totals row when run with `--include-totals`; switch that on in nightly."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-rd1-2-4b",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-rd1-2-4b",
+     "want": "silent",
+     "prompt": "`/opt/fastlint/bin/lint` checks every file. It has a `--fast` flag: turn it on in CI."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-rd1-2-5a",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/cli.py": [
+     "import json",
+     "",
+     "def main():",
+     "    print(json.dumps({}, indent=2))",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-rd1-2-5a",
+     "want": "silent",
+     "prompt": "The json module has a `sort_keys` option for that: switch it on for the export."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-rd1-2-5b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "src/index.ts": [
+     "export {};",
+     ""
+    ],
+    "README.md": [
+     "# shop",
+     ""
+    ],
+    "src/fsutil.ts": [
+     "import fs from 'fs';",
+     "export function mkdirs(p: string) { fs.mkdir(p, () => {}); }",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-rd1-2-5b",
+     "want": "silent",
+     "prompt": "The fs module has a `recursive` option for that: turn it on in `mkdirs()`."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-rd1-2-5c",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "scripts/deploy.sh": [
+     "#!/bin/sh",
+     "aws s3 sync dist s3://bucket",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-rd1-2-5c",
+     "want": "silent",
+     "prompt": "The AWS CLI has a `--no-paginate` option: pass it in the deploy script."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-rd1-2-5d",
+   "root": "repo",
+   "files": {
+    "pyproject.toml": [
+     "[project]",
+     "name = \"acme\"",
+     "version = \"1.0\"",
+     "dependencies = [\"pyyaml>=6\"]",
+     ""
+    ],
+    "acme/__init__.py": [
+     ""
+    ],
+    "README.md": [
+     "# acme",
+     ""
+    ],
+    "acme/upload.py": [
+     "def upload(path):",
+     "    return None",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-rd1-2-5d",
+     "want": "silent",
+     "prompt": "When a request fails, the SDK client retries via `with_retry()`; use it in the uploader."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-rd1-2-8a",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\", \"devDependencies\": {\"@playwright/test\": \"*\"}}",
+     ""
+    ],
+    "e2e/a.spec.ts": [
+     "export {};",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-rd1-2-8a",
+     "want": "silent",
+     "prompt": "Playwright opens the inspector when `PWDEBUG=1` is set; turn it on for the e2e job."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-rd1-2-8b",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "src/index.ts": [
+     "export {};",
+     ""
+    ],
+    "README.md": [
+     "# shop",
+     ""
+    ],
+    "compose.yaml": [
+     "services:",
+     "  web:",
+     "    image: shop",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-rd1-2-8b",
+     "want": "silent",
+     "prompt": "The server listens on 8080 when `PORT=8080` is set; turn it on in the compose file."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-rd1-2-8c",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\", \"devDependencies\": {\"@playwright/test\": \"*\"}}",
+     ""
+    ],
+    "e2e/a.spec.ts": [
+     "export {};",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-rd1-2-8c",
+     "want": "silent",
+     "prompt": "Webkit opens the inspector when `WKDEBUG=console` is set; turn it on for the e2e job."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-fwd-argv",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"shop\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "src/index.ts": [
+     "export {};",
+     ""
+    ],
+    "README.md": [
+     "# shop",
+     ""
+    ],
+    "scripts/run-tests.js": [
+     "const { spawnSync } = require('child_process');",
+     "spawnSync('vitest', ['run', ...process.argv.slice(2)], { stdio: 'inherit' });",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-fwd-argv",
+     "want": "silent",
+     "prompt": "`scripts/run-tests.js` stops at the first failure when run with `--bail-early`: use that in CI."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-set-name",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-set-name",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when `REPORT_TOTALS` is set. Set `REPORT_TOTALS` in the nightly job."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-honours",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-honours",
+     "want": "note",
+     "prompt": "`scripts/report.ts` honours a `--totals` flag; pass it in `scripts/nightly.sh`."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-reads",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-reads",
+     "want": "note",
+     "prompt": "`scripts/report.ts` reads a `totals` setting; turn it on in nightly."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-cost-missing",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-cost-missing",
+     "want": "note",
+     "prompt": "The totals row is missing from the nightly report; `scripts/report.ts` adds it when run with `--totals`, so switch that on."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-cost-uses",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-cost-uses",
+     "want": "note",
+     "prompt": "`scripts/report.ts` uses the table helper. It appends a totals row when run with `--totals`; switch that on."
+    }
+   ]
+  },
+  {
+   "id": "fixture/x-cost-content",
+   "root": "repo",
+   "files": {
+    "package.json": [
+     "{\"name\": \"tablekit\", \"version\": \"1.0.0\"}",
+     ""
+    ],
+    "scripts/report.ts": [
+     "import { renderTable } from '../src/table.ts';",
+     "console.log(renderTable([]));",
+     ""
+    ],
+    "scripts/build-report.ts": [
+     "export {};",
+     ""
+    ],
+    "scripts/nightly.sh": [
+     "node scripts/report.ts",
+     ""
+    ],
+    "src/table.ts": [
+     "export class Table {}",
+     "export function renderTable(rows: string[][]): string { return ''; }",
+     ""
+    ],
+    "README.md": [
+     "# tablekit",
+     ""
+    ]
+   },
+   "index": null,
+   "cases": [
+    {
+     "id": "x-cost-content",
+     "want": "note",
+     "prompt": "`scripts/report.ts` appends a totals row when run with `--totals`. Turn the row on in nightly."
+    }
+   ]
+  }
+ ]
+}

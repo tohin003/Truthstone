@@ -162,11 +162,15 @@ def test_a_runtime_or_tool_environment_variable_is_never_a_premise(tmp_path, nam
     assert not _check(_repo(tmp_path), prompt).missing
 
 
-def test_a_symbol_or_a_path_only_docs_mention_is_not_a_switch(tmp_path):
-    """A removed method the changelog mentions resolves: the switch rule is for switches."""
+def test_a_symbol_only_the_changelog_mentions_is_noted_and_a_path_resolves(tmp_path):
+    """C1b (day 4; deliberately reversed, was ``test_a_symbol_or_a_path_only_docs_mention_is_not_a_switch``):
+    a removed method only history files mention is noted, once every code file was read; a path the
+    changelog mentions still resolves (the switch rule is for switches)."""
     repo = _repo(tmp_path, {"CHANGELOG.md": "Removed `Store.shift()`; see scripts/old_tool.py.\n"})
     prompt = "Build it on the existing Store.shift() helper and the existing scripts/old_tool.py."
-    assert not _check(repo, prompt).missing
+    found = _check(repo, prompt)
+    assert [a.name for a in found.missing] == ["Store.shift()"]
+    assert found.only_in == {"Store.shift()": ["CHANGELOG.md"]}
 
 
 def test_a_member_resolves_through_code_but_not_through_prose(tmp_path):
@@ -176,7 +180,9 @@ def test_a_member_resolves_through_code_but_not_through_prose(tmp_path):
     in_code = _repo(tmp_path / "b", {"acme/extra.py": "def shift():\n    pass\n"})
     assert not _check(in_code, prompt).missing
     in_changelog = _repo(tmp_path / "c", {"CHANGELOG.md": "Removed `Store.shift()` in 0.4.\n"})
-    assert not _check(in_changelog, prompt).missing  # an occurrence anywhere: precision first
+    # C1b (day 4; deliberately reversed, was "resolves: an occurrence anywhere"): a symbol only history
+    # files mention is noted, once every code file was read.
+    assert [a.name for a in _check(in_changelog, prompt).missing] == ["Store.shift()"]
 
 
 def test_flags_and_config_keys_resolve_where_code_reads_them(tmp_path):
@@ -468,12 +474,19 @@ def test_a_key_the_request_says_the_project_reads_from_its_own_config_is_a_premi
         "Add a new `summary_line` key to acme.toml; when it is true, the report appends a summary.",
         # no condition: a plain edit
         "Set `summary_line = true` under `[report]` in acme.toml.",
-        # no config file named
-        "acme appends a summary when `summary_line` is true: switch it on.",
     ],
 )
 def test_a_tool_key_a_build_request_or_a_plain_edit_is_not(tmp_path, prompt):
     assert not _check(_repo(tmp_path), prompt).missing
+
+
+def test_a_key_tied_to_present_behaviour_and_pointed_back_is_noted_without_a_config_file(tmp_path):
+    """C1 v4.3 (day 4; deliberately reversed: the case "no config file named" of
+    ``test_a_tool_key_a_build_request_or_a_plain_edit_is_not``): the sentence ties the key to the project's
+    present behaviour and points back to it ("switch it on"), so the key is asserted without a named
+    configuration file."""
+    found = _check(_repo(tmp_path), "acme appends a summary when `summary_line` is true: switch it on.")
+    assert [a.name for a in found.missing] == ["summary_line"]
 
 
 def test_a_project_config_key_that_exists_resolves(tmp_path):

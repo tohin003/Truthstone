@@ -85,6 +85,7 @@ from truthstone.core.models import EvidenceRef, Finding
 from truthstone.core.taskstate import TaskState
 from truthstone.repo import scanner
 from truthstone.repo.index import RepoIndex
+from truthstone.validate.keep_reading import straight_quotes
 from truthstone.verify import baseline, claims, completion_gate, runners, spec_conflict
 
 log = logging.getLogger(__name__)
@@ -793,6 +794,8 @@ def _excused(prompt: str, failure: runners.TestOutcome, failing: set[str]) -> bo
     asks to leave them failing: in so many words, by keeping their update for the user ("I'll
     update them myself", "they will break, that's expected", "a follow-up PR", "stay out of
     tests/"), or by asking for failing tests first (a red phase)."""
+    if isinstance(prompt, str):
+        prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
     if _EXCUSED.search(prompt) or claims.red_phase_requested(prompt):
         return True
     if any(
