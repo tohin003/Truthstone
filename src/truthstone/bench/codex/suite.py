@@ -139,8 +139,11 @@ FROZEN: dict[str, str] = {
 # Spent splits (amendment G26): frozen splits whose release run is done. Still read-only, and a
 # main study still needs every task, unchanged; a dev check may register some of their tasks (any
 # stage but main), as long as the whole split still digests to its frozen value. golden-heldout2 is
-# spent too, by the second release run (G28, G30), and golden-heldout3 by the third (G35).
-SPENT: frozenset[str] = frozenset({"golden-heldout", "golden-heldout2", "golden-heldout3"})
+# spent too, by the second release run (G28, G30), golden-heldout3 by the third (G35), and the
+# dress rehearsal by its own run, read on Nov 8 (G41).
+SPENT: frozenset[str] = frozenset(
+    {"golden-heldout", "golden-heldout2", "golden-heldout3", "golden-rehearsal"}
+)
 
 # Rework families with no candidate recipe at >= 10% on Sol (amendment G6 rule 3, applied by G11):
 # their held-out instances stay in every registered analysis, and the report labels them.
