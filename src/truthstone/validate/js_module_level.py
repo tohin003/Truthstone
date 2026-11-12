@@ -22,8 +22,9 @@ How, so that it agrees with the Python rule:
   no change), then the same statement under another name (a rename), then the one that declares the
   same name.
 * Type annotations of a top-level function's parameters and return value, and of a top-level
-  variable, do not count (audit H13: they do not change what the tests run against). Type
-  assertions do (``x as T``, ``x!``, ``<T>x``, ``satisfies T``), as Python's ``cast()`` does.
+  variable, do not count (audit H13: they do not change what the tests run against); nor do
+  type-only declarations (``interface``, ``type`` aliases; day-5 audit). Type assertions do
+  (``x as T``, ``x!``, ``<T>x``, ``satisfies T``), as Python's ``cast()`` does.
 * Pure additions never count: a statement whose lines all survive, in order, among its new lines
   (a helper that gained a line, a table that gained an item, read line by line as the grader reads
   it), and a table literal whose items all survive in any order (H9). The first draft without this
@@ -223,7 +224,7 @@ def _js_goes_on(current: list[_Tok], tok: _Tok) -> bool:
     prev = current[-1]
     if prev.kind == "p" and prev.text not in _JS_ENDS:
         return True
-    if prev.kind == "id" and prev.text in _JS_GOES_ON_AFTER:
+    if prev.kind == "id" and prev.text in _JS_GOES_ON_AFTER and not _js_type_word_ends(current):
         return True
     if (tok.kind == "p" and tok.text in _JS_GOES_ON_BEFORE) or tok.kind == "tpl":
         return True
@@ -233,6 +234,17 @@ def _js_goes_on(current: list[_Tok], tok: _Tok) -> bool:
         return True
     head = next(t for t in current if t.line == prev.line)
     return head.text == "@"
+
+
+def _js_type_word_ends(current: list[_Tok]) -> bool:
+    """A keyword at the line's end that is a complete type, not an operator waiting for more (audit of
+    day 5): ``… as const`` and a ``void`` return or member type (``=> void``, ``: void``, ``| void``).
+    Read as an operator, it merged the next statement into this one, so a test or a helper inserted
+    after a no-semicolon ``as const`` table read as the table changed."""
+    if len(current) < 2:
+        return False
+    prev, before = current[-1].text, current[-2].text
+    return (prev == "const" and before == "as") or (prev == "void" and before in ("=>", ":", "|", "&"))
 
 
 def _js_is_test_call(toks: list[_Tok]) -> bool:
@@ -592,6 +604,8 @@ def _js_unit(path: str, stmt: list[_Tok], source: list[str]) -> _JsUnit | None:
     while i < len(toks) - 1 and toks[i].kind == "id" and toks[i].text in _JS_PREFIXES:
         i += 1
     first = toks[i].text
+    if first in ("interface", "type") and _js_type_only(toks, i):
+        return None  # a type-only declaration: no code the tests run (H13, audit of day 5)
     key, label, at, what = "", "", -1, ""
     binds: frozenset[str] = frozenset()
     module = ""
@@ -658,6 +672,18 @@ def _js_unit(path: str, stmt: list[_Tok], source: list[str]) -> _JsUnit | None:
         frame,
         literals,
     )
+
+
+def _js_type_only(toks: list[_Tok], i: int) -> bool:
+    """``interface Name …`` or ``type Name = …`` / ``type Name<T> = …`` at ``i``: erased before the
+    tests run, as the annotations H13 leaves out are. A formatter rewrites them too (member
+    separators ``,`` -> ``;``, a long union wrapped with a leading ``|``), and the tokens did not
+    read those rewrites as the same declaration."""
+    if i + 1 >= len(toks) or toks[i + 1].kind != "id":
+        return False
+    if toks[i].text == "interface":
+        return True
+    return i + 2 < len(toks) and toks[i + 2].text in ("=", "<")
 
 
 def _js_statement_key(toks: list[_Tok]) -> str:

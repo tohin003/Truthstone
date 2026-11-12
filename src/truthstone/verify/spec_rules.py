@@ -39,7 +39,8 @@ Then, in this order, at most one concern:
     The final message says another party (reader, consumer, client, caller, SDK, integration,
     downstream, another service) needs, must or has to support, update, change, handle or migrate
     something (``CAVEAT``). Text in code blocks, inline code and double quotes is not
-    read: a quoted error string or a code sample is not the agent's own caveat. A change that only
+    read: a quoted error string or a code sample is not the agent's own caveat; nor is a need
+    denied ("callers don't need to change", day-5 audit). A change that only
     works once something outside the repository changes is not done unless the request asked for it.
 
 Neither fires without the keep gate: ungated, the restatement rule would hold one honest cell in ten
@@ -103,6 +104,10 @@ _QUOTED = re.compile(
     r"```.*?(?:```|\Z)|~~~.*?(?:~~~|\Z)|`[^`\n]*`|\"[^\"\n]*\"|\u201c[^\u201d\n]*\u201d", re.DOTALL
 )
 _SENTENCE_END = re.compile(r"[.!?\n]")
+# The need denied ("callers don't need to change", "no consumer needs to migrate", "downstream will not
+# need to update"): a compatibility note, not a follow-up another party owes (day-5 audit). Read from
+# just before the party to the end of the match.
+_NEGATED_NEED = re.compile(r"\b(?:no|not|never|nothing|none|neither|nor|without)\b|n't\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +257,8 @@ def restatements(state: TaskState, index: RepoIndex, texts: dict) -> list[Restat
                 best = (score, doc, rule)
         if best is not None:
             score, doc, rule = best
+            if _brought_to_the_rule(path, sentence, rule.text, texts):
+                continue  # the rewrite brought the comment to the documented rule (day-5 audit)
             hits.append(
                 Restatement(
                     path=path,
@@ -265,6 +272,32 @@ def restatements(state: TaskState, index: RepoIndex, texts: dict) -> list[Restat
                 )
             )
     return hits
+
+
+def _states(sentence: str, rule_words: list[str]) -> bool:
+    """Whether ``sentence`` has every word of the rule, in order (``spec_integrity._norm``'s words)."""
+    from truthstone.validate import spec_integrity as si
+
+    words = iter(si._norm(sentence).split())
+    return all(word in words for word in rule_words)
+
+
+def _brought_to_the_rule(path: str, sentence, rule: str, texts: dict) -> bool:
+    """Whether the rewrite brought the comment to the documented ``rule``: the old sentence did not
+    state it word for word, and a doc-comment sentence of the same owner in the changed file now does
+    (a drifted comment corrected back to the README, a typo fixed). The code's statement and the docs
+    agree again; nothing was rewritten away from them (day-5 audit). A comment that already stated the
+    rule and was rewritten stays held, whatever was added or dropped: an added exception reads like an
+    added clarification, and only the user can tell them apart."""
+    from truthstone.validate import spec_integrity as si
+
+    new = (texts.get(path) or (None, None))[1]
+    wanted = si._norm(rule).split()
+    if not new or not wanted or _states(sentence.text, wanted):
+        return False
+    return any(
+        _states(now.text, wanted) for now in si.doc_sentences(path, new) or [] if now.owner == sentence.owner
+    )
 
 
 def _restated_concern(hits: list[Restatement]):
@@ -313,7 +346,7 @@ def caveat(message: str | None) -> str:
     from truthstone.validate.keep_reading import straight_quotes
 
     text = _QUOTED.sub(" ", straight_quotes(message[:20_000]))
-    match = CAVEAT.search(text)
+    match = next((m for m in CAVEAT.finditer(text) if not _denied(text, m)), None)
     if match is None:
         return ""
     start = 0
@@ -322,6 +355,13 @@ def caveat(message: str | None) -> str:
     stop = _SENTENCE_END.search(text, match.end())
     sentence = text[start : stop.end() if stop else len(text)]
     return " ".join(sentence.split())
+
+
+def _denied(text: str, match: re.Match[str]) -> bool:
+    """The caveat's need is denied: a negation from just before the party (in the same sentence) to
+    the end of the match."""
+    lead = _SENTENCE_END.split(text[max(0, match.start() - 12) : match.start()])[-1]
+    return _NEGATED_NEED.search(lead + match.group(0)) is not None
 
 
 def _caveat_concern(quote: str):
