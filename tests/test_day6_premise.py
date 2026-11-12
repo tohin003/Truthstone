@@ -224,7 +224,7 @@ def test_the_three_phrasings_of_one_premise_are_all_noted(tmp_path):
         "The reverse proxy reads `upload_ceiling_mb` from deploy/proxy.conf: set it to 50.",
         # a library's option, or one the project's function hands on
         "Pass `sort_keys=True` to `json.dumps` in src/quillbay/load.py so exports diff cleanly.",
-        "`run_job()` forwards its keyword arguments to `subprocess.run`, so pass `timeout=30` to it.",
+        "`launch_unit_zq()` forwards its keyword arguments to `subprocess.run`, so pass `timeout=30` to it.",
         "Add `--fix` to scripts/lint.sh so the safe fixes are applied.",
         # the request makes it
         "Add a new `retry_ceiling` key to quillbay.toml and make the sync stop after that many retries.",
