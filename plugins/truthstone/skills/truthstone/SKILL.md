@@ -1,6 +1,6 @@
 ---
 name: truthstone
-description: "Explains Truthstone hook messages (a blocked tool call or a held finish) and whether Truthstone is active."
+description: "Checks Truthstone's status and past decisions. Not needed to act on its messages: they are self-contained."
 ---
 
 # Truthstone
