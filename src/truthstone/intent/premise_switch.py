@@ -1855,9 +1855,10 @@ def _check_v52(P, prompt, root, files, already):
 def check(P, prompt, root, files, already=None):
     """The premise check for ``premise.check``. With the used-switch rule speaking, v5.2's result.
     Otherwise v4.3's (today's rule, v4.3, C1b, C1c) after v5.2's final filter, with what v5.2 would
-    note beyond it on ``recorded``."""
+    note beyond it on ``recorded``. Day 6: then the switches the request relies on that nothing reads
+    (``premise_names``, C7), beside them."""
     if USED_SWITCH_SPEAKS:
-        return _check_v52(P, prompt, root, files, already)
+        return _relied_pass(P, _check_v52(P, prompt, root, files, already), prompt, root, files, already)
     if files is not None:
         files = list(files)  # read by both paths
     spoken = _precision_filter(
@@ -1866,4 +1867,35 @@ def check(P, prompt, root, files, already=None):
     full = _check_v52(P, prompt, root, files, already)
     names = {a.name for a in spoken.missing}
     spoken.recorded = [a for a in full.missing if a.name not in names]
-    return spoken
+    return _relied_pass(P, spoken, prompt, root, files, already)
+
+
+# Day 6 (C7): whether the relied-switch rule's names are noted (True) or left out (False).
+RELIED_SPEAKS = True
+
+
+def _relied_pass(P, res, prompt, root, files, already):
+    """C7 (``premise_names.relied``): a switch-like name the request gives a value, uses, or names as where
+    present behaviour comes from, that the request does not ask to make, that no other program owns, and
+    that nothing in the repository reads, joins the noted names. Fail-open: a rule that cannot run adds
+    nothing."""
+    if not RELIED_SPEAKS or files is None or not prompt:
+        return res
+    try:
+        from truthstone.intent import premise_names
+
+        have = {a.name for a in res.missing}
+        skip = set(already or ()) | have
+        for a, only, _kind in premise_names.relied(P, prompt, root, files, already=skip):
+            if a.name in have:
+                continue
+            have.add(a.name)
+            res.missing.append(a)
+            if only:
+                res.only_in[a.name] = only
+        res.recorded = [a for a in res.recorded if a.name not in have]
+    except Exception:  # fail open: the names already found stand
+        import logging
+
+        logging.getLogger(__name__).info("truthstone: the relied-switch check could not run", exc_info=True)
+    return res

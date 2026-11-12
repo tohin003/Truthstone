@@ -66,6 +66,11 @@ def _expected(key: str) -> dict:
 @pytest.fixture(autouse=True)
 def _product_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TRUTHSTONE_PROFILE", raising=False)
+    # Day 6: the pins are C1's (the frozen prototypes, with the day-5 changes above). The relied-switch
+    # rule (C7, ``intent/premise_names.py``) adds its names after C1 in ``premise.check``; it is switched
+    # off here so every pinned value stays the prototypes' record. Its own results on these batteries are
+    # measured in ``.claude/handoff/day5/fix-premise2.md`` and its shapes tested in ``test_day6_premise.py``.
+    monkeypatch.setattr(premise_switch, "RELIED_SPEAKS", False)
 
 
 def _text(content) -> str:

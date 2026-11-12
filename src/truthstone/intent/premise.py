@@ -485,7 +485,34 @@ _BUILDS = re.compile(
 )
 
 
-def _named_for_project_config(prompt: str, sentence: str, offset: int) -> bool:
+# Audit (day 6): a condition on a name that is followed by an instruction specifies behaviour to
+# build: "if `N` is set, load the cards from there", "when N=1 is set, skip the copy". A request
+# that relies on the name states what happens ("when `N` is set the client logs ...") or goes on
+# to ask for its use ("when `N=1` is set, so please ...", "...: turn that on").
+_CONDITION_BEFORE = re.compile(
+    r"\b(?:if|when|whenever|once)\s+(?:the\s+)?(?:env(?:ironment)?\s+(?:var(?:iable)?\s+)?)?[`'\"]?$",
+    re.IGNORECASE,
+)
+_SPEC_AFTER = re.compile(
+    r"^[`'\"]?(?:\s*=\s*[^\s`'\",]+[`'\"]?)?\s+(?:is|are)\s+(?:set|given|present|defined|true|enabled)"
+    r"(?:\s+to\s+[^\s,]+)?\s*,\s*(?:then\s+)?"
+    r"(?:load|read|use|take|skip|print|write|return|raise|throw|log|emit|fall\s+back|default|look|fetch|send"
+    r"|copy|publish|store|save|treat|ignore|drop|prefer|pick|call|stop|exit|retry|wait|cache|render|format"
+    r"|show|output|append|prepend|include|exclude|strip|trim|round|cap|limit|reject|refuse|warn|fail|abort)\b",
+    re.IGNORECASE,
+)
+
+
+def conditional_spec(sentence: str, offset: int, name: str) -> bool:
+    """Whether ``name`` (at ``offset``) is the condition of an instruction: "if `N` is set, load
+    ... from there" describes what to build, not what the project does today."""
+    return bool(
+        _CONDITION_BEFORE.search(sentence[max(0, offset - 40) : offset])
+        and _SPEC_AFTER.match(sentence[offset + len(name) :])
+    )
+
+
+def _named_for_project_config(prompt: str, sentence: str, offset: int, name: str = "") -> bool:
     """A key the request ties to a file of the project's own configuration, in a clause that
     says what the project does when it is set: "the report gets a summary line when `summary =
     true` is under [report] in app.toml: switch it on". Such a request asserts that the
@@ -498,6 +525,8 @@ def _named_for_project_config(prompt: str, sentence: str, offset: int) -> bool:
         return False
     lead = sentence[_clause_start(sentence, offset) : offset]
     if not _CONDITION.search(lead[-160:]):
+        return False
+    if name and conditional_spec(sentence, offset, name):
         return False
     return _BUILDS.search(prompt) is None
 
@@ -535,12 +564,31 @@ def _asserted(
         # A flag is the project's only when the request calls it that ("the --dry-run flag")
         # or says it exists ("already", "existing"); "use --soft" names a tool's own flag.
         named = _KIND_NOUN.match(after) and re.search(r"\b(?:the|our|its)\s+\S*$", before, re.IGNORECASE)
-        return bool(named) or _EXISTING_BEHAVIOUR.search(sentence) is not None
+        if named:
+            return True
+        # Audit (day 6). A flag inside a tool's quoted command line (`node --test --watch`) is the
+        # tool's, whatever else the sentence calls existing ("next to the existing test script").
+        if any(
+            m.start() <= offset < m.end() and not premise_switch._PROJECT_RUN.fullmatch(m.group(0))
+            for m in premise_switch._TOOL_CMD.finditer(sentence)
+        ):
+            return False
+        # Existence said after the flag points back at it ("pass `--n 5`; the script already
+        # parses that flag"). Said before it, it speaks for its own clause, and a creating word or
+        # an indefinite article just before the flag binds tighter: "`f` already takes a key;
+        # make it configurable with a --key option", "f() already has key=, just need --key".
+        if _EXISTING_BEHAVIOUR.search(after):
+            return True
+        if _CREATES.search(window) or re.search(r"\b(?:a|an)\s+[`'\"]?$", before, re.IGNORECASE):
+            return False
+        return _EXISTING_BEHAVIOUR.search(clause) is not None
     # Creation binds tighter than the sentence: a creating word within the four words before.
     if _CREATES.search(window):
         return False
     if _ABSENT.search(window):
         return False  # "the route ignores `offset`", "has no `updated_at`": said not to be there
+    if re.match(r"[`'\"]?\s+instead\b(?!\s+of\b)", after, re.IGNORECASE):
+        return False  # audit (day 6): "x already uses `A` ...; can it read `B` instead?": `B` is the change
     near = {match.lower() for match in _EXISTS_NEAR.findall(window)}
     if near - {"enable"} or (near and kind == "env"):
         return True
@@ -558,7 +606,7 @@ def _asserted(
         return _EXISTING_BEHAVIOUR.search(clause) is not None
     if _EXISTING_BEHAVIOUR.search(clause):
         return True  # "X currently …", "the X setting is supposed to …": in X's own clause
-    if kind in ("name", "env") and _named_for_project_config(prompt or sentence, sentence, offset):
+    if kind in ("name", "env") and _named_for_project_config(prompt or sentence, sentence, offset, name):
         return True  # "… appends one when `x = true` is under [export] in app.toml: switch it on"
     return kind == "env" and _SWITCH_ON.search(sentence) is not None
 
