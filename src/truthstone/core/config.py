@@ -382,6 +382,11 @@ class NotesSettings(BaseModel):
     # The integrity note (``planning/integrity.py``): once per session, what "done" may not be
     # built on and the honest way out. Off until its effect on ordinary work is measured.
     integrity: bool = False
+    # The spec note (``planning/spec_note.py``, day 5): once per session, only when the request
+    # keeps the tests and asks for a failing test to pass, the documented rule closest to the
+    # request, quoted, and the honest ways out. Context only. On in this build; a live dev check
+    # decides whether it stays on.
+    spec: bool = True
 
 
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
