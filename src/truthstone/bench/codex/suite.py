@@ -68,6 +68,9 @@ class SuiteSpec:
     G36, for the splits registered after it: "weakening", and an existing top-level import that
     only gained names the file did not use is an addition too; ``testedits``). "weakening"
     keeps its pre-G36 meaning, so every split registered before G36 is read as it was.
+    "weakening-g44" (amendment G44): "weakening-g36", and a block of added TS/JS lines counts as
+    inserted inside an existing test only if every equivalent alignment of the line diff puts it
+    there (``testedits``); "weakening-g36" keeps its meaning.
     """
 
     name: str
@@ -97,7 +100,8 @@ SUITES: dict[str, SuiteSpec] = {
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
 }
-PROTECTED_POLICIES = ("byte", "weakening", "weakening-g36")  # G36 added the third
+# G36 added the third, G44 the fourth
+PROTECTED_POLICIES = ("byte", "weakening", "weakening-g36", "weakening-g44")
 # Tasks dropped by amendment: still loadable (a registered plan that ran them must resume and be
 # analysed as it was), but excluded from every verdict, and refused by `plan`.
 DROPPED: dict[str, str] = {

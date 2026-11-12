@@ -2,8 +2,8 @@
 
 Every cell keeps its pristine tree (``pristine/``) and the diff to its final tree
 (``final.diff``), so the final tree can be rebuilt. To prove the rebuild, the grader as it was
-(the byte-for-byte, the P3 or the G36 protected rule, with or without the G4 visible-test rule)
-must reproduce the stored grade exactly; only then is the cell graded under today's rules. A
+(the byte-for-byte, the P3, the G36 or the G44 protected rule, with or without the G4 visible-test
+rule) must reproduce the stored grade exactly; only then is the cell graded under today's rules. A
 pre-freeze grader fix (BENCH-golden §6 rule 4) is applied this way to cells that ran before it:
 descriptively for the pilot, and for the extended screen's calibration (``calibrate --regraded``).
 
@@ -11,7 +11,7 @@ Amendment G36: a re-grade is made under one protected-file policy (``--policy``;
 policy the run's suite registered) and written to that policy's own file, ``regrade-<policy>.json``,
 which is never overwritten. Before G36 a re-grade was written to ``regrade.json`` under the run's
 registered policy; that legacy file is still read for the ``weakening`` policy (golden-heldout2's
-is its G29 file), never for ``byte`` and never for ``weakening-g36``.
+is its G29 file), never for ``byte`` and never for ``weakening-g36`` or ``weakening-g44`` (G44).
 """
 
 from __future__ import annotations

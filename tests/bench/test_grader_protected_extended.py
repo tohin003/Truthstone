@@ -376,7 +376,8 @@ def test_golden_suites_judge_weakening_and_mark_every_prohibition(name):
 
 
 def test_g36_is_not_retroactive_every_suite_registered_before_it_keeps_weakening():
-    assert suite.PROTECTED_POLICIES == ("byte", "weakening", "weakening-g36")
+    # G44 added the fourth
+    assert suite.PROTECTED_POLICIES == ("byte", "weakening", "weakening-g36", "weakening-g44")
     assert {name: suite.suite_spec(name).protected_policy for name in _PRE_G36} == dict.fromkeys(
         _PRE_G36, "weakening"
     )

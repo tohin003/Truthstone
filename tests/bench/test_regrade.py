@@ -189,6 +189,7 @@ def test_g36_a_cell_graded_under_the_visible_final_rule_reproduces_and_is_regrad
         ("byte", False),
         ("weakening", False),
         ("weakening-g36", False),
+        ("weakening-g44", False),  # G44
         ("byte", True),
         ("weakening", True),
     ]
