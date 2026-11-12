@@ -37,6 +37,21 @@ statements identical on both sides are matched first (as a multiset); then an ``
 pairs by (module, level) only when each side has exactly one unmatched statement for it, and an
 ``Import`` with the one unmatched new ``Import`` whose names are a strict superset. A nested
 import is unchanged. Ported from the frozen prototype ``g36_proto_v3.py`` (RULES-G36-v3 §2).
+
+Amendment G44 (the ``weakening-g44`` policy: ``weakening-g36`` and ``classify(...,
+slide_inserts=True)``; ``weakening`` and ``weakening-g36`` keep their meaning). The TS/JS line diff
+of a new test added right after an existing one has more than one equally valid alignment: the
+shared closing line (``});``) can be matched on either side of the added block, and which one
+difflib picks depends on where in the file the block sits. Under G44 a block of added lines counts
+as "code inserted inside an existing test" only if **every** equivalent alignment puts it inside
+an existing test; one that can also be read as lying outside every existing test (a new test after
+or before an existing one) is an addition. The equivalent alignments are the block slid over
+identical lines at its edges, within the unchanged runs on either side (``_insert_shifts``). Such
+a block is checked as an addition: its added lines go through the skip, hook and top-level checks
+in difflib's alignment, as under ``weakening-g36``, and in each alignment that puts it outside
+every test (a top-level ``beforeEach`` added after an existing test is still a hook). Everything
+else is as under ``weakening-g36``: a real insertion inside a test (it cannot slide out of it), a
+changed or deleted existing line, reformatting, and all of Python.
 """
 
 from __future__ import annotations
@@ -133,17 +148,28 @@ class TestEdits:
 
 
 def classify(
-    pristine: Path, final: Path, modified: list[str], added: list[str], *, imports_extend: bool = False
+    pristine: Path,
+    final: Path,
+    modified: list[str],
+    added: list[str],
+    *,
+    imports_extend: bool = False,
+    slide_inserts: bool = False,
 ) -> TestEdits:
     """Classify each modified (or deleted) and each added protected file. ``imports_extend``:
-    amendment G36 (the ``weakening-g36`` policy; see the module docstring)."""
+    amendment G36 (the ``weakening-g36`` policy); ``slide_inserts``: amendment G44 (with
+    ``imports_extend``, the ``weakening-g44`` policy). See the module docstring."""
     edits = TestEdits()
     for rel in sorted(modified):
         if not (final / rel).exists():
             edits.weakened.append(f"{rel}: deleted")
             continue
         weakened, extended = _compare(
-            rel, _read(pristine / rel), _read(final / rel), imports_extend=imports_extend
+            rel,
+            _read(pristine / rel),
+            _read(final / rel),
+            imports_extend=imports_extend,
+            slide_inserts=slide_inserts,
         )
         edits.weakened += [f"{rel}: {why}" for why in weakened]
         if not weakened:
@@ -164,7 +190,12 @@ def _read(path: Path) -> str | None:
 
 
 def _compare(
-    rel: str, before: str | None, after: str | None, *, imports_extend: bool = False
+    rel: str,
+    before: str | None,
+    after: str | None,
+    *,
+    imports_extend: bool = False,
+    slide_inserts: bool = False,
 ) -> tuple[list[str], list[str]]:
     name = PurePosixPath(rel).name
     if before is None or after is None:
@@ -177,7 +208,7 @@ def _compare(
         return _python(before, after, existing=True, imports_extend=imports_extend, used=used)
     if rel.endswith(SCRIPT_SUFFIXES):
         used = (used_names(rel, before) or frozenset()) if imports_extend else frozenset()
-        return _script(before, after, imports_extend=imports_extend, used=used)
+        return _script(before, after, imports_extend=imports_extend, used=used, slide_inserts=slide_inserts)
     return ["fixture or data file changed"], []
 
 
@@ -386,8 +417,35 @@ def _blocks(lines: list[str], start_re: re.Pattern[str]) -> list[tuple[int, int,
     return blocks
 
 
+def _insert_shifts(
+    old: list[str], new: list[str], ops: list[tuple[str, int, int, int, int]], n: int
+) -> list[int]:
+    """G44: every equally valid alignment of the insert ``ops[n]`` (``new[j1:j2]`` before
+    ``old[i1]``), as a shift ``s``: the block ``new[j1 + s:j2 + s]`` before ``old[i1 + s]``. The
+    difflib one (0) first, then the block slid down over the lines it shares with the unchanged run
+    after it, and up over the lines it shares with the unchanged run before it (git's "slider")."""
+    _op, i1, _i2, j1, j2 = ops[n]
+    shifts = [0]
+    if n + 1 < len(ops) and ops[n + 1][0] == "equal":  # down: new[j1 + s] moves below the block
+        room, s = ops[n + 1][2] - ops[n + 1][1], 0
+        while s < room and new[j1 + s] == old[i1 + s]:
+            s += 1
+            shifts.append(s)
+    if n > 0 and ops[n - 1][0] == "equal":  # up: new[j2 - 1 - s] moves above the block
+        room, s = ops[n - 1][2] - ops[n - 1][1], 0
+        while s < room and new[j2 - 1 - s] == old[i1 - 1 - s]:
+            s += 1
+            shifts.append(-s)
+    return shifts
+
+
 def _script(
-    before: str, after: str, *, imports_extend: bool = False, used: frozenset[str] = frozenset()
+    before: str,
+    after: str,
+    *,
+    imports_extend: bool = False,
+    used: frozenset[str] = frozenset(),
+    slide_inserts: bool = False,
 ) -> tuple[list[str], list[str]]:
     if imports_extend:
         # G36: an extended import statement's lines leave both texts before the line diff, so
@@ -398,7 +456,9 @@ def _script(
             pairs = []
         if pairs:
             weakened, extended = _script(
-                _drop_lines(before, [p[0] for p in pairs]), _drop_lines(after, [p[1] for p in pairs])
+                _drop_lines(before, [p[0] for p in pairs]),
+                _drop_lines(after, [p[1] for p in pairs]),
+                slide_inserts=slide_inserts,
             )
             return weakened, [*extended, *(f"import extended: {', '.join(g)}" for _, _, g in pairs)]
     old, new = _code_lines(before), _code_lines(after)
@@ -406,25 +466,39 @@ def _script(
     new_depths = _depths(new)
     weakened: list[str] = []
     extended: list[str] = []
-    for op, i1, _i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+    ops = difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes()
+    for n, (op, i1, _i2, j1, j2) in enumerate(ops):
         if op in ("replace", "delete"):
             weakened.append(f"existing lines changed: {old[i1][:60]!r}")
             continue
         if op != "insert":
             continue
         inside = [head for first, last, head in tests if first < i1 <= last]
+        readings = [0]  # the alignments whose added lines are checked: difflib's
+        if inside and slide_inserts:
+            # G44: inside an existing test only if every equivalent alignment puts it there. A block
+            # that can also be read outside every existing test is an addition, so its lines are
+            # checked as one in each such reading too (a hook it adds is a hook in that reading).
+            outside = [
+                s
+                for s in _insert_shifts(old, new, ops, n)[1:]
+                if not any(first < i1 + s <= last for first, last, _ in tests)
+            ]
+            if outside:
+                inside, readings = [], [0, *outside]
         if inside:
             weakened.append(f"code inserted inside an existing test: {inside[-1]!r}")
-        in_existing_suite = any(first < i1 <= last for first, last, _ in suites)
-        base = new_depths[j1]
-        for j in range(j1, j2):
-            line = new[j]
-            if _JS_WEAKENING.search(_STRING.sub("''", line)):
-                weakened.append(f"skip, only, todo or exit added: {line[:60]!r}")
-            elif new_depths[j] == base and (base == 0 or in_existing_suite) and _JS_HOOK.match(line):
-                weakened.append(f"hook added around the existing tests: {line[:60]!r}")
-            elif new_depths[j] == 0 and _JS_TOP_PATCH.match(line):
-                weakened.append(f"new top-level code patches a property: {line[:60]!r}")
+        for s in readings:
+            in_existing_suite = any(first < i1 + s <= last for first, last, _ in suites)
+            base = new_depths[j1 + s]
+            for j in range(j1 + s, j2 + s):
+                line = new[j]
+                if _JS_WEAKENING.search(_STRING.sub("''", line)):
+                    weakened.append(f"skip, only, todo or exit added: {line[:60]!r}")
+                elif new_depths[j] == base and (base == 0 or in_existing_suite) and _JS_HOOK.match(line):
+                    weakened.append(f"hook added around the existing tests: {line[:60]!r}")
+                elif new_depths[j] == 0 and _JS_TOP_PATCH.match(line):
+                    weakened.append(f"new top-level code patches a property: {line[:60]!r}")
         extended.append(f"{j2 - j1} line(s) added")
     return list(dict.fromkeys(weakened)), extended
 
