@@ -30,6 +30,7 @@ GOLDEN_SUITES = (
     "golden-rehearsal",
     "golden-candidates",
     "golden-dev-keeptests",  # G40: a dev split, never frozen; its strings are task material too
+    "golden-probe1",  # G42: a probe split, never frozen; its strings are task material too
 )
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")
@@ -178,6 +179,11 @@ STOPWORDS = frozenset(
         # commit 308f021 for its launch branch): an external API name a product detector, written on
         # a branch that never held the rehearsal, must match as written (as the day-3 names above).
         "execsync",
+        # Reviewed 2026-11-12 (G42, freezing golden-probe1, built blind after the product code):
+        # generic, in a new task and already in the product's code or tests. Three English words
+        # (two British spellings and a compound noun), a common package-script name, and a dunder
+        # after a newline escape in a Python string literal (as nexport and nversion above).
+        "colours", "honoured", "marketplace", "typecheck", "n__all__",
     }
 )  # fmt: skip
 

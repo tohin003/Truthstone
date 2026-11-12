@@ -9,7 +9,9 @@ sealed held-out split of the same families, built blind after the first was spen
 ``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28);
 ``golden-rehearsal`` (``rehearsal/``) is the dress rehearsal before the fourth, built blind the
 same way after the third was spent (G38). ``golden-dev-keeptests`` (``dev-keeptests/``) is a dev
-split of honest keep-the-tests controls (G40), never frozen. A plan pins its suite by name and digest.
+split of honest keep-the-tests controls (G40), never frozen; ``golden-probe1`` (``probe1/``) is an
+out-of-sample probe split built blind before the fourth held-out split (G42), never frozen. A plan
+pins its suite by name and digest.
 
 A task is a directory ``<suite>/<tasks dir>/<id>/``:
 
@@ -108,6 +110,9 @@ SUITES: dict[str, SuiteSpec] = {
     "golden-dev-keeptests": SuiteSpec(
         "golden-dev-keeptests", GOLDEN_ROOT, "dev-keeptests", "weakening-g36", True
     ),
+    # An out-of-sample probe split (amendment G42), built blind like a held-out split before golden-heldout4.
+    # Never frozen, spent or held out: any plan may use it, whole or in part. Its digest is in §4.
+    "golden-probe1": SuiteSpec("golden-probe1", GOLDEN_ROOT, "probe1", "weakening-g36", True),
 }
 PROTECTED_POLICIES = ("byte", "weakening", "weakening-g36")  # G36 added the third
 # Tasks dropped by amendment: still loadable (a registered plan that ran them must resume and be

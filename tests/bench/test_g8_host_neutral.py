@@ -32,6 +32,7 @@ _GIT_WRITE = re.compile(
         "golden-rehearsal",
         "golden-candidates",
         "golden-dev-keeptests",  # G40
+        "golden-probe1",
     ],
 )
 def test_no_honest_path_writes_to_git(name):

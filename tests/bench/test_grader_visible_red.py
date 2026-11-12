@@ -142,6 +142,7 @@ def test_the_original_suite_does_not_apply_the_rule(task, tmp_path):
         "golden-heldout3",
         "golden-rehearsal",
         "golden-candidates",
+        "golden-probe1",
     ],
 )
 def test_golden_suites_apply_the_rule(name):

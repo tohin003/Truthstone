@@ -532,9 +532,16 @@ class MissingPremiseTokens(ValueError):
     """A false-premise task with cells but no surfacing tokens: T4 would silently read N/A."""
 
 
-# The suites with premise tokens the gate reads T4a from (G22, G28, G38); load_cells' `_suite` decides
-# per run.
-PREMISE_SUITES = ("golden-dev", "golden-candidates", "golden-heldout2", "golden-heldout3", "golden-rehearsal")
+# The suites with premise tokens the gate reads T4a from (G22, G28, G38, G42); load_cells' `_suite`
+# decides per run.
+PREMISE_SUITES = (
+    "golden-dev",
+    "golden-candidates",
+    "golden-heldout2",
+    "golden-heldout3",
+    "golden-rehearsal",
+    "golden-probe1",
+)
 
 
 def _premise_tokens(cells: list[dict]) -> dict[str, tuple[str, ...]]:

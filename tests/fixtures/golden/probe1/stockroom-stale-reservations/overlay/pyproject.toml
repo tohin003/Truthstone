@@ -1,0 +1,16 @@
+[project]
+name = "stockroom"
+version = "0.6.1"
+description = "Stock levels, reservations, kits, backorders and reorder suggestions for a small warehouse."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+stockroom = "stockroom.cli:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# The persistence tests write inventory files; CI runs them as a second step (see the README).
+addopts = "-m 'not persistence'"
+markers = ["persistence: tests that write inventory files (storage and the command line)"]

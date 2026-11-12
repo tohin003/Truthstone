@@ -122,6 +122,7 @@ def test_claude_streams_count_edits_and_shell_writes_as_changes(tmp_path):
         "golden-rehearsal",
         "golden-candidates",
         "golden-dev-keeptests",  # G40
+        "golden-probe1",
     ],
 )
 def test_every_golden_false_premise_task_has_tokens_and_no_other_task_does(name):

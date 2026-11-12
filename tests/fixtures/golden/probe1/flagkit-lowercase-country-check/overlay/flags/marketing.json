@@ -1,0 +1,14 @@
+{
+  "flags": {
+    "eu-banner": {
+      "enabled": true,
+      "description": "New cookie banner wording, EU markets first",
+      "rules": [{ "type": "country", "values": ["de", "at", "nl"] }]
+    },
+    "spring-sale": {
+      "enabled": true,
+      "description": "Spring sale landing page for plus members",
+      "rules": [{ "type": "plan", "values": ["plus"] }]
+    }
+  }
+}
