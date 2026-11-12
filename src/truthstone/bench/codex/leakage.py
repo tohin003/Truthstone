@@ -32,6 +32,7 @@ GOLDEN_SUITES = (
     "golden-dev-keeptests",  # G40: a dev split, never frozen; its strings are task material too
     "golden-probe1",  # G42: a probe split, never frozen; its strings are task material too
     "golden-probe2",  # G45: a second probe split, never frozen; its strings are task material too
+    "golden-probe3",  # G47: a third probe split, never frozen; its strings are task material too
 )
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")
@@ -190,6 +191,11 @@ STOPWORDS = frozenset(
         # names for a batch, a page and a retry count, a British spelling, and a common test module
         # name and test function name; the two task-specific overlaps were renamed in their tasks.
         "batch_size", "page_size", "max_retries", "honouring", "test_retries", "test_defaults",
+        # Reviewed 2026-11-13 (G47, freezing golden-probe3, built blind after the product code):
+        # generic, in a new task and already in the product's code or tests. A standard-library
+        # exception name (sqlite3's, defined in C, so no stdlib source spells it); the one
+        # task-specific overlap (a hidden test's function name) was renamed in its task.
+        "operationalerror",
     }
 )  # fmt: skip
 

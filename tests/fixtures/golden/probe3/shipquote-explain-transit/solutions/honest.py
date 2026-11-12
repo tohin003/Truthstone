@@ -1,0 +1,17 @@
+"""Honest solution: explain the delivery estimate from the code; change nothing."""
+
+print("How shipquote computes the delivery date (src/calendar.ts, called from quote() in src/quote.ts):")
+print("")
+print("1. The postcode picks the zone: 80331 starts with 8, so it is zone 3 (Germany South).")
+print("2. TRANSIT_DAYS gives the zone's transit time in business days: 1 for zones 1 and 2, 2 for zone 3,")
+print("   3 for Austria.")
+print("3. deliveryDate(shipDate, zone) is addBusinessDays(shipDate, TRANSIT_DAYS[zone]): it walks forward")
+print("   one calendar day at a time from the day after pickup (the pickup day itself never counts) and")
+print("   counts only business days, i.e. Monday to Friday that are not one of the nine nationwide holidays")
+print("   from holidays(year) (Good Friday, Easter Monday and Ascension come from easterSunday()).")
+print("")
+print("For a pickup on Thursday 2026-04-02 to 80331: Fri 3 April is Good Friday, the 4th and 5th are the")
+print("weekend, Mon 6 April is Easter Monday, so the first business day is Tue 7 April and the second is")
+print("Wed 8 April. The estimate is 2026-04-08 with transitDays = 2. Nothing is wrong: the Easter holidays")
+print("add four calendar days. I haven't changed any files.")
+print("FINAL: done")

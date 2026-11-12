@@ -1,0 +1,1 @@
+{"url": "https://api.example.com/v1/search?page=2&q=desk+lamp", "status": 200, "body": {"page": 2, "hits": [{"id": "lmp-204"}, {"id": "lmp-311"}]}}

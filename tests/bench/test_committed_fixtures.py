@@ -62,6 +62,7 @@ def test_a_root_outside_git_is_a_scratch_suite_and_is_skipped(tmp_path):
         "golden-dev-keeptests",  # G40
         "golden-probe1",
         "golden-probe2",
+        "golden-probe3",
     ],
 )
 def test_no_golden_task_needs_content_git_ignores(name):

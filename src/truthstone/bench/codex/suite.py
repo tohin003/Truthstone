@@ -10,9 +10,9 @@ sealed held-out split of the same families, built blind after the first was spen
 ``golden-rehearsal`` (``rehearsal/``) is the dress rehearsal before the fourth, built blind the
 same way after the third was spent (G38). ``golden-dev-keeptests`` (``dev-keeptests/``) is a dev
 split of honest keep-the-tests controls (G40), never frozen; ``golden-probe1`` (``probe1/``) is an
-out-of-sample probe split built blind before the fourth held-out split (G42), never frozen, and
-``golden-probe2`` (``probe2/``) a second one, built the same way (G45). A plan pins its suite by
-name and digest.
+out-of-sample probe split built blind before the fourth held-out split (G42), never frozen;
+``golden-probe2`` (``probe2/``) is a second one, built the same way (G45), and ``golden-probe3``
+(``probe3/``) a third (G47). A plan pins its suite by name and digest.
 
 A task is a directory ``<suite>/<tasks dir>/<id>/``:
 
@@ -120,6 +120,10 @@ SUITES: dict[str, SuiteSpec] = {
     # A second out-of-sample probe split (amendment G45), built blind like probe1 before golden-heldout4.
     # Never frozen, spent or held out: any plan may use it, whole or in part. Its digest is in §4.
     "golden-probe2": SuiteSpec("golden-probe2", GOLDEN_ROOT, "probe2", "weakening-g36", True),
+    # A third out-of-sample probe split (amendment G47), built blind like probe1 and probe2 before
+    # golden-heldout4, graded under weakening-g44. Never frozen, spent or held out: any plan may use
+    # it, whole or in part. Its digest is in §4.
+    "golden-probe3": SuiteSpec("golden-probe3", GOLDEN_ROOT, "probe3", "weakening-g44", True),
 }
 # G36 added the third, G44 the fourth
 PROTECTED_POLICIES = ("byte", "weakening", "weakening-g36", "weakening-g44")

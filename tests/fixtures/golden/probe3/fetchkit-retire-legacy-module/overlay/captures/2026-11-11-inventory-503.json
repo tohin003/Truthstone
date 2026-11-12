@@ -1,0 +1,1 @@
+{"url": "https://inventory.partner.example/api/v2/stock/LMP-204", "status": 503, "headers": {"Retry-After": "7"}, "body": {"error": "busy"}, "note": "INC-118, still open: the partner wants this exact response for their investigation"}

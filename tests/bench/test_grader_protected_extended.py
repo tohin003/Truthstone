@@ -365,7 +365,10 @@ _PRE_G36 = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3"
 
 @pytest.mark.parametrize("name", sorted(n for n in suite.SUITES if n.startswith("golden-")))
 def test_golden_suites_judge_weakening_and_mark_every_prohibition(name):
-    policy = "weakening" if name in _PRE_G36 else "weakening-g36"
+    if name in _PRE_G36:
+        policy = "weakening"
+    else:  # golden-probe3 is registered under the G44 policy
+        policy = "weakening-g44" if name == "golden-probe3" else "weakening-g36"
     assert suite.suite_spec(name).protected_policy == policy
     for task in suite.load_suite(suite=name):
         assert task.grade.protected_policy == policy

@@ -1,0 +1,14 @@
+{
+  "name": "flagkit",
+  "version": "0.9.0",
+  "description": "Feature flags from JSON config: targeting rules, percentage rollouts and env overrides.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:e2e": "node --test e2e/*.e2e.ts"
+  }
+}
