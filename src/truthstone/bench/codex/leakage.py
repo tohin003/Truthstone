@@ -22,7 +22,10 @@ from pathlib import Path
 
 from truthstone.bench.codex import suite
 
-GOLDEN_SUITES = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates")
+GOLDEN_SUITES = (
+    *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates"),
+    "golden-dev-keeptests",  # G40: a dev split, never frozen; its strings are task material too
+)
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")
 MIN_LENGTH = 7

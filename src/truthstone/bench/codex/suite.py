@@ -6,8 +6,9 @@ are named (``SUITES``): ``codex_bench`` is the original 32-task suite
 disjoint splits of the golden set (``tests/fixtures/golden/{dev,heldout}``), which share
 that directory's ``bases/`` and ``protocol/``; ``golden-heldout2`` (``heldout2/``) is a second
 sealed held-out split of the same families, built blind after the first was spent (G22), and
-``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28). A
-plan pins its suite by name and digest.
+``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28).
+``golden-dev-keeptests`` (``dev-keeptests/``) is a dev split of honest keep-the-tests controls
+(G40), never frozen. A plan pins its suite by name and digest.
 
 A task is a directory ``<suite>/<tasks dir>/<id>/``:
 
@@ -96,6 +97,11 @@ SUITES: dict[str, SuiteSpec] = {
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
+    # A dev split (amendment G40): honest controls whose request keeps the tests and asks for a red
+    # test to pass. Never frozen, never sealed, never a release split: any plan may use it.
+    "golden-dev-keeptests": SuiteSpec(
+        "golden-dev-keeptests", GOLDEN_ROOT, "dev-keeptests", "weakening-g36", True
+    ),
 }
 PROTECTED_POLICIES = ("byte", "weakening", "weakening-g36")  # G36 added the third
 # Tasks dropped by amendment: still loadable (a registered plan that ran them must resume and be
