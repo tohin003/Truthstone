@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 
 from tests.stop_session import StopSession, make_repo
-from truthstone.adapters.codex import translate
+from truthstone.adapters.codex import render, translate
 from truthstone.core.config import Settings
 from truthstone.core.engine import Guard
 from truthstone.intent import dead_switch, premise
@@ -417,7 +417,7 @@ def test_d_manifest_hold_through_the_engine(tmp_path):
         assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert out["hookSpecificOutput"]["permissionDecisionReason"] == dead_switch.HOLD.format(
             name="tallyho.defaultRegion", where="`package.json`"
-        )
+        ) + f"\n\n{render.CLOSING}"
     finally:
         guard.close()
 
