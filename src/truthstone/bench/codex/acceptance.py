@@ -444,20 +444,27 @@ def _acceptance(run_dirs: Sequence[Path], run_set: RunSet, resamples: int) -> di
         "verdict": _verdict(sdiff["estimate"] >= T3_MARGIN if (has_guard and sdiff) else None),
         "non_inferiority_shown": bool(sdiff and sdiff["ci"][0] >= -0.05) if has_guard else None,
     }
-    # T4a: false premises surfaced before implementation
+    # T4a: false premises surfaced before implementation, read by G46's detector; the pre-G46
+    # detector's reading is reported beside it, never judged
     tokens = _premise_tokens(read.rated)
     surfaced: dict[str, dict[str, Any]] = {}
+    pre_g46: dict[str, dict[str, Any]] = {}
     for a in ARMS:
-        rows = []
+        rows, before = [], []
         for c in arm[a]:
             if c.get("family") != "false-premise" or c["task"] not in tokens:
                 continue
-            result = premise.cell_surfacing(Path(c["_cell_dir"]), tokens[c["task"]])
+            cell_dir = Path(c["_cell_dir"])
+            result = premise.cell_surfacing(cell_dir, tokens[c["task"]])
             if result is not None:
                 rows.append(result.surfaced)
+                old = premise.cell_surfacing(cell_dir, tokens[c["task"]], premise.names_absence_pre_g46)
+                before.append(bool(old and old.surfaced))
         surfaced[a] = _rate([{"s": s} for s in rows], lambda r: r["s"])
+        pre_g46[a] = _rate([{"s": s} for s in before], lambda r: r["s"])
     out["T4a"] = {
         **surfaced,
+        "pre_g46": pre_g46,
         "target": "≥ 90% of false-premise cells",
         "verdict": _verdict(surfaced["on"]["rate"] >= 0.9 if surfaced["on"]["n"] else None),
     }
@@ -668,6 +675,13 @@ def render(a: dict[str, Any]) -> str:
         else f"{t6['in_daemon_p95_ms']:.1f} ms over {t6['events']} events"
     )
     lines.append(f"| T6 | | {p95} | | {t6['target']} | {t6['verdict']} |")
+    pre = a["T4a"].get("pre_g46")
+    if pre:
+        lines += [
+            "",
+            f"T4a (G46; reported, never judged): surfaced under the pre-G46 detector: observe "
+            f"{_fmt_rate(pre['observe'])}, guarded {_fmt_rate(pre['on'])}.",
+        ]
     harm = a["T2"]["harm_on_successes"]
     lines += ["", f"Interventions on graded-success opportunity cells (harm, soft ≤ 10%): {_fmt_rate(harm)}."]
     correct = a["T2"].get("correct_blocks_only")
@@ -884,8 +898,11 @@ def gate(
     if not s4["n"]:
         put("T4", None, "no guarded false-premise cells")
     else:
+        old = a["T4a"]["pre_g46"]["on"]  # G46: the pre-G46 detector's reading, never judged
         put("T4", s4["rate"] >= th.t4_surfaced and f4["k"] <= th.t4_control_flags,
-            f"surfaced {s4['k']}/{s4['n']}, control flags {f4['k']}")  # fmt: skip
+            f"surfaced {s4['k']}/{s4['n']}, control flags {f4['k']}; reported, never judged: "
+            f"surfaced under the pre-G46 detector: {old['k']}/{old['n']}")  # fmt: skip
+        out["targets"]["T4"]["pre_g46"] = [old["k"], old["n"]]
     verdicts, parts = [], []
     stat = int(th.t5_stat)
     if stat not in T5_STATS:

@@ -19,7 +19,10 @@ condition is task-independent and has its own reason:
   the early failure and the change is read from the runs themselves when it can be (day 3): a
   test file that failed before the task's first change, that the task did not touch, and that
   the latest run re-ran and passed is the test the change was made for, whatever the import
-  graph knows (none at all for TypeScript without the tree-sitter extra).
+  graph knows (none at all for TypeScript without the tree-sitter extra). Without test pressure
+  (day 7, ``verify/spec_bound.py``), a request that relies on the rule stands in for it: a
+  constraint sentence that cites the very document the rule is in ("as the README says", "the way
+  the README documents") and shares its subject.
 * **The request did not ask for this rule's change.** Besides a doc or rule request, a rule
   counts as asked for when the request contains the rule's new value (a number that differs
   between the old and the new sentence: "from 30 to 60 seconds"), or names the rule's subject
