@@ -54,6 +54,18 @@ CODEX_0_166 = hosts.CODEX
 # when off, MODIFY is rendered as a challenge carrying the guarded form instead.
 ENABLE_REWRITES = False
 
+# The one closing line of every deny and hold the agent reads (day 5, T5). Before it, the agent
+# answered every first intervention by opening the plugin's skill to learn how to respond: one
+# extra model request (the whole session re-sent) per guarded cell that heard the guard. The
+# skill's guidance an agent needs at that moment is this line; the rest is already in each
+# message (its evidence, what to do, the accepted finishes). Never on a silent or allowing
+# answer, and never on a context note.
+CLOSING = (
+    "This message is complete: do what it asks, without working around it, then report the actual result."
+)
+# Where a deny or block is read by the agent. A blocked prompt is the developer's to read.
+_CLOSED_HOOKS = frozenset({"PreToolUse", "PostToolUse", "Stop", "SubagentStop"})
+
 # Codex hook name -> the phase the ladder renders for. Kept here rather than imported from
 # ``translate`` (which imports this module).
 _PHASES: dict[str, EventType] = {
@@ -150,11 +162,11 @@ def _emit(rendering: hosts.Rendering, hook_name: str) -> dict[str, Any]:
         )
     elif kind in ("deny", "rewrite_ask"):
         # Codex cannot show anyone a rewrite (``updatedInput`` needs ``allow``): refuse.
-        out = _deny(rendering.reason)
+        out = _deny(_closed(rendering.reason, hook_name))
     elif kind == "block":
         # Stop's output takes no ``hookSpecificOutput`` at all; the ladder only attaches
         # context to a post-tool block.
-        out = {"decision": "block", "reason": rendering.reason.strip() or FALLBACK_REASON}
+        out = {"decision": "block", "reason": _closed(rendering.reason, hook_name)}
         if rendering.context:
             out.update(_spec_out(hook_name, additionalContext=rendering.context))
     elif kind == "context":
@@ -165,6 +177,14 @@ def _emit(rendering: hosts.Rendering, hook_name: str) -> dict[str, Any]:
         # Shown in the TUI/app (not by `codex exec`): the developer is the one told.
         out["systemMessage"] = rendering.system_message
     return out
+
+
+def _closed(reason: str, hook_name: str) -> str:
+    """A deny's or block's reason, ending in :data:`CLOSING` (once) where the agent reads it."""
+    reason = reason.strip() or FALLBACK_REASON
+    if hook_name not in _CLOSED_HOOKS or reason.endswith(CLOSING):
+        return reason
+    return f"{reason}\n\n{CLOSING}"
 
 
 def perceived(output: dict[str, Any]) -> str | None:

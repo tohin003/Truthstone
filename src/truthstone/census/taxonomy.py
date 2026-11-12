@@ -146,7 +146,9 @@ TAXONOMY: tuple[ModeSpec, ...] = (
         "failure already in the suite counts), nor anything about runs the gate cannot "
         "recognise. A turn that hands back honestly instead — a question, or a disclosure that "
         "the work is failing or unverified — is counted under 'fail to verify', and a requested "
-        "TDD red phase (`tdd-red-phase`) is recorded as not a failure and never counted",
+        "TDD red phase (`tdd-red-phase`) is recorded as not a failure and never counted, as is a "
+        "failing run that only cleared part of the environment after a plain pass on the same code "
+        "had run its tests (`cleared-environment-probe`), which the gate reads past",
     ),
     ModeSpec(
         FailureMode.INSUFFICIENT_TESTS,
@@ -299,6 +301,13 @@ GATE_SUBJECTS: dict[str, tuple[FailureMode, str]] = {
         FailureMode.NOT_A_FAILURE,
         "the only failures are in test files this task created, and the request asked for a "
         "failing test or a reproduction. Recorded so the exemption is visible; never counted",
+    ),
+    "cleared-environment-probe": (
+        FailureMode.NOT_A_FAILURE,
+        "a failing run whose only environment changes clear or unset variables came after the "
+        "suite's latest plain run, which passed after the last file change, covered it, skipped "
+        "nothing and ran at least as many tests: read past, so the plain run decides. Recorded so "
+        "the exemption is visible; never counted",
     ),
     "no-test-run": (
         FailureMode.UNVERIFIED_CHANGE,

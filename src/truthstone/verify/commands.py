@@ -335,6 +335,12 @@ class TestInvocation:
     selectors: tuple[str, ...]  # what narrows the run; empty means the whole suite
     exit_reliable: bool  # the command's exit status is this runner's
     background: bool = False  # launched with a trailing `&`: there is no result yet
+    # What the run changed of the environment it inherited, as written (day 5): its own prefix
+    # assignments (`NAME=value`) and `env` options (`-u NAME`, `-i`, `-C dir`), and the builtins
+    # earlier on the same command line that change what it inherits (`export NAME=value`,
+    # `unset NAME` as `-u NAME`, `source file`, `set -a`). The key leaves all of it out; empty
+    # means the run inherits the environment the shell was given.
+    environment: tuple[str, ...] = ()
 
     @property
     def key(self) -> str:
@@ -342,21 +348,24 @@ class TestInvocation:
         return " ".join(self.argv)[:200]
 
 
-def test_invocations(command: str, _depth: int = 0) -> list[TestInvocation]:
+def test_invocations(
+    command: str, _depth: int = 0, _inherited: tuple[str, ...] = ()
+) -> list[TestInvocation]:
     """Every test run in command position, in order."""
     parts = split(command)
     found: list[TestInvocation] = []
     pipefail = False
+    context = list(_inherited)  # environment changes that later parts inherit
     for index, part in enumerate(parts):
         if _sets_pipefail(part.words):
             pipefail = True
-        stripped, negated = _strip_prefixes(list(part.words))
+        stripped, negated, environment = _peel(list(part.words))
         reliable = not negated and _exit_is_this_parts(parts, index, pipefail)
         background = part.sep == BACKGROUND
         script = _shell_script(stripped)
         if script is not None:
             if _depth < _MAX_NESTING:
-                for inner in test_invocations(script, _depth + 1):
+                for inner in test_invocations(script, _depth + 1, (*context, *environment)):
                     found.append(
                         dataclasses.replace(
                             inner,
@@ -368,8 +377,24 @@ def test_invocations(command: str, _depth: int = 0) -> list[TestInvocation]:
         run = _runner_of(stripped)
         if run is not None:
             runner, family, argv, selectors = run
-            found.append(TestInvocation(runner, family, argv, selectors, reliable, background))
+            inherits = (*context, *environment)
+            found.append(TestInvocation(runner, family, argv, selectors, reliable, background, inherits))
+        elif not stripped:
+            context.extend(environment)  # `NAME=value; pytest`: a shell variable, perhaps exported
+        else:
+            context.extend(_builtin_environment(stripped))
     return found
+
+
+# A change that only takes something away: a variable set empty (`NAME=`, `NAME=''`), a variable
+# unset (`env -u NAME`, `unset NAME`), or the inherited environment dropped (`env -i`).
+_CLEARED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=|-u [A-Za-z_][A-Za-z0-9_]*|-i")
+
+
+def clears_only(environment: tuple[str, ...]) -> bool:
+    """Whether a run's environment changes (``TestInvocation.environment``) are all removals:
+    cleared or unset variables, never a value set."""
+    return bool(environment) and all(_CLEARED.fullmatch(item) for item in environment)
 
 
 def test_invocation(command: str) -> TestInvocation | None:
@@ -479,7 +504,16 @@ def _program(word: str) -> str:
 
 def _strip_prefixes(words: list[str]) -> tuple[list[str], bool]:
     """Drop assignments, reserved words and prefix commands. Returns (words, negated)."""
+    stripped, negated, _ = _peel(words)
+    return stripped, negated
+
+
+def _peel(words: list[str]) -> tuple[list[str], bool, tuple[str, ...]]:
+    """``_strip_prefixes``, also returning the environment changes it peeled away: the
+    assignments, ``env``'s options (``-u NAME``, ``-i``, ...), and ``sudo``/``doas``, which
+    reset the environment."""
     negated = False
+    environment: list[str] = []
     for _ in range(16):
         if not words:
             break
@@ -487,28 +521,73 @@ def _strip_prefixes(words: list[str]) -> tuple[list[str], bool]:
         if head == "!":
             negated = not negated
             words = words[1:]
-        elif head in _RESERVED or _ASSIGNMENT.match(head):
+        elif head in _RESERVED:
+            words = words[1:]
+        elif _ASSIGNMENT.match(head):
+            environment.append(head)
             words = words[1:]
         else:
             name = _program(head)
             if name not in _PREFIXES:
                 break
             if name == "command" and words[1:2] in (["-v"], ["-V"]):
-                return [], negated  # `command -v pytest` looks a program up
-            words = _skip_options(words[1:], _PREFIXES[name])
+                return [], negated, tuple(environment)  # `command -v pytest` looks a program up
+            options: list[str] = []
+            words = _skip_options(words[1:], _PREFIXES[name], options)
             if name == "env":
+                environment.extend(_env_option(option) for option in options)
                 while words and _ASSIGNMENT.match(words[0]):
+                    environment.append(words[0])
                     words = words[1:]
+            elif name in ("sudo", "doas"):
+                environment.append(name)
             elif name in ("timeout", "gtimeout") and words:
                 words = words[1:]  # the duration
             elif name == "nice":
                 while words and re.fullmatch(r"-\d+", words[0]):
                     words = words[1:]
-    return words, negated
+    return words, negated, tuple(environment)
 
 
-def _skip_options(words: list[str], valued: frozenset[str]) -> list[str]:
-    """Skip leading options (and the values of those in ``valued``)."""
+def _env_option(option: str) -> str:
+    """One spelling for ``env``'s removals: ``--unset NAME`` and ``--unset=NAME`` are
+    ``-u NAME``, ``--ignore-environment`` is ``-i``. Anything else stays as written."""
+    flag, _, value = option.partition(" ")
+    if flag.startswith("--unset="):
+        return f"-u {flag.split('=', 1)[1]}"
+    if flag == "--unset" and value:
+        return f"-u {value}"
+    if flag == "--ignore-environment":
+        return "-i"
+    return option
+
+
+# Builtins that change the environment later commands on the line inherit.
+_SET_ALLEXPORT = re.compile(r"-[a-zA-Z]*a[a-zA-Z]*")
+_EXPORTING = re.compile(r"-[a-zA-Z]*x[a-zA-Z]*")
+
+
+def _builtin_environment(words: list[str]) -> tuple[str, ...]:
+    """What a builtin earlier on the command line changes of the environment: ``unset NAME``
+    as ``-u NAME``, ``export NAME=value`` as ``NAME=value``; ``source``, ``set -a`` and an
+    exporting ``declare`` as themselves (they set values). Any other command changes nothing."""
+    name, args = words[0], words[1:]
+    if name == "unset":
+        return tuple(f"-u {arg}" for arg in args if not arg.startswith("-")) or ("unset",)
+    if name == "export":
+        return tuple(arg if _ASSIGNMENT.match(arg) else f"export {arg}" for arg in args) or ("export",)
+    if name in ("source", "."):
+        return (" ".join(words)[:100],)
+    if name == "set" and any(_SET_ALLEXPORT.fullmatch(arg) or arg == "allexport" for arg in args):
+        return ("set -a",)
+    if name in ("declare", "typeset", "readonly", "local") and any(_EXPORTING.fullmatch(arg) for arg in args):
+        return (f"{name} -x",)
+    return ()
+
+
+def _skip_options(words: list[str], valued: frozenset[str], seen: list[str] | None = None) -> list[str]:
+    """Skip leading options (and the values of those in ``valued``), each appended to ``seen``
+    as written (``"-u NAME"``)."""
     i = 0
     while i < len(words):
         word = words[i]
@@ -516,7 +595,10 @@ def _skip_options(words: list[str], valued: frozenset[str]) -> list[str]:
             return words[i + 1 :]
         if not word.startswith("-") or word == "-":
             break
-        i += 2 if word in valued else 1
+        step = 2 if word in valued else 1
+        if seen is not None:
+            seen.append(" ".join(words[i : i + step]))
+        i += step
     return words[i:]
 
 

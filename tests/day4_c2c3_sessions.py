@@ -32,7 +32,7 @@ from tests.test_audit_stop_kit import npm_wrap
 from truthstone import replay
 from truthstone.adapters.codex import translate as codex
 from truthstone.core import profile
-from truthstone.core.config import Settings
+from truthstone.core.config import NotesSettings, Settings
 from truthstone.core.engine import Guard
 
 SESSION_ID = "0199c2c3-0000-7000-8000-00000000d4c3"
@@ -79,7 +79,7 @@ class Session:
 
     def __init__(self, repo: Path, settings: Settings | None = None) -> None:
         self.repo = repo
-        self.guard = Guard(settings or Settings(profile="minimal"))
+        self.guard = Guard(settings or pinned_settings())
         self.guard.workspace(repo).index.ready(timeout=30)
         self.events: list[dict[str, Any]] = []
         self._calls = 0
@@ -1294,8 +1294,15 @@ def scenario_files(name: str) -> dict[str, str]:
     return {**PROJECTS[project], **extra}
 
 
+def pinned_settings() -> Settings:
+    """The product default as the frozen prototypes ran it: the day-5 spec note (``[notes] spec``,
+    on by default) is a prompt-time note those prototypes predate, so it is off here; its own tests
+    are ``tests/test_day5_spec_rules.py``."""
+    return Settings(profile="minimal", notes=NotesSettings(spec=False))
+
+
 def settings_for(max_blocks: int | None = None) -> Settings:
-    settings = Settings(profile="minimal")
+    settings = pinned_settings()
     if max_blocks is not None:
         settings.challenge.max_stop_blocks_per_task = max_blocks
     return settings

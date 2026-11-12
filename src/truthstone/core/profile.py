@@ -34,6 +34,11 @@ brief  kind               phase           when
                                           that predates the task, named nowhere
 (d)    ``premise_unmet``  Stop            "done" while a name the prompt-time note found
                                           missing is still read by no code
+(a)    ``spec_restated``  Stop            "done" under a request that kept the tests, after a
+                                          doc comment restating a documented rule was
+                                          rewritten while the docs still state it (day 5)
+(a)    ``contract_caveat`` Stop           "done" under the same request, with a message that
+                                          says another party must change first (day 5)
 (c)    ``signoff``        before a tool   an irreversible or destructive action needs the
                                           developer's sign-off (A1: never rationed)
 (d)    ``false_premise``  prompt          the prompt asserts a named identifier exists or
@@ -41,6 +46,8 @@ brief  kind               phase           when
 =====  =================  ==============  ================================================
 
 The planning note (``planning_note``) is off: ``[notes] planning = true`` lets it speak again.
+The spec note (``spec_note``, ``planning/spec_note.py``) is on: ``[notes] spec = false`` keeps it
+from being computed or said. It is context only, never a hold, a deny or an ask.
 
 Everything else — routine context, every other challenge, ask, note or Stop reason — is
 **recorded, never shown**: :func:`apply` turns the decision into a silent ALLOW that keeps
@@ -78,7 +85,7 @@ from truthstone.core.models import Decision, Finding
 
 
 class Kind(StrEnum):
-    """The sanctioned intervention kinds. Stop's ten are the arbiter's ``ReasonCategory``
+    """The sanctioned intervention kinds. Stop's twelve are the arbiter's ``ReasonCategory``
     values, spelled identically."""
 
     SPEC_EROSION = "spec_erosion"
@@ -91,6 +98,8 @@ class Kind(StrEnum):
     UNREAD_CONFIG = "unread_config"
     UNTRACKED_STATE = "untracked_state"
     PREMISE_UNMET = "premise_unmet"
+    SPEC_RESTATED = "spec_restated"
+    CONTRACT_CAVEAT = "contract_caveat"
     SIGNOFF = "signoff"
     FALSE_PREMISE = "false_premise"
 
@@ -98,6 +107,7 @@ class Kind(StrEnum):
 # Opt-in, and the names of what is only ever recorded: the arbiter's other Stop categories.
 PLANNING_NOTE = "planning_note"
 INTEGRITY_NOTE = "integrity_note"  # ``[notes] integrity`` (planning/integrity.py): context only
+SPEC_NOTE = "spec_note"  # ``[notes] spec`` (planning/spec_note.py): context only, on by default
 UNVERIFIED = "unverified"
 UNPARSABLE = "unparsable"
 OTHER = "other"
@@ -119,6 +129,8 @@ _STOP = frozenset(
         Kind.UNREAD_CONFIG,
         Kind.UNTRACKED_STATE,
         Kind.PREMISE_UNMET,
+        Kind.SPEC_RESTATED,
+        Kind.CONTRACT_CAVEAT,
     }
 )
 # The minimal profile: per phase, the only kinds that reach the agent.
@@ -128,7 +140,7 @@ MINIMAL_ALLOWED: dict[EventType, frozenset[str]] = {
     EventType.PRE_TOOL_USE: frozenset({str(Kind.SIGNOFF), str(Kind.FALSE_PREMISE)}),
     EventType.USER_PROMPT: frozenset({str(Kind.FALSE_PREMISE)}),
 }
-_NAMED = frozenset(str(k) for k in Kind) | {PLANNING_NOTE, INTEGRITY_NOTE, UNVERIFIED, UNPARSABLE}
+_NAMED = frozenset(str(k) for k in Kind) | {PLANNING_NOTE, INTEGRITY_NOTE, SPEC_NOTE, UNVERIFIED, UNPARSABLE}
 _SPEAKING = (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
 
 
@@ -142,8 +154,9 @@ class Profile:
         return self.allow_all or kind in self.allowed.get(phase, frozenset())
 
 
-def build(name: str = MINIMAL, planning: bool = False, integrity: bool = False) -> Profile:
-    """The named profile; an unknown name is the minimal one (the quiet direction)."""
+def build(name: str = MINIMAL, planning: bool = False, integrity: bool = False, spec: bool = True) -> Profile:
+    """The named profile; an unknown name is the minimal one (the quiet direction). ``spec``
+    follows ``[notes] spec``, on by default."""
     if name == FULL:
         return Profile(FULL, dict(MINIMAL_ALLOWED), allow_all=True)
     allowed = dict(MINIMAL_ALLOWED)
@@ -151,22 +164,25 @@ def build(name: str = MINIMAL, planning: bool = False, integrity: bool = False) 
         allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {PLANNING_NOTE}
     if integrity:
         allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {INTEGRITY_NOTE}
+    if spec:
+        allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {SPEC_NOTE}
     return Profile(MINIMAL, allowed)
 
 
-_CACHE: dict[tuple[str, bool, bool], Profile] = {}
+_CACHE: dict[tuple[str, bool, bool, bool], Profile] = {}
 
 
 def active(settings: Any) -> Profile:
-    """The profile ``settings`` select: ``settings.profile``, ``[notes] planning`` and
-    ``[notes] integrity``."""
+    """The profile ``settings`` select: ``settings.profile``, ``[notes] planning``,
+    ``[notes] integrity`` and ``[notes] spec``."""
     name = str(getattr(settings, "profile", MINIMAL) or MINIMAL)
     notes = getattr(settings, "notes", None)
     planning = bool(getattr(notes, "planning", False))
     integrity = bool(getattr(notes, "integrity", False))
-    key = (name, planning, integrity)
+    spec = bool(getattr(notes, "spec", True))
+    key = (name, planning, integrity, spec)
     if key not in _CACHE:
-        _CACHE[key] = build(name, planning, integrity)
+        _CACHE[key] = build(name, planning, integrity, spec)
     return _CACHE[key]
 
 

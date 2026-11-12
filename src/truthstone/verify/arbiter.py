@@ -21,7 +21,15 @@ per Stop. The checks are:
 * untracked local state (``validate/untracked_state.py``): a command rewrote an ignored local
   file that existed before the task, and neither the request nor the final message names it;
 * a premise still unmet (``validate/premise_unmet.py``): the request said a named thing
-  already works, the prompt-time note found it missing, and at "done" no code reads it yet.
+  already works, the prompt-time note found it missing, and at "done" no code reads it yet;
+* switch-gated tests (``validate/gated_skips.py``, day 5): the last full run skipped tests behind an
+  environment switch its own output names, nothing set it after the last change, and with it set
+  (run by the guard in a sandboxed copy) they fail because of the change: spoken as failing tests (b);
+* under a request that kept the tests, with test pressure (``verify/spec_rules.py``, day 5): a
+  doc comment restating a documented rule rewritten while the docs still state it
+  (``spec_restated``), or a "done" that says another party must change first
+  (``contract_caveat``). They run after every other yardstick check, and only when none of
+  them speaks and spec erosion recorded nothing.
 
 Each reason has a ``ReasonCategory``, and a category speaks at most once per task.
 
@@ -107,6 +115,8 @@ _ORDER = (
     ReasonCategory.TEST_WEAKENING,
     ReasonCategory.TEST_FITTING,
     ReasonCategory.GAMING_SIGNATURE,
+    ReasonCategory.SPEC_RESTATED,
+    ReasonCategory.CONTRACT_CAVEAT,
     ReasonCategory.ORIGINAL_TESTS_FAIL,
     ReasonCategory.FAILING_TESTS,
     ReasonCategory.UNREAD_CONFIG,
@@ -125,6 +135,8 @@ _YARDSTICK = frozenset(
         ReasonCategory.TEST_FITTING,
         ReasonCategory.GAMING_SIGNATURE,
         ReasonCategory.SPEC_CONFLICT,
+        ReasonCategory.SPEC_RESTATED,
+        ReasonCategory.CONTRACT_CAVEAT,
     }
 )
 # A ``spec_conflict`` concern yields to these when they speak at the same Stop (C3).
@@ -202,7 +214,7 @@ _MESSAGE: contextvars.ContextVar[str | None] = contextvars.ContextVar("truthston
 MAX_COMPARED_FILES = 400
 
 
-def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
+def _integrity_checks(original_tests: bool = False, gated_skips: bool = True) -> list[IntegrityCheck]:
     from truthstone.validate import (
         config_reads,
         fitting,
@@ -211,8 +223,9 @@ def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
         untracked_state,
         weakened_tests,
     )
+    from truthstone.validate import gated_skips as gated_skips_check
     from truthstone.validate import original_tests as original_tests_check
-    from truthstone.verify import integrity
+    from truthstone.verify import integrity, spec_rules
 
     checks: list[IntegrityCheck] = [
         integrity.spec_concerns,
@@ -220,13 +233,19 @@ def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
         weakened_tests.concerns,
         fitting.concerns,
         gaming.concerns,
+        # After every other yardstick check: it runs only when none of them speaks (``_yardstick_spoke``).
+        spec_rules.concerns,
         config_reads.concerns,
         untracked_state.concerns,
         premise_unmet.concerns,
     ]
+    if gated_skips:
+        # Runs tests (sandboxed, within its own time budget), but only when the latest full run skipped
+        # tests behind a switch its output names and nothing set it since: ``[challenge] gated_skips``.
+        checks.append(gated_skips_check.concerns)
     if original_tests:
-        # Last, and opt-in (``[challenge] original_tests``): the only check that runs tests
-        # (sandboxed, within its own time budget); it reuses the changed-file texts read above.
+        # Last, and opt-in (``[challenge] original_tests``): it runs tests (sandboxed, within its own
+        # time budget) and reuses the changed-file texts read above.
         checks.append(original_tests_check.concerns)
     return checks
 
@@ -234,6 +253,24 @@ def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
 def final_message() -> str:
     """The final message of the Stop being arbitrated ("" outside one)."""
     return _MESSAGE.get() or ""
+
+
+def _yardstick_spoke(found_all: list[list[Concern]]) -> bool:
+    """Whether a check before ``spec_rules`` has something to say (day 5): a yardstick concern
+    that may speak, or any spec-erosion concern at all (one recorded only, because the request asked
+    for the rule's change, still has its say about the rule)."""
+    return any(
+        (concern.can_speak and concern.category in _YARDSTICK)
+        or concern.category is ReasonCategory.SPEC_EROSION
+        for found in found_all
+        for concern in found
+    )
+
+
+def _runs_last(check: IntegrityCheck) -> bool:
+    from truthstone.verify import spec_rules
+
+    return check is spec_rules.concerns
 
 
 def _without_repeats(found_all: list[list[Concern]]) -> list[list[Concern]]:
@@ -273,6 +310,7 @@ def arbitrate(
     profile: str = "minimal",
     checks: Iterable[IntegrityCheck] | None = None,
     original_tests: bool = False,
+    gated_skips: bool = True,
 ) -> Arbitration:
     """Decide this Stop. Never raises."""
     if state is None:
@@ -296,7 +334,9 @@ def arbitrate(
     token, said_token = _TEXTS.set({}), _MESSAGE.set(message)
     try:
         found_all = []
-        for check in checks if checks is not None else _integrity_checks(original_tests):
+        for check in checks if checks is not None else _integrity_checks(original_tests, gated_skips):
+            if _runs_last(check) and (not done or _yardstick_spoke(found_all)):
+                continue  # spec_restated / contract_caveat: only a claim nothing else holds (day 5)
             try:
                 found_all.append(check(state, index))
             except Exception:
