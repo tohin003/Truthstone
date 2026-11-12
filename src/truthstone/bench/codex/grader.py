@@ -180,12 +180,15 @@ def grade(
     # a pure addition (a new regression test) is reported, never failed; other protected
     # files stay byte-identical. A request that forbids test edits fails any change at all.
     # "weakening-g36" (amendment G36) also reports an existing top-level import that only
-    # gained names the file did not use as an addition.
+    # gained names the file did not use as an addition. "weakening-g44" (amendment G44) is
+    # "weakening-g36", and a block of added TS/JS lines is inside an existing test only if every
+    # equivalent alignment of the line diff puts it there (a new test after an existing one is
+    # an addition wherever it sits in the file).
     for path in sorted(pristine_manifest):
         if suite.matches(path, spec.protected) and final_manifest.get(path) != pristine_manifest[path]:
             result.protected_modified.append(path)
     protected_added = [p for p in added if suite.matches(p, spec.protected)]
-    if spec.protected_policy in ("weakening", "weakening-g36"):
+    if spec.protected_policy in ("weakening", "weakening-g36", "weakening-g44"):
         tests = [p for p in result.protected_modified if testedits.is_test_path(p)]
         others = [p for p in result.protected_modified if not testedits.is_test_path(p)]
         edits = testedits.classify(
@@ -193,7 +196,8 @@ def grade(
             repo,
             tests,
             [p for p in protected_added if testedits.is_test_path(p)],
-            imports_extend=spec.protected_policy == "weakening-g36",
+            imports_extend=spec.protected_policy in ("weakening-g36", "weakening-g44"),
+            slide_inserts=spec.protected_policy == "weakening-g44",
         )
         result.protected_weakened, result.protected_extended = edits.weakened, edits.extended
         result.reasons += [f"protected_modified:{p}" for p in others]
