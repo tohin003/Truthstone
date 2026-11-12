@@ -349,7 +349,18 @@ _METAVAR = re.compile(
 
 
 def _metavar(rest: str) -> bool:
-    return bool(_METAVAR.match(rest))
+    return bool(_METAVAR.match(rest) or _NOT_A_VALUE.match(rest))
+
+
+# Day 7 (a blind honest set): the word after a flag in prose is its value only when it can be one.
+# "can it take --open-only so we just see ..." gives the flag no value; "--country DE", "--limit 50" do.
+_NOT_A_VALUE = re.compile(
+    r"^ (?:so|and|or|but|nor|to|for|that|which|who|when|whenever|if|unless|in|on|at|of|by|with|without"
+    r"|then|than|the|a|an|is|are|was|were|be|as|from|into|onto|because|since|while|until|instead|too|also"
+    r"|it|its|this|these|those|they|them|we|you|i|option|flag|switch|argument|parameter|should|would"
+    r"|could|can|will|must|might|may|please|here|there|now|still|just|only|even|etc)\b",
+    re.I,
+)
 
 
 _UNIVERSAL_FLAGS = frozenset({"--help", "--version", "--verbose", "--quiet", "--debug"})
@@ -623,7 +634,16 @@ def _env_relied(sents: list[str], i: int, off: int, name: str, valued: bool) -> 
         r"^[`'\"]?\s*(?:\([^)]{0,80}\)\s*)?(?:to|=)\s+\S", after, re.I
     ):
         return True
+    if _THERE_IS_A.search(before):
+        return True  # day 7: "there's a `N` setting in x": the existence claim governs the name itself
     return bool(_CLAIM_VERB.search(_CODE_SPANS.sub(" ", s)) or _CLAIM_VERB.search(prev))
+
+
+# "there's a `N` ...", "there is already an `N` ...": an existence claim whose object is the name (as "x has
+# a `N` setting" is through ``_CLAIM_VERB``); never "there's no", "there should be", "there's a new".
+_THERE_IS_A = re.compile(
+    r"\b(?:there'?s|there\s+is|there\s+are)\s+(?:already\s+|also\s+)?(?:a|an|the)\s+[`'\"]?$", re.I
+)
 
 
 _NEW_LABEL = re.compile(
@@ -640,13 +660,34 @@ def _used(sents: list[str], i: int, off: int, name: str, valued: bool) -> bool:
     """The request asks for something to be done with the name: it gives it a value, or the sentence (or the
     next one) asks to set, enable, pass, add, raise ... A bare statement ("x reads `n` from y.") asks nothing.
     """
+    nxt = sents[i + 1] if i + 1 < len(sents) else ""
     if valued:
-        return True
+        return not _value_described(sents[i], off, name, nxt)
     s = _CODE_SPANS.sub(lambda m: " " * len(m.group(0)), sents[i])
     if _USE_VERBS.search(s):
         return True
-    nxt = sents[i + 1] if i + 1 < len(sents) else ""
     return bool(nxt and _USE_OPENER.match(nxt))
+
+
+# Day 7 (a blind honest set): "N=v makes `f()` round half to even (unset: as now)" only says what the
+# value does; with nothing asked to be done with the switch (no set, pass, use, add, enable ... in the
+# sentence or the next one) it describes behaviour, as "N=v should ..." does. A value that is also set,
+# passed or put somewhere ("N=v skips the copy; set it in x.env") is still a use.
+_VALUE_THEN_VERB = re.compile(
+    r"^[`'\"]?\s*=\s*[^\s`'\"]+[`'\"]?\s+(?:(?:also|just|then|now|always|only)\s+)?"
+    r"(?!(?:is|was|has|does|its|this|thus|as|us|yes|plus|unless|always)\b)[a-z]{2,}s\b",
+    re.I,
+)
+
+
+def _value_described(s: str, off: int, name: str, nxt: str) -> bool:
+    end = off + len(name)
+    m = _VALUE_THEN_VERB.match(s[end : end + 120])
+    if not m:
+        return False
+    blank = _CODE_SPANS.sub(lambda c: " " * len(c.group(0)), s)
+    rest = blank[:off] + " " + blank[end + m.end() :]
+    return not _USE_VERBS.search(rest) and not (nxt and _USE_VERBS.search(nxt))
 
 
 def relied_stance(sents: list[str], i: int, off: int, name: str, valued: bool) -> bool:
@@ -712,11 +753,27 @@ def _other_subject(PS, s: str, off: int, name: str, ctx) -> bool:
         if (
             subj.kind == "token"
             and subj.token
-            and (PS._project_owned(subj, ctx) or subj.token.lower() in ctx.project_names())
+            and (_owned_subject(PS, subj, ctx) or subj.token.lower() in ctx.project_names())
         ):
             return False
         return not (subj.kind == "generic" and PS._generic_files(subj, ctx))
     return False
+
+
+def _owned_subject(PS, subj, ctx) -> bool:
+    """A token subject of the project's own. Day 7: a call written as plain text (`tally()` without
+    backticks) is as plainly code as a backticked one, so it is judged the same way (a code file named after
+    it or a definition in the repository); the shared ``_project_owned`` tests code-likeness after taking the
+    parentheses off and so never saw it. One that forwards its options (`...opts`, `**kwargs`) is not judged
+    the project's here: the option may be the library's it hands them to."""
+    if PS._project_owned(subj, ctx):
+        return True
+    if subj.kind != "token" or subj.backticked or not re.fullmatch(r"[A-Za-z_]\w*\(\)", subj.token or ""):
+        return False
+    bare = subj.token[:-2]
+    if any(PS._definition_forwards_v51(ctx.text(rel), bare, rel) for rel in ctx.defs(bare)):
+        return False
+    return PS._project_owned(PS.Subject("token", token=subj.token, backticked=True, end=subj.end), ctx)
 
 
 def _anchor(P, PS, sents: list[str], i: int, off: int, name: str, kind: str, callee: str, ctx) -> str:
@@ -758,7 +815,7 @@ def _anchor(P, PS, sents: list[str], i: int, off: int, name: str, kind: str, cal
             subj = PS._subject(lead)
             if subj.kind == "own":
                 return "own-subject"
-            if subj.kind == "token" and subj.token and PS._project_owned(subj, ctx):
+            if subj.kind == "token" and subj.token and _owned_subject(PS, subj, ctx):
                 return "subject"
             if subj.kind == "generic" and PS._generic_files(subj, ctx):
                 return "generic-subject"
