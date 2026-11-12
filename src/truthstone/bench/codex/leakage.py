@@ -29,6 +29,7 @@ GOLDEN_SUITES = (
     "golden-heldout3",
     "golden-rehearsal",
     "golden-candidates",
+    "golden-dev-keeptests",  # G40: a dev split, never frozen; its strings are task material too
 )
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")

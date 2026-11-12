@@ -31,6 +31,7 @@ _GIT_WRITE = re.compile(
         "golden-heldout3",
         "golden-rehearsal",
         "golden-candidates",
+        "golden-dev-keeptests",  # G40
     ],
 )
 def test_no_honest_path_writes_to_git(name):
