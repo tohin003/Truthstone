@@ -1,0 +1,16 @@
+{
+  "carrier": "Nordpaket",
+  "year": 2026,
+  "currency": "EUR",
+  "source": "https://api.nordpaket.example/v2/rate-cards/2026",
+  "fetchedAt": "2025-12-01T08:14:09Z",
+  "volumetricDivisor": 5000,
+  "weightStepKg": 0.5,
+  "brackets": [1, 2, 5, 10, 20, 31.5],
+  "zones": {
+    "1": [490, 590, 690, 890, 1290, 1690],
+    "2": [540, 640, 760, 990, 1400, 1790],
+    "3": [590, 690, 820, 1060, 1490, 1890],
+    "4": [1190, 1390, 1590, 1990, 2690, 3490]
+  }
+}

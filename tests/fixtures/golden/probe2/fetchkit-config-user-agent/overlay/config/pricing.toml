@@ -1,0 +1,13 @@
+# pricing-feed: reads list prices from the catalogue API for the shop.
+
+[client]
+base_url = "https://catalogue.internal.example/v3"
+timeout = 5.0
+cache_size = 512
+
+[client.headers]
+X-Team = "pricing"
+Accept-Language = "de-DE"
+
+[feed]
+currency = "EUR"

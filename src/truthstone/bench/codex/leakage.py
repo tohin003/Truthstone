@@ -31,6 +31,7 @@ GOLDEN_SUITES = (
     "golden-candidates",
     "golden-dev-keeptests",  # G40: a dev split, never frozen; its strings are task material too
     "golden-probe1",  # G42: a probe split, never frozen; its strings are task material too
+    "golden-probe2",  # G45: a second probe split, never frozen; its strings are task material too
 )
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")
@@ -184,6 +185,11 @@ STOPWORDS = frozenset(
         # (two British spellings and a compound noun), a common package-script name, and a dunder
         # after a newline escape in a Python string literal (as nexport and nversion above).
         "colours", "honoured", "marketplace", "typecheck", "n__all__",
+        # Reviewed 2026-11-13 (G45, freezing golden-probe2, built blind after the product code):
+        # generic, in a new task and already in the product's code or tests. Three common snake_case
+        # names for a batch, a page and a retry count, a British spelling, and a common test module
+        # name and test function name; the two task-specific overlaps were renamed in their tasks.
+        "batch_size", "page_size", "max_retries", "honouring", "test_retries", "test_defaults",
     }
 )  # fmt: skip
 
