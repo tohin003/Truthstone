@@ -224,16 +224,22 @@ _WORKS_TODAY = re.compile(
 )
 _READING = frozenset({"reads", "takes", "loads"})
 _NEGATED = re.compile(r"\b(?:nothing|never|no)\b(?:\s+[\w.-]+){0,3}\s*$", re.IGNORECASE)
+_GOVERNED = re.compile(r"[^.;:!?]{0,80}")  # the reading verb's own clause after it (premise_switch's span)
 _REQUEST_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n\s*\n")
 
 
-def claimed_to_work(request: str, name: str, external: frozenset[str] = frozenset()) -> bool:
+def claimed_to_work(
+    request: str, name: str, external: frozenset[str] = frozenset(), *, governed: bool = False
+) -> bool:
     """Whether a sentence of ``request`` names ``name`` and says the behaviour behind it works
     today: an existing-behaviour word, or "when/if NAME=… / NAME is set" (the behaviour it gates).
 
     Not when the subject of the existing-behaviour word is another program — a dependency, a
     command the configuration runs (``external``): "matplotlib picks up MPLBACKEND", "psql
-    respects PGPASSWORD" say what that program reads, not the repository (audit R2-6)."""
+    respects PGPASSWORD" say what that program reads, not the repository (audit R2-6).
+
+    ``governed`` (the unread-config concern, day-5 audit): a reading verb counts only when the name
+    follows it in its own clause. ``premise_unmet`` reads the claim without it, as before."""
     named = re.compile(rf"(?<![\w$]){re.escape(name)}(?![\w$])")
     gate = re.compile(
         rf"\b(?:when|if|once|whenever)\s+[`'\"]?{re.escape(name)}[`'\"]?\s*(?:=|is\s+(?:set|on|true|enabled))",
@@ -257,6 +263,12 @@ def claimed_to_work(request: str, name: str, external: frozenset[str] = frozense
             continue
         if works.group(0).lower() in _READING and _NEGATED.search(sentence[: works.start()]):
             continue  # day 5: "nothing in our code reads `x`" says the opposite
+        clause = _GOVERNED.match(sentence, works.end()).group(0)
+        if governed and works.group(0).lower() in _READING and not named.search(clause):
+            # day-5 audit: the verb must govern the name ("<program> reads `x` from <file>"), as the
+            # prompt-time rule requires. "Set `x` ...; the service loads that file at startup", "the
+            # postgres image reads it", "it takes effect on restart" say nothing about who reads `x`.
+            continue
         words = re.findall(r"[A-Za-z][\w.-]*", sentence[: works.start()])
         while words and words[-1].lower() in ("already", "currently", "still", "also", "now"):
             words.pop()
@@ -381,8 +393,20 @@ def _readers(index: RepoIndex, names: set[str], skip: set[str]) -> tuple[set[str
     patterns = {name: re.compile(rf"(?<![\w$]){re.escape(name)}(?![\w$])") for name in names}
     lowered = {name: re.compile(rf"(?<![\w$]){re.escape(name.lower())}(?![\w$])") for name in names}
     scanned_files = scanned_bytes = 0
+    quoted = {name: re.compile(rf"[\"']{re.escape(name)}[\"']") for name in names}
     for path, record in sorted(index.files.items()):
-        if path in skip or is_config_path(path) or spec_integrity.is_doc_path(path):
+        if path in skip or spec_integrity.is_doc_path(path):
+            continue
+        if is_config_path(path):
+            if PurePosixPath(path).name in _SETTINGS_MODULES and record.size <= MAX_FILE_BYTES and remaining:
+                # Day-5 audit: a settings module is configuration (its UPPER_CASE constants are names a
+                # change sets), and also the code that reads a config file or the environment by key
+                # (`table.get("timeout_s")`, `os.environ["APP_MODE"]`). A name it quotes is read.
+                try:
+                    text = (index.root / path).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                remaining = {name for name in remaining if not quoted[name].search(text)}
             continue
         if record.size > MAX_FILE_BYTES:
             continue
@@ -453,7 +477,9 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
     request = f"{state.spec.prompt or ''}"
     external = external_programs(index, [after for _, after in texts.values() if after])
     candidates = {
-        name for name in names if not is_well_known(name) and claimed_to_work(request, name, external)
+        name
+        for name in names
+        if not is_well_known(name) and claimed_to_work(request, name, external, governed=True)
     }
     if not candidates:
         return []
