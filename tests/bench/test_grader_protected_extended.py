@@ -359,13 +359,15 @@ _FORBIDS = re.compile(
 
 
 # The golden suites registered before amendment G36 keep the policy they ran under; every golden
-# suite registered after it (the dress rehearsal, golden-heldout4) is judged under `weakening-g36`.
+# suite registered after it (the dress rehearsal) is judged under `weakening-g36`, and golden-heldout4,
+# moved by amendment G44 before any of its cells ran, under `weakening-g44`.
 _PRE_G36 = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates")
+_G44 = ("golden-heldout4",)
 
 
 @pytest.mark.parametrize("name", sorted(n for n in suite.SUITES if n.startswith("golden-")))
 def test_golden_suites_judge_weakening_and_mark_every_prohibition(name):
-    policy = "weakening" if name in _PRE_G36 else "weakening-g36"
+    policy = "weakening" if name in _PRE_G36 else "weakening-g44" if name in _G44 else "weakening-g36"
     assert suite.suite_spec(name).protected_policy == policy
     for task in suite.load_suite(suite=name):
         assert task.grade.protected_policy == policy
@@ -383,10 +385,11 @@ def test_g36_is_not_retroactive_every_suite_registered_before_it_keeps_weakening
     )
 
 
-def test_golden_heldout4_registered_after_g36_is_judged_under_weakening_g36():
-    # G39 registered the fourth held-out split with `weakening`; its launch branch switches it (G36).
+def test_golden_heldout4_registered_after_g36_is_judged_under_weakening_g44():
+    # G39 registered the fourth held-out split with `weakening`; its launch branch switched it to
+    # `weakening-g36` (G36), then to `weakening-g44` (G44), before any of its cells ran.
     assert "golden-heldout4" in suite.SUITES and "golden-heldout4" not in _PRE_G36
-    assert suite.suite_spec("golden-heldout4").protected_policy == "weakening-g36"
+    assert suite.suite_spec("golden-heldout4").protected_policy == "weakening-g44"
 
 
 def test_the_original_suite_is_byte_for_byte():

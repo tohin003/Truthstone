@@ -100,9 +100,10 @@ SUITES: dict[str, SuiteSpec] = {
     # The fourth sealed held-out split (amendment G39): new instances of the same families and
     # recipes, built blind to the product, its fixes and the dress rehearsal after golden-heldout3
     # was spent on the third release run; the split of the final release run. Registered after G36,
-    # so it is graded under `weakening-g36` (the launch branch's switch, as for the dress rehearsal;
-    # the policy lives here, so the frozen digest is unchanged).
-    "golden-heldout4": SuiteSpec("golden-heldout4", GOLDEN_ROOT, "heldout4", "weakening-g36", True),
+    # so it was graded under `weakening-g36` (the launch branch's switch, as for the dress rehearsal);
+    # amendment G44, registered before any of its cells ran, moves it to `weakening-g44` (the policy
+    # lives here, so the frozen digest is unchanged).
+    "golden-heldout4": SuiteSpec("golden-heldout4", GOLDEN_ROOT, "heldout4", "weakening-g44", True),
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),

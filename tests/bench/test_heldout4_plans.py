@@ -4,9 +4,10 @@ The registered design (G9: 31 tasks x 3 phrasings x R=2 x both arms), Codex + So
 release scripts' models and flags, on one account, main, with its weekly stop at 98% (G31's
 arrangement): two disjoint pair shards of ten twentieths each, run one after the other. Every plan
 names golden-heldout4 and has a new name, so no run directory of an earlier study can ever be
-resumed by it. Registered after G36, its cells are graded under `weakening-g36` (the launch branch's
-switch, as for the dress rehearsal); the policy lives in the suite's registration, so the frozen
-digest the plans pin is unchanged.
+resumed by it. Registered after G36, its cells were to be graded under `weakening-g36` (the launch
+branch's switch, as for the dress rehearsal); amendment G44, before any of its cells ran, moves them
+to `weakening-g44`. The policy lives in the suite's registration, so the frozen digest the plans pin
+is unchanged.
 """
 
 from __future__ import annotations
@@ -82,14 +83,14 @@ def test_the_two_shards_partition_heldout4s_design():
     assert (len(a), len(b)) == (96, 90)  # residues 0-9 and 10-19 of the 186 positions, modulo 20
 
 
-def test_the_plans_cells_are_graded_under_weakening_g36_and_the_digest_is_the_frozen_one():
-    """G36 on the launch branch: golden-heldout4 is graded under `weakening-g36`, every task and the
+def test_the_plans_cells_are_graded_under_weakening_g44_and_the_digest_is_the_frozen_one():
+    """G44 on the launch branch: golden-heldout4 is graded under `weakening-g44`, every task and the
     re-grade's registered policy alike; the switch changed no task file, so the split still digests to
     its frozen value."""
     name = _var(HELDOUT4.read_text(encoding="utf-8"), "suite")
     tasks = suite.load_suite(suite=name)
     ids = [t.id for t in tasks]
     plan = Plan(name="h4", stage="main", seed=1, tasks=ids, phrasings=["terse"], replicates=[1], suite=name)
-    assert suite.suite_spec(name).protected_policy == regrade.policy_of(plan) == "weakening-g36"
-    assert {t.grade.protected_policy for t in tasks} == {"weakening-g36"}
+    assert suite.suite_spec(name).protected_policy == regrade.policy_of(plan) == "weakening-g44"
+    assert {t.grade.protected_policy for t in tasks} == {"weakening-g44"}
     assert suite.suite_digest(tasks) == suite.FROZEN[name]
