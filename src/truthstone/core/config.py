@@ -352,6 +352,12 @@ class ChallengeSettings(BaseModel):
     # behaviour in prose (a limit, a unit, an error turned into a value) names none of the inputs
     # its updated tests use, so it is off until that is settled.
     original_tests: bool = False
+    # The switch-gated tests check at Stop (``validate/gated_skips.py``): when the last full run
+    # skipped tests behind an environment switch its own output names, and nothing after the last
+    # change set it, the guard runs that command with the switch set in a sandboxed copy (and on a
+    # copy with the changed files restored); a failure the change caused holds the "done". It runs
+    # only on that rare shape, within the same time budget; false turns it off.
+    gated_skips: bool = True
 
     @field_validator("min_severity")
     @classmethod
