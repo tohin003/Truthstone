@@ -204,6 +204,10 @@ def _assess(state: TaskState, index: RepoIndex, pending_tasks: list[dict] | None
         reaches=_reaches(index, state),
         unchanged_since=lambda path, run: baseline.code_unchanged(state, index.root, path, run.seq),
     )
+    if timeline.set_aside:
+        # A probe with part of the environment cleared, answered by a plain pass (day 5):
+        # recorded, never raised.
+        observations = [*observations, _probes_note(timeline.set_aside)]
     if timeline.failing is not None:
         return _failing(timeline, observations)
     unverified = timeline.open_failure is not None or timeline.stale or timeline.unreached
@@ -333,6 +337,23 @@ def _failing(timeline: runners.Timeline, observations: list[Finding]) -> GateVer
             ),
             *observations,
         ],
+    )
+
+
+def _probes_note(probes: list[runners.TestOutcome]) -> Finding:
+    """The failing runs the timeline read past because they only cleared part of the
+    environment and a plain pass on the same code had run their tests (day 5)."""
+    shown = ", ".join(f"`{run.command}`" for run in probes[:3])
+    log.info("truthstone: completion gate read past %d cleared-environment run(s): %s", len(probes), shown)
+    return _finding(
+        FailureMode.NOT_A_FAILURE,
+        Severity.INFO,
+        subject="cleared-environment-probe",
+        summary=(
+            f"{len(probes)} failing run(s) with part of the environment cleared were read past: "
+            "a plain run after the last change passed every test they ran"
+        ),
+        detail=shown,
     )
 
 

@@ -60,6 +60,11 @@ class TestOutcome:
     # The failing tests the output names, as node ids (G2b): a failure whose tests a later
     # passing run covers, one by one, is fixed even when that run was narrower.
     failing_tests: tuple[str, ...] = ()
+    # The environment changes the run was launched with (``commands.TestInvocation.environment``;
+    # day 5): () for none, None when not known (a run rebuilt from storage, whose stored command
+    # may be cut short). And the tests its summary counted as skipped, None without a summary.
+    environment: tuple[str, ...] | None = None
+    skipped: int | None = None
 
     @property
     def is_failure(self) -> bool:
@@ -297,11 +302,13 @@ def parse_output(command: str, output: str) -> TestOutcome:
     outcome = TestOutcome(runner=runner, passed=None, command=command.strip()[:200])
     if invocation is not None:
         outcome.family, outcome.key, outcome.scope = invocation.family, invocation.key, invocation.selectors
+        outcome.environment = invocation.environment
     summary = parsers.parse(runner, output or "")
     if summary is None:
         return outcome
     outcome.total = summary.total
     outcome.failed = summary.failed + summary.errors
+    outcome.skipped = summary.skipped
     if summary.status == "no_tests":
         outcome.summary = f"no tests ran ({summary.line})" if summary.line else "no tests ran"
         return outcome
@@ -431,6 +438,8 @@ class Timeline:
     unreached: list[str] = field(default_factory=list)
     latest_pass: TestOutcome | None = None
     changed_after_failure: list[str] = field(default_factory=list)
+    # Failing runs that only cleared part of the environment, read past (day 5, ``probes_set_aside``).
+    set_aside: list[TestOutcome] = field(default_factory=list)
 
     @property
     def conclusive(self) -> bool:
@@ -607,6 +616,52 @@ def run_reaches(
     return not all(known(selector_target(selector, style), style) for selector in paths)
 
 
+# -- a cleared-environment probe (day 5) ---------------------------------------------------------
+#
+# Having run the suite green, an agent sometimes probes how the code fares with part of its
+# environment taken away: a search path or a setting cleared (`NAME= pytest`), a variable unset
+# (`env -u NAME pytest`). That run fails for what was taken away, and because it came last it
+# decided the suite: an honest "the tests pass" was held over the probe. The same two runs read in
+# the other order (probe, then the plain run) already passed. So a failing run whose environment
+# changes all clear or unset something is read past when the suite's latest plain run (no change
+# to the environment at all):
+#   * passed after the task's last file change, so it ran the code the probe ran;
+#   * covers the probe (``covers``: the whole suite, the same command, or a wider one);
+#   * counted no skipped test and at least as many tests as the probe ran: every test the probe
+#     ran, it ran and passed.
+# Everything else decides as before. A run that *sets* a value (`FLAG=1 pytest`) is never read past:
+# setting a value is how gated tests and code paths are switched on, and those the plain run never
+# exercised. Nor is a probe after a later change, a probe wider than the plain run, a probe whose
+# counts are unknown, or one beside a plain run that failed, skipped tests or is stale.
+
+
+def probes_set_aside(suite_runs: list[TestOutcome], latest_change: int) -> list[TestOutcome]:
+    """The failing cleared-environment runs of one suite (in order) that its latest plain pass
+    already answers (see above)."""
+    plain = [run for run in suite_runs if run.environment == ()]
+    if not plain:
+        return []
+    anchor = plain[-1]
+    if not (
+        anchor.passed is True
+        and anchor.seq is not None
+        and anchor.seq > latest_change
+        and anchor.skipped == 0
+        and anchor.total > 0
+    ):
+        return []
+    return [
+        run
+        for run in suite_runs
+        if run.passed is False
+        and run.seq is not None
+        and run.seq > anchor.seq
+        and commands.clears_only(run.environment or ())
+        and covers(anchor, run)
+        and 0 < run.total <= anchor.total
+    ]
+
+
 def assess_timeline(
     verification: VerificationState,
     last_change_seq: dict[str, int],
@@ -617,6 +672,8 @@ def assess_timeline(
     """Read the runs per suite, in order; ``candidates`` are the changed files a re-run
     would check (the gate filters out files no test reaches).
 
+    0. A failing run that only cleared part of the environment, after a plain pass on the same
+       code that ran every test it ran, is read past (``probes_set_aside``): ``set_aside``.
     1. A suite's latest conclusive run failed → ``failing`` (the most recent such run).
     2. The latest runs passed, but an earlier failure was never re-run by a pass that
        covers it (the green run was narrower) → ``open_failure``/``narrower_pass``. A
@@ -642,7 +699,13 @@ def assess_timeline(
     failing: list[TestOutcome] = []
     open_failures: list[tuple[TestOutcome, TestOutcome]] = []
     passes: list[TestOutcome] = []
+    latest_change = max(last_change_seq.values(), default=0)
+    set_aside: list[TestOutcome] = []
     for suite_runs in suites.values():
+        probes = probes_set_aside(suite_runs, latest_change)
+        if probes:
+            set_aside.extend(probes)
+            suite_runs = [run for run in suite_runs if not any(run is probe for probe in probes)]
         latest = suite_runs[-1]
         if latest.passed is False:
             failing.append(latest)
@@ -662,13 +725,15 @@ def assess_timeline(
             if worst.seq is not None
             else []
         )
-        return Timeline(failing=worst, changed_after_failure=after)
+        return Timeline(failing=worst, changed_after_failure=after, set_aside=set_aside)
     latest_pass = max(passes, key=lambda outcome: position[id(outcome)])
     if open_failures:
         failure, narrower = max(open_failures, key=lambda pair: position[id(pair[0])])
-        return Timeline(open_failure=failure, narrower_pass=narrower, latest_pass=latest_pass)
+        return Timeline(
+            open_failure=failure, narrower_pass=narrower, latest_pass=latest_pass, set_aside=set_aside
+        )
     if any(outcome.seq is None for outcome in runs):
-        return Timeline(latest_pass=latest_pass)  # runs recorded without a position
+        return Timeline(latest_pass=latest_pass, set_aside=set_aside)  # runs recorded without a position
 
     reach = reaches or (lambda run, path: True)
     unchanged = unchanged_since or (lambda path, run: False)
@@ -696,6 +761,7 @@ def assess_timeline(
         stale_against=max(against, key=lambda run: run.seq) if against else None,
         unreached=unreached,
         latest_pass=latest_pass,
+        set_aside=set_aside,
     )
 
 
