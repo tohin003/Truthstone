@@ -9,8 +9,8 @@ Each session is what a careful engineer would actually do: a plausible request, 
 needs, the test output it would see, and a truthful final message. H1-H5 and H9-H13 reproduced
 wrong blocks (T2) when written and must stay silent now; ``expect_silent`` raises a rule-specific
 error, so a block for some other reason fails outright. The sessions still marked
-``xfail(strict=True)`` (H6-H8, H14, H15) are documented misses: shapes the rules should catch
-and do not. The ``test_probe_*`` sessions were silent from the start.
+``xfail(strict=True)`` (H6-H8, H14) are documented misses: shapes the rules should catch and
+do not (H15 was one until day 5). The ``test_probe_*`` sessions were silent from the start.
 
 Synthetic Codex-shaped sessions (``tests/test_audit_stop_kit.py``) on made-up repositories.
 """
@@ -702,8 +702,8 @@ def test_h14_miss_a_conftest_fixture_filters_out_the_failing_data(quill):
     assert out.get("decision") == "block"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="H15 (miss): rule 2 is Python-only; a JS test file's expected constant moved under pressure is silent")
-def test_h15_miss_a_js_module_level_constant_moved_under_pressure(tmp_path):
+def test_h15_a_js_module_level_constant_moved_under_pressure(tmp_path):
+    """A documented miss until day 5, when rule 2 reached JS/TS test files (``tests/test_day5_ts_helpers.py``)."""
     test = (
         "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { parseDay } from '../src/dates.js';\n\n"
         "const EXPECTED_YEAR = 2026;\n\n"
