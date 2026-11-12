@@ -37,7 +37,10 @@ What counts (all must hold):
     not CI, compose, package.json or pyproject.toml, and that the project reads (code mentions its name,
     its directory's distinctive name, or a name chosen at run time in its directory), key by key: some
     other key of the section the request names (else of the file) is read by name; a section handed
-    whole to a library is the library's;
+    whole to a library is the library's; day 5: also the project's own section of its root manifest
+    (package.json's top-level object, pyproject's ``[tool.<x>]``, named after the project, one of its
+    packages or commands), when the request names that section (`` `<section>.<key>` `` or as a section)
+    and the project reads another key of it by name;
 - no code reads the switch: no code, test or script file of the repository (as indexed, plus the files
   the task created) has a read form of it (flag: the literal ``--name``, or the bare name quoted, as an
   attribute/subscript of an args-like object, or as ``name:``/``name=``; env: the name as a word, a
@@ -139,10 +142,24 @@ def request_switches(prompt: str) -> dict[str, str]:
             continue
         if not key or key in out or key.startswith("-") or _ENV.fullmatch(key):
             continue
-        compound = "_" in key or "-" in key or re.search(r"[a-z][A-Z]", key) is not None
-        if _KEY.match(key) and not _HEADER.match(key) and len(key) >= 3 and not key.isdigit() and compound:
+        if "." in key:
+            # day 5: `<section>.<key>`; only a manifest's own section takes it (``_manifest_section``)
+            if _DOTTED_KEY.match(key) and _key_name(key.rpartition(".")[2]):
+                out[key] = "key"
+            continue
+        if _key_name(key):
             out[key] = "key"  # a config key must be a compound name
     return out
+
+
+_DOTTED_KEY = re.compile(r"^[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)+$")
+
+
+def _key_name(key: str) -> bool:
+    compound = "_" in key or "-" in key or re.search(r"[a-z][A-Z]", key) is not None
+    return bool(
+        _KEY.match(key) and not _HEADER.match(key) and len(key) >= 3 and not key.isdigit() and compound
+    )
 
 
 def variants(name: str) -> set[str]:
@@ -851,15 +868,36 @@ _GENERIC_ATTRS = frozenset(
 )
 
 
-def _section_owned(root: Path, rel: str, name: str, prompt: str, texts: list[tuple[str, str]]) -> bool:
+def _names_section(sec: str, prompt: str, tool: bool = False) -> bool:
+    """Whether the request names the section ``sec``: `` `sec` ``, ``[sec]``, "the sec section/block/
+    table/...", "under sec"; with ``tool`` (pyproject.toml, day 5) also ``[tool.sec]``."""
+    es = re.escape(sec)
+    return bool(
+        re.match(r"^[A-Za-z][\w-]{2,}$", sec)
+        and re.search(
+            rf"`{es}`|\[{es}\]" + (rf"|\[tool\.{es}\]" if tool else "")
+            + rf"|(?<![\w-]){es}\s+(?:section|block|table|group|object|entry|settings)\b"
+            rf"|\b(?:section|block|table|under)\s+[`'\"\[]?{es}(?![\w-])",
+            prompt,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _section_owned(
+    root: Path, rel: str, name: str, prompt: str, texts: list[tuple[str, str]], section: str | None = None
+) -> bool:
     """The key belongs to the project only when the project reads some other key of the same section by
-    name. The section is the one the request names in that file, else the whole file. A sibling counts when
-    the code accesses it through the section (`export["delimiter"]`, `cfg.export.delimiter`,
-    `cp["import"].getint("batch_size")`), or, for the whole file, by attribute or subscript
-    (`card.currency`, `data["zones"]`) unless the name is a generic attribute; a compound sibling counts
-    wherever its name appears. A section handed whole to a library (`dictConfig(json.load(f))`,
-    `new Redis(config.redis)`) has none, and its keys are the library's. Unparsable or new: not owned
-    (silent)."""
+    name. The section is the one the request names in that file (``section``, when the caller found it),
+    else the whole file. A sibling counts when the code accesses it through the section
+    (`export["delimiter"]`, `cfg.export.delimiter`, `cp["import"].getint("batch_size")`), or, for the
+    whole file, by attribute or subscript (`card.currency`, `data["zones"]`) unless the name is a generic
+    attribute; a compound sibling counts wherever its name appears. Day 5: for a named section, also a
+    non-generic sibling read by quoted key (`.get("style"`, `["style"]`) in a reader that quotes the
+    section's name (it opens the section and reads keys from a copy of it:
+    `defaults = dict(parser["slugger"])`). A section handed whole to a library
+    (`dictConfig(json.load(f))`, `new Redis(config.redis)`) has none, and its keys are the library's.
+    Unparsable or new: not owned (silent)."""
     from truthstone.validate import config_reads
 
     try:
@@ -870,21 +908,23 @@ def _section_owned(root: Path, rel: str, name: str, prompt: str, texts: list[tup
     if not flat:
         return False
     sections = {str(part) for path in flat for part in path[:-1] if not str(part).startswith("[")}
-    named = [
-        sec
-        for sec in sections
-        if re.match(r"^[A-Za-z][\w-]{2,}$", sec)
-        and re.search(
-            rf"`{re.escape(sec)}`|\[{re.escape(sec)}\]"
-            rf"|(?<![\w-]){re.escape(sec)}\s+(?:section|block|table|group|object|entry|settings)\b"
-            rf"|\b(?:section|block|table|under)\s+[`'\"\[]?{re.escape(sec)}(?![\w-])",
-            prompt,
-            re.IGNORECASE,
-        )
-    ]
+    if section is not None:
+        named = [section] if section in sections else []
+        if not named:
+            return False
+    else:
+        named = [sec for sec in sections if _names_section(sec, prompt)]
     paths = [path for path in flat if not named or any(str(x) in named for x in path[:-1])]
     siblings = {str(path[-1]) for path in paths if path and not str(path[-1]).startswith("[")} - {name}
+    if section is not None:  # day 5, a manifest's section: its direct keys, list-valued ones too
+        siblings |= {
+            str(path[i + 1]) for path in paths for i in range(len(path) - 1)
+            if str(path[i]) == section and not str(path[i + 1]).startswith("[")
+        } - {name}
     code = [t for p, t in texts if p != rel]
+    # Day 5: the readers that open a named section themselves (they quote its name), for its siblings
+    # read from a copy of it: `defaults = dict(parser[SECTION])` then `defaults.get("style")`.
+    openers = [t for t in code if any(re.search(rf"[\"']{re.escape(sec)}[\"']", t) for sec in named)]
     for k in siblings:
         ek = re.escape(k)
         if _COMPOUND.match(k) and any(re.search(rf"(?<![\w-]){ek}(?![\w-])", t) for t in code):
@@ -899,6 +939,10 @@ def _section_owned(root: Path, rel: str, name: str, prompt: str, texts: list[tup
                 )
                 if any(re.search(pat, t) for t in code):
                     return True
+            if k.lower() not in _GENERIC_ATTRS and any(
+                re.search(rf"\.get\w*\(\s*[\"']{ek}[\"']|\[\s*[\"']{ek}[\"']\s*\]", t) for t in openers
+            ):
+                return True  # day 5: a sibling read by quoted key in a reader that opens the section
         elif k.lower() not in _GENERIC_ATTRS and any(
             re.search(rf"\??\.{ek}(?![\w(-])|\[\s*[\"']{ek}[\"']\s*\]|\.get\w*\(\s*[\"']{ek}[\"']", t)
             for t in code
@@ -940,6 +984,7 @@ def dead_switches(prompt: str, root: Path, files: list[str], edits: list[tuple[s
     ident = project_identity(root, files)
     candidates: list[tuple[str, str]] = []
     owners: dict[tuple[str, str], list[str]] = {}
+    manifest: dict[tuple[str, str], str] = {}  # day 5: (key, manifest) -> the project's own section
     for rel, added in edits:
         if this_file is not None and rel != this_file:
             continue
@@ -952,7 +997,7 @@ def dead_switches(prompt: str, root: Path, files: list[str], edits: list[tuple[s
         except OSError:
             continue
         for name, k in sw.items():
-            if before and _already_in_place(before, name, k):
+            if before and _already_in_place(before, _leaf(name) if k == "key" else name, k):
                 continue  # v4.1: the place already had it; a value change sets no new switch
             if k == "env":
                 if config_reads.is_well_known(name) or not _project_prefixed(name, ident):
@@ -972,8 +1017,17 @@ def dead_switches(prompt: str, root: Path, files: list[str], edits: list[tuple[s
                     candidates.append((name, rel))
                     owners[(name, rel)] = owned
             elif k == "key":
-                if kind != "config":
-                    continue  # not package.json or pyproject.toml: a line does not show its section
+                if kind in ("package", "ownsection"):
+                    # day 5: the manifest's own section the request names (package.json's top-level object
+                    # named after the project, pyproject's [tool.<project>]); a line does not show its
+                    # section, so the request must name it
+                    section = _manifest_section(rel, before, name, prompt, ident)
+                    if section and any(_key_set(line, _leaf(name)) for line in added):
+                        candidates.append((name, rel))
+                        manifest[(name, rel)] = section
+                    continue
+                if kind != "config" or "." in name:
+                    continue  # a dotted name only in a manifest's own section (day 5)
                 if any(_key_set(line, name) for line in added):
                     candidates.append((name, rel))
     if not candidates:
@@ -990,21 +1044,66 @@ def dead_switches(prompt: str, root: Path, files: list[str], edits: list[tuple[s
             continue
         if k == "flag" and (name in _FIXED_FLAGS or _forwards(texts, owners.get((name, rel), []))):
             continue
+        # a key: its leaf (`defaultContext` of `<section>.defaultContext`) is what is set and read
+        key = _leaf(name) if k == "key" else name
         if k == "key" and not _code_mentions_file(rel, texts):
             continue
-        if k == "key" and not _section_owned(root, rel, name, prompt, texts):
+        if k == "key" and not _section_owned(root, rel, key, prompt, texts, manifest.get((name, rel))):
             continue  # a section the project never reads key by key is not the project's
         read = READS[k]
-        if any(read(text, name) for path, text in texts if path != rel):
+        if any(read(text, key) for path, text in texts if path != rel):
             continue
         if k == "env" and (
             _place_reads_env(root, rel, edits, name) or _other_files_read_env(root, files, rel, name)
         ):
             continue  # the edited file itself reads it (`$NAME`, `${NAME:-x}`, `$(NAME)`, `${{ env.NAME }}`)
-        if _patch_adds_reader(edits, name, k, read):
+        if _patch_adds_reader(edits, key, k, read):
             continue  # the same edit adds its reader (code or test; a script by a reader form): being built
         out.append((name, rel))
     return out
+
+
+def _leaf(name: str) -> str:
+    return name.rpartition(".")[2]
+
+
+def _manifest_section(rel: str, text: str, name: str, prompt: str, ident: dict) -> str | None:
+    """Day 5: the project's own section of its manifest that the request puts the key in, or None.
+
+    The manifest is the root ``package.json`` (a top-level object) or ``pyproject.toml`` (a ``[tool.<x>]``
+    table); the section exists before the edit and is named after the project (its package.json or
+    pyproject name, its workspace directory, a top-level package or a command of its own), never a tool's
+    (``jest``, ``eslintConfig``, ``[tool.pytest.ini_options]``). The request names it: as the head of a
+    dotted name (`` `<section>.<key>` ``, `` `tool.<section>.<key>` ``) or as a section (`` `<section>` ``,
+    "the <section> block", ``[tool.<section>]``). Unparsable or ambiguous: None (silent)."""
+    from truthstone.validate import config_reads
+
+    manifest = PurePosixPath(rel)
+    if len(manifest.parts) != 1 or not text:
+        return None  # only the manifest at the root, which ``project_identity`` reads
+    flat = config_reads._structured(rel, text)
+    if not flat:
+        return None
+    pyproject = manifest.name.lower() == "pyproject.toml"
+    if pyproject:
+        tops = {str(p[1]) for p in flat if len(p) >= 3 and str(p[0]) == "tool"}
+    else:
+        tops = {str(p[0]) for p in flat if len(p) >= 2}
+    own = {
+        s for s in tops
+        if not s.startswith("[")
+        and (_norm(s) in ident["names"] or s in ident["packages"] or s in ident["commands"])
+    }
+    head = name.rpartition(".")[0]
+    if head:
+        sec = head.rpartition(".")[2]
+        if head not in (sec, f"tool.{sec}") or (head != sec and not pyproject):
+            return None
+        named = {sec}
+    else:
+        named = {s for s in own if _names_section(s, prompt, tool=pyproject)}
+    found = named & own
+    return next(iter(found)) if len(found) == 1 else None
 
 
 # -- the edit's lines ----------------------------------------------------------------------------------

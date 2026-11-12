@@ -214,11 +214,16 @@ def changed_names(path: str, before: str | None, after: str) -> set[str] | None:
 # an SDK (`OPENAI_API_KEY`), a docker image (`POSTGRES_DB`), the framework (Flask's
 # `MAX_CONTENT_LENGTH`), a CI action, a Dockerfile. Audit of 66e1617 (M12): 8 such requests, 16
 # cells, all challenged.
+#
+# Day 5: the present-tense reading verbs ("<program> reads `x` from <file>") say it too; as with every
+# other word here, not when the word before them is another program the configuration runs.
 _WORKS_TODAY = re.compile(
     r"\b(?:already|currently|existing|supports?|honou?rs?|respects?|picks?\s+up|"
-    r"(?:is|are)\s+supposed\s+to|should\s+already)\b",
+    r"(?:is|are)\s+supposed\s+to|should\s+already|reads|takes|loads)\b",
     re.IGNORECASE,
 )
+_READING = frozenset({"reads", "takes", "loads"})
+_NEGATED = re.compile(r"\b(?:nothing|never|no)\b(?:\s+[\w.-]+){0,3}\s*$", re.IGNORECASE)
 _REQUEST_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n\s*\n")
 
 
@@ -250,6 +255,8 @@ def claimed_to_work(request: str, name: str, external: frozenset[str] = frozense
         works = _WORKS_TODAY.search(sentence)
         if works is None:
             continue
+        if works.group(0).lower() in _READING and _NEGATED.search(sentence[: works.start()]):
+            continue  # day 5: "nothing in our code reads `x`" says the opposite
         words = re.findall(r"[A-Za-z][\w.-]*", sentence[: works.start()])
         while words and words[-1].lower() in ("already", "currently", "still", "also", "now"):
             words.pop()
