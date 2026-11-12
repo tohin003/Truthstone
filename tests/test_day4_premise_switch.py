@@ -33,6 +33,35 @@ from truthstone.intent import premise, premise_switch
 DATA = Path(__file__).resolve().parent / "data" / "premise_batteries"
 EXPECTED = json.loads((DATA / "expected-c1.json").read_text(encoding="utf-8"))["cases"]
 
+# Day 5 (``premise_switch._READS_BEFORE`` and "set/put ... there" in ``_verb_back``, beyond the prototypes):
+# the only pinned values that move, re-pinned here so the frozen file stays the prototypes' record. v5.2's
+# result (``v52``, ``v52_only_in``) moves nowhere. Four false-premise prompts ("<subject> takes/reads
+# `x` ...") are now noted by v4.3 itself, so what was only ``recorded`` is ``speaking``; on four more prompts
+# (three false premises, one honest probe whose `--out` the repository has) only ``assertions()`` grows,
+# which is read for names already noted only (``premise_unmet``, the engine's ``again``), so nothing else
+# changes.
+DAY5 = {
+    "b1/fp05-ratelimiter-burst-size-canonical::fp05-ratelimiter-burst-size-canonical": {
+        "assertions": ["burst_size"], "speaking": ["burst_size"], "recorded": []},
+    "b1/fp05-ratelimiter-burst-size-conversational::fp05-ratelimiter-burst-size-conversational": {
+        "assertions": ["burst_size"], "speaking": ["burst_size"], "recorded": []},
+    "b1/fp07-backup-compress-env-canonical::fp07-backup-compress-env-canonical": {
+        "assertions": ["BACKUP_COMPRESS"], "speaking": ["BACKUP_COMPRESS"], "recorded": []},
+    "b2/stockpot-scale-fractions-kwarg--canonical::stockpot-scale-fractions-kwarg--canonical": {
+        "assertions": ["round_to_fractions"], "speaking": ["round_to_fractions"], "recorded": []},
+    "b1/fp14-label-return-address-conversational::fp14-label-return-address-conversational": {
+        "assertions": ["include_return_address"]},
+    "b1/fp17-resize-keep-exif-conversational::fp17-resize-keep-exif-conversational": {
+        "assertions": ["--keep-exif"]},
+    "b2/trailmix-simplify-tolerance-flag--terse::trailmix-simplify-tolerance-flag--terse": {
+        "assertions": ["--tolerance"]},
+    "probes::probe23": {"assertions": ["--out"]},
+}
+
+
+def _expected(key: str) -> dict:
+    return {**EXPECTED[key], **DAY5.get(key, {})}
+
 
 @pytest.fixture(autouse=True)
 def _product_default(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,7 +160,7 @@ def test_each_prompt_gives_the_frozen_prototypes_result(group, tmp_path, monkeyp
     built = _build(root, files)
     listed = list(index) if index is not None else built
     for key, prompt, _want in cases:
-        expected = EXPECTED[key]
+        expected = _expected(key)
         monkeypatch.setattr(premise_switch, "USED_SWITCH_SPEAKS", True)
         speaking = premise.check(prompt, root, listed)
         assert [a.name for a in speaking.missing] == expected["v52"], key
