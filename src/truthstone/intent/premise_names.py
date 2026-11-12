@@ -111,6 +111,13 @@ _MODAL_AFTER = re.compile(
     r"^[`'\"]?\s*(?:\([^)]{0,60}\)\s*)?(?:should(?!\s+already)|must|needs?\s+to|has\s+to|will|would|shall)\b",
     re.I,
 )
+# Audit (day 6): a switch given a value, then a modal, is behaviour to build as much as "`n` should default
+# to 3" is: "N=1 should turn every flag off", "N=1 scripts/x.sh should skip the copy" (the value, at most one
+# script path, then should/must/needs to/has to; never "should already").
+_VALUED_MODAL_AFTER = re.compile(
+    r"^[`'\"]?\s*=\s*[^\s`'\"]+[`'\"]?\s+(?:[\w.$-]*/[\w./$-]*\s+)?(?:should(?!\s+already)|must|needs?\s+to|has\s+to)\b",
+    re.I,
+)
 _CREATING_OPENER = re.compile(
     r"^\W*(?:[A-Z][\w ]{0,20}:\s+)?"
     r"(?:(?:please|pls|kindly|so|and|then|now|also|just|first|finally|hi|hey|thanks|ok)\W+)*"
@@ -297,7 +304,8 @@ def candidates(s: str) -> list[tuple[int, str, str, str, bool]]:
         if strip.startswith("--"):
             flag = _FLAG.match(strip)
             if flag:
-                put(base + lead, flag.group(1), "flag", "", " " in strip or "=" in strip)
+                rest = strip[flag.end(1) :]
+                put(base + lead, flag.group(1), "flag", "", bool(rest.strip()) and not _metavar(rest))
             continue
         dotted = _DOTTED_SPAN.match(strip)
         if dotted:
@@ -314,7 +322,8 @@ def candidates(s: str) -> list[tuple[int, str, str, str, bool]]:
         valued = blank[m.end(1) : m.end(1) + 1] == "="
         put(m.start(1), name, "env", "", valued)
     for m in _FLAG.finditer(blank):
-        put(m.start(1), m.group(1), "flag", "", bool(re.match(r"[ =][^\s-]", blank[m.end(1) : m.end(1) + 2])))
+        rest = blank[m.end(1) : m.end(1) + 40]
+        put(m.start(1), m.group(1), "flag", "", bool(re.match(r"[ =][^\s-]", rest)) and not _metavar(rest))
     for m in _BARE_COMPOUND.finditer(blank):
         name = m.group(1)
         if len(name) < 4:
@@ -328,6 +337,19 @@ def candidates(s: str) -> list[tuple[int, str, str, str, bool]]:
         ):
             put(m.start(1), name, "name", "", bool(re.match(r"\s*(?:=|:)\s*(?!=)\S", after)))
     return sorted(found.values())
+
+
+# Audit (day 6): usage notation after a flag is its argument's name, not a value given to it: "--below N",
+# "--db PATH", "--max-length <n>", "--since {date}" describe the flag ("show --below N: only SKUs under N"),
+# where "--batch-size 500" or "--country DE" set it.
+_METAVAR = re.compile(
+    r"^[ =](?:[A-Z]|N|NUM|COUNT|PATH|FILE|DIR|NAME|KEY|VALUE|ID|COLUMN|DATE|URL|SECONDS|MS|QTY|SIZE|LIMIT"
+    r"|LEVEL|MODE|<[^<>\s]{1,20}>|\{[^{}\s]{1,20}\}|\[[^\[\]\s]{1,20}\])(?![\w<>{}\[\]=-])"
+)
+
+
+def _metavar(rest: str) -> bool:
+    return bool(_METAVAR.match(rest))
 
 
 _UNIVERSAL_FLAGS = frozenset({"--help", "--version", "--verbose", "--quiet", "--debug"})
@@ -362,8 +384,12 @@ def _created_here(s: str, off: int, name: str, nxt: str) -> bool:
         return True  # "add `"k": 2` to data/x.json", "add `--x` to the deploy call" put a switch into a place
     if _RENAME_TO.search(blank[max(0, off - 120) : off]):
         return True
-    if _MODAL.search(before[-70:]) or _MODAL_AFTER.match(after):
-        return True  # "it should honour `n`", "`n` should default to 3": behaviour to build
+    if _MODAL.search(before[-70:]) or _MODAL_AFTER.match(after) or _VALUED_MODAL_AFTER.match(after):
+        return True  # "it should honour `n`", "`n` should default to 3", "N=1 should ...": behaviour to build
+    from truthstone.intent import premise as _premise
+
+    if _premise.conditional_spec(s, off, name):
+        return True  # "if `N` is set, load ... from there": the condition of an instruction (audit, day 6)
     if _ABSENT_NEAR.search(near_before) or _ABSENT_AFTER.match(after) or _NOT_REAL.search(near_before):
         return True
     if _READ_BUILD.search(before + " "):
