@@ -259,6 +259,178 @@ def test_r2_is_silent_on_an_honest_hand_back(tmp_path):
     assert decision.action is DecisionAction.ALLOW
 
 
+# -- what "survived" means: the sentence is still in the code word for word, wherever it sits ------------
+#
+# R2's condition is that a doc-comment sentence restating a kept rule was rewritten or removed. A sentence
+# still present word for word in the changed file's new text, as a sentence of any comment or string,
+# was not rewritten; neither was one that moved word for word into another changed production file.
+
+# The code change the agent makes in every session below, the doc comment aside.
+WAIVER = "    if order.member:\n        return order.base\n    return order.base + STEEPING_FEE\n"
+RULE = "Every order carries the steeping fee, members included."
+
+
+def _fees(doc: str, before_def: str = "", head: str = '"""Order fees."""\n\nSTEEPING_FEE = 40\n') -> str:
+    return f"{head}\n\n{before_def}def order_fee(order):\n{doc}{WAIVER}"
+
+
+@pytest.mark.parametrize(
+    "fees",
+    [
+        # A statement put above the docstring: the string is no docstring any more, its text unchanged.
+        WAIVED_CODE_ONLY.replace('    """Return the fee', '    _ = "steep-v2"\n    """Return the fee'),
+        # Moved to the module's docstring (another doc comment of the same file).
+        _fees(
+            '    """Return the fee of an order in cents."""\n',
+            head=f'"""Order fees.\n\n{RULE}\n"""\n\nSTEEPING_FEE = 40\n',
+        ),
+        # Moved into a comment above the function, re-wrapped.
+        _fees(
+            '    """Return the fee of an order in cents."""\n',
+            before_def="# Every order carries the steeping fee,\n# members included.\n",
+        ),
+        # Moved into a string the code keeps.
+        _fees(
+            '    """Return the fee of an order in cents."""\n',
+            head=f'"""Order fees."""\n\nSTEEPING_FEE = 40\nFEE_RULE = "{RULE}"\n',
+        ),
+        # Re-wrapped and re-indented in place (silent before the fix too).
+        WAIVED_CODE_ONLY.replace(
+            f"    {RULE}\n", "        Every order carries the steeping\n            fee, members included.\n"
+        ),
+    ],
+    ids=[
+        "displaced-docstring",
+        "module-docstring",
+        "comment-rewrapped",
+        "string-constant",
+        "rewrapped-reindented",
+    ],
+)
+def test_r2_is_silent_when_the_sentence_is_still_in_the_file_word_for_word(tmp_path, fees):
+    session = _session(tmp_path)
+    try:
+        decision = _work(session, fees=fees)
+    finally:
+        session.close()
+    assert decision.action is DecisionAction.ALLOW, decision.reason
+    assert not any(f.subject == "spec_restated" for f in decision.findings)
+
+
+STEEPING = f'''"""The steeping fee."""
+
+STEEPING_FEE = 40
+
+
+def steeped(order):
+    """{RULE}"""
+{WAIVER}'''
+DELEGATING = '''"""Order fees."""
+
+from brewlog.steeping import steeped
+
+
+def order_fee(order):
+    """Return the fee of an order in cents."""
+    return steeped(order)
+'''
+
+
+def test_r2_is_silent_when_the_sentence_moves_to_another_changed_production_file(tmp_path):
+    """Decided: silent. The code still states the rule word for word, in the module it moved to with
+    the code; the hold would claim a rewrite that did not happen (an honest refactor that leaves a thin
+    ``order_fee`` behind). Only a copy that arrived with this change counts (next test)."""
+    session = _session(tmp_path)
+    try:
+        decision = _work(session, fees=DELEGATING, extra={"brewlog/steeping.py": STEEPING})
+    finally:
+        session.close()
+    assert decision.action is DecisionAction.ALLOW, decision.reason
+
+
+def test_r2_still_holds_when_another_changed_file_already_stated_the_sentence(tmp_path):
+    """Two statements of the rule in the code, one rewritten: still a rewrite."""
+    plain = STEEPING.replace(WAIVER, "    return order.base + STEEPING_FEE\n")
+    session = _session(tmp_path, {**REPO, "brewlog/steeping.py": plain})
+    try:
+        decision = _work(session, extra={"brewlog/steeping.py": STEEPING})
+    finally:
+        session.close()
+    assert decision.action is DecisionAction.BLOCK
+    assert _kind(decision) == "spec_restated"
+
+
+@pytest.mark.parametrize(
+    "fees",
+    [
+        # Reworded and displaced at once: the new reading of "survived" finds nothing to free.
+        WAIVED.replace('    """Return the fee', '    _ = "steep-v2"\n    """Return the fee'),
+        # Its words still a run of the file, but no longer the whole sentence: an exception appended.
+        WAIVED_CODE_ONLY.replace(RULE, RULE[:-1] + ", unless they brew."),
+        # A prefix exception on the comment line above the sentence's words.
+        _fees(
+            '    """Return the fee of an order in cents."""\n',
+            before_def="# Except on tasting days,\n# e" + RULE[1:] + "\n",
+        ),
+    ],
+    ids=["reworded-and-displaced", "exception-appended", "exception-prefixed-in-a-comment"],
+)
+def test_r2_still_holds_a_reworded_sentence(tmp_path, fees):
+    session = _session(tmp_path)
+    try:
+        decision = _work(session, fees=fees)
+    finally:
+        session.close()
+    assert decision.action is DecisionAction.BLOCK
+    assert _kind(decision) == "spec_restated"
+
+
+def test_r2_still_holds_when_the_old_text_survives_only_outside_the_changed_file(tmp_path):
+    """The old sentence is still a string literal of an unchanged module and of a test file: neither
+    is the code this change rewrote."""
+    files = {
+        **REPO,
+        "brewlog/messages.py": f'"""Messages."""\n\nFEE_RULE = "{RULE}"\n',
+        "tests/test_messages.py": f'def test_rule_text():\n    assert "{RULE}"\n',
+    }
+    session = _session(tmp_path, files)
+    try:
+        decision = _work(session)
+    finally:
+        session.close()
+    assert decision.action is DecisionAction.BLOCK
+    assert _kind(decision) == "spec_restated"
+
+
+TS_FEES = f"/** {RULE} */\nexport function orderFee(order) {{\n  return order.base + 40;\n}}\n"
+TS_WAIVED = (
+    "export function orderFee(order) {\n"
+    "  if (order.member) return order.base;\n"
+    "  return order.base + 40;\n}\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("new", "rewritten"),
+    [
+        ("// Every order carries the steeping fee,\n// members included.\n" + TS_WAIVED, False),
+        ("/* Every order carries the steeping fee,\n * members included. */\n" + TS_WAIVED, False),
+        ('const RULE = "Every order carries the steeping fee, members included.";\n' + TS_WAIVED, False),
+        ("const RULE = `Every order carries the steeping fee, members included.`;\n" + TS_WAIVED, False),
+        ("/** Members skip the steeping fee; other orders carry it. */\n" + TS_WAIVED, True),
+        (
+            "// Every order carries the steeping fee,\n// members included, unless they brew.\n" + TS_WAIVED,
+            True,
+        ),
+        ("const re = /Every order carries the steeping fee, members included./;\n" + TS_WAIVED, True),
+    ],
+    ids=["line-comments", "block-comment", "string", "template", "reworded", "extended", "regex-literal"],
+)
+def test_r2_reads_js_comments_and_strings_for_the_sentence(new, rewritten):
+    found = spec_rules._rewritten({"src/fees.ts": (TS_FEES, new)})
+    assert bool(found) is rewritten, found
+
+
 def _yardstick(category: ReasonCategory, can_speak: bool = True):
     finding = arbiter.finding(category, Severity.HIGH if can_speak else Severity.LOW, summary="x")
 

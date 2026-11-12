@@ -26,7 +26,8 @@ Then, in this order, at most one concern:
 ``spec_restated`` (R2)
     A doc-comment sentence (docstring, JSDoc) of a changed production file whose code changed did
     not survive word for word (``spec_integrity._norm``: case, punctuation and re-wrapping do not
-    count), its owner (function, class) still exists, it has at least ``K_MIN`` content words, and
+    count; a sentence still in the file, wherever it now sits, survived: see ``_still_stated``),
+    its owner (function, class) still exists, it has at least ``K_MIN`` content words, and
     it restates a documentation sentence (README, ``docs/**``; a change log only when the task
     changed it) that is still present word for word: at least ``K_MIN`` shared content words and at
     least ``THETA`` of either sentence's content words. The ask quotes both sentences and reports
@@ -51,8 +52,12 @@ silence, logged at INFO.
 
 from __future__ import annotations
 
+import ast
+import inspect
+import io
 import logging
 import re
+import tokenize
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -171,9 +176,11 @@ def _doc_comment_source(path: str) -> bool:
 
 def _rewritten(texts: dict[str, tuple[str | None, str | None]]) -> list[tuple[str, object, frozenset[str]]]:
     """Doc-comment sentences of changed production files (whose code changed) that did not survive
-    word for word, whose owner still exists, with at least ``K_MIN`` content words."""
+    word for word (``_still_stated``), whose owner still exists, with at least ``K_MIN`` content
+    words."""
     from truthstone.validate import spec_integrity as si
 
+    seen: dict[tuple[str, int], frozenset[str]] = {}
     changed = {
         path: (old, new)
         for path, (old, new) in texts.items()
@@ -198,9 +205,142 @@ def _rewritten(texts: dict[str, tuple[str | None, str | None]]) -> list[tuple[st
             if sentence.owner in owners_then and sentence.owner not in owners_now:
                 continue  # its function or class went: the sentence went with its code
             words = si._content(sentence.text)
-            if len(words) >= K_MIN:
-                out.append((path, sentence, words))
+            if len(words) < K_MIN:
+                continue
+            if _still_stated(path, sentence, texts, seen):
+                continue  # moved word for word, not rewritten (day-5 fix)
+            out.append((path, sentence, words))
     return out
+
+
+def _still_stated(path: str, sentence, texts: dict, seen: dict[tuple[str, int], frozenset[str]]) -> bool:
+    """Whether a doc-comment sentence that left the file's doc comments is still there word for
+    word: a sentence of any comment or string literal of the file's new text (a docstring pushed
+    down by a statement put above it, a comment moved or re-attached), or of another changed
+    production file that did not have it before (the code moved there). Then nobody rewrote it.
+    Outside the file, a copy that was there all along does not count: a test file, an unchanged
+    file, a string another changed file already had (one of two statements rewritten is still a
+    rewrite). ``seen`` caches each file's sentences by (path, 0 old / 1 new)."""
+    from truthstone.validate import spec_integrity as si
+
+    said = si._norm(sentence.text)
+    words = set(said.split())
+
+    def states(other: str, side: int) -> bool:
+        text = texts[other][side]
+        if not text:
+            return False
+        low = text.lower()
+        if not all(word in low for word in words):
+            return False  # cheap: a word of it is not even in the file
+        if (other, side) not in seen:
+            seen[(other, side)] = _prose(other, text)
+        return said in seen[(other, side)]
+
+    if states(path, 1):
+        return True
+    return any(
+        states(other, 1) and not states(other, 0)
+        for other in sorted(texts)
+        if other != path and _doc_comment_source(other)
+    )
+
+
+def _prose(path: str, text: str) -> frozenset[str]:
+    """The ``_norm``'d sentences of every comment and string literal of a source file. Empty when
+    it cannot be read: then nothing counts as still stated (the rule as it was)."""
+    from truthstone.validate import spec_integrity as si
+
+    if len(text) > si.MAX_TEXT:
+        return frozenset()
+    try:
+        python = path.lower().endswith((".py", ".pyi"))
+        regions = _python_prose(text) if python else _js_prose(text)
+        return frozenset(si._norm(s.text) for region in regions for s in si.sentences_of(region))
+    except Exception:
+        log.info("truthstone: spec_restated could not read the comments of %s", path, exc_info=True)
+        return frozenset()
+
+
+_HASHES = re.compile(r"^#+:?[ \t]?")
+_SLASHES = re.compile(r"^/+[ \t]?")
+_STAR = re.compile(r"^\s*\*[ \t]?")
+_JS_TAG = re.compile(r"(?m)^@\w+\s*(\{[^}]*\})?\s*")  # as ``spec_integrity._js_doc_blocks`` reads one
+
+
+def _python_prose(text: str) -> list[str]:
+    """Every string literal (cleaned as a docstring is) and every block of comments on consecutive
+    lines, ``#`` dropped."""
+    regions = [
+        inspect.cleandoc(node.value)
+        for node in ast.walk(ast.parse(text))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+    block: list[str] = []
+    row = -1
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type != tokenize.COMMENT:
+            continue
+        if block and token.start[0] != row + 1:
+            regions.append("\n".join(block))
+            block = []
+        block.append(_HASHES.sub("", token.string))
+        row = token.start[0]
+    if block:
+        regions.append("\n".join(block))
+    return regions
+
+
+def _js_prose(text: str) -> list[str]:
+    """Every comment (``//`` lines in a row as one block, a block comment's leading ``*`` dropped)
+    and every string or template literal of JS/TS source, read by the test-file scanner's rules
+    (``weakened_tests._js_scan``)."""
+    from truthstone.validate import weakened_tests as wt
+
+    regions: list[str] = []
+    lines: list[str] = []
+    n, i, last, line_end = len(text), 0, "", -1
+
+    def flush() -> None:
+        if lines:
+            regions.append("\n".join(lines))
+            lines.clear()
+
+    while i < n:
+        match = wt._JS_SPECIAL.search(text, i)
+        if match is None:
+            break
+        at, token = match.start(), match.group()
+        code = text[i:at].rstrip()
+        if code:
+            last = code[-1]
+        if token == "//":
+            gap = text[line_end:at] if lines else ""
+            if not (gap.strip() == "" and gap.count("\n") == 1):
+                flush()
+            end = text.find("\n", at)
+            end = n if end < 0 else end
+            lines.append(_SLASHES.sub("", text[at:end]))
+            line_end = i = end
+            continue
+        flush()
+        if token == "/*":
+            end = text.find("*/", at + 2)
+            end = n if end < 0 else end
+            body = "\n".join(_STAR.sub("", line) for line in text[at + 2 : end].splitlines())
+            regions.append(_JS_TAG.sub("", body))
+            i = end + 2
+            continue
+        if token == "/" and not wt._js_regex_starts(text, at, last):
+            last, i = "/", at + 1
+            continue
+        end = max(wt._js_literal_end(text, at), at + 1)
+        if token != "/":  # a regex literal is no prose
+            closed = end - 1 > at and text[end - 1] == token
+            regions.append(text[at + 1 : end - 1 if closed else end])
+        last, i = token, end
+    flush()
+    return regions
 
 
 def _kept_doc_sentences(state: TaskState, index: RepoIndex, texts: dict) -> list[tuple[str, object]] | None:
