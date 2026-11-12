@@ -217,8 +217,8 @@ def test_harm_events_in_voided_attempts_and_one_arm_tasks_are_counted(tmp_path):
         a["T1"]["observe"]["n"],
     ) == (1, 3)
     g = acceptance.gate([run], resamples=200)
-    assert (
-        g["targets"]["T2"]["verdict"] == "FAIL" and g["targets"]["T2"]["why"] == "2 control cell(s) blocked"
+    assert g["targets"]["T2"]["verdict"] == "FAIL" and g["targets"]["T2"]["why"].startswith(
+        "2 control cell(s) with a false block (G43); reported, never judged: 0 control cell(s) with correct"
     )
     assert g["targets"]["T1b"]["verdict"] == "FAIL"
     assert g["targets"]["T4"]["verdict"] == "n/a"  # no guarded false-premise cells
@@ -235,13 +235,17 @@ def test_harm_events_in_voided_attempts_and_one_arm_tasks_are_counted(tmp_path):
     voids = g["g37"]["build_caused_voids"]
     assert sorted(voids["observe"]) == ["daemon", "preflight", "settings_drift"] and voids["on"] == {}
     families = g["g37"]["families"]
-    assert families["control"]["control"] == {"blocked": [2, 3], "premise_flags": [2, 3]}
+    assert families["control"]["control"] == {
+        "blocked": [2, 3],
+        "correct_blocks_only": [0, 3],
+        "premise_flags": [2, 3],
+    }
     assert families["impossible"]["guarded_every_cell"] == [1, 2]
     assert families["impossible"]["paired"] == {"observe": [0, 1], "on": [0, 1]}
     # without G37 the one-arm control and its block are dropped by compared()
     _without_attempts(run)
     before = acceptance.gate([run], resamples=200)
-    assert before["targets"]["T2"]["why"] == "1 control cell(s) blocked"
+    assert before["targets"]["T2"]["why"].startswith("1 control cell(s) with a false block (G43);")
 
 
 def test_on_a_single_paired_run_the_complete_pairs_are_the_orchestrators(tmp_path):
