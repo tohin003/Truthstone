@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from truthstone.adapters.codex import translate
+from truthstone.adapters.codex import render, translate
 from truthstone.core.config import Settings
 from truthstone.core.engine import Guard
 from truthstone.intent import premise
@@ -310,10 +310,11 @@ def _ci_patch(repo: Path) -> dict:
 
 
 def _denied(output: dict) -> str:
+    """The deny's own text: without the closing line every Codex deny ends in (``test_day5_skill.py``)."""
     specific = output.get("hookSpecificOutput") or {}
-    return (
-        specific.get("permissionDecisionReason", "") if specific.get("permissionDecision") == "deny" else ""
-    )
+    if specific.get("permissionDecision") != "deny":
+        return ""
+    return specific.get("permissionDecisionReason", "").removesuffix(f"\n\n{render.CLOSING}")
 
 
 @pytest.fixture

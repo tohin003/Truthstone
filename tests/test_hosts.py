@@ -534,13 +534,15 @@ def test_each_change_h1_made_follows_its_ladder_rule(key):
     case = CASES[key.rsplit("|", 1)[1]]
     spec = out.get("hookSpecificOutput", {})
     rule = LADDER_CHANGES[key]
+    # Every Codex deny ends in the adapter's one closing line (day 5, T5); the ladder's text precedes it.
+    closing = f"\n\n{codex_render.CLOSING}" if key.startswith("codex") else ""
     if rule == SIGNOFF_WORDING:
         assert spec["permissionDecision"] == "deny"
-        assert spec["permissionDecisionReason"] == f"{hosts.SIGNOFF_WITHOUT_CODE}\n\n{case.reason}"
+        assert spec["permissionDecisionReason"] == f"{hosts.SIGNOFF_WITHOUT_CODE}\n\n{case.reason}{closing}"
     elif rule == SIGNOFF_CODE:
         lead = hosts.SIGNOFF_WITH_CODE.format(codes=case.signoff_code, minutes=15)
         assert spec["permissionDecision"] == "deny"
-        assert spec["permissionDecisionReason"] == f"{lead}\n\n{case.reason}"
+        assert spec["permissionDecisionReason"] == f"{lead}\n\n{case.reason}{closing}"
         assert out["systemMessage"].endswith(hosts.SIGNOFF_NOTICE_CODE.format(codes=case.signoff_code))
     elif rule == REVIEW_IS_CONTEXT:
         assert spec["additionalContext"] == case.reason and "decision" not in out

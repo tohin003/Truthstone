@@ -173,6 +173,8 @@ class TestPackage:
 # $PLUGIN_DATA/lean/forward-native, and README.md and SECURITY.md say so (declarations
 # unchanged; computed with plugin_content_hash, to confirm via Codex hooks/list before release).
 # rename-tool: re-pinned for Truthstone by scripts/rename_product.py; confirm via Codex hooks/list.
+# Re-pinned 2026-11-12 (day 5, T5) for the skill's description only (SKILL.md frontmatter; body,
+# hooks and launcher unchanged, declarations unchanged): it no longer invites a read at every hold.
 EXPECTED_DECLARATIONS = {
     "session_start:0:0": "sha256:16dff026e1a8d1e64802603624e8b79a31721cd548267e454c61785e61eb44f1",
     "user_prompt_submit:0:0": "sha256:84136a898ae55a7db4af13318f1a7d1cb886b9887902badeb965c2cee8c56aea",
@@ -181,7 +183,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:6f1033164af8c2f780482378b104b378f981aaef16a8a71dbcddba8b5a198460"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:f8ae973dbad9407acbe0c5367ab082c786834187ddf793f220cdf173de8028ea"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
