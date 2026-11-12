@@ -42,9 +42,9 @@ option, ``-rfEs``, that only changes what is printed), never in the agent's tree
 ``sandbox-exec`` (macOS) with no network and writes allowed only to the copy and the temporary
 directories (``original_tests._profile``), with environment variables whose names suggest
 credentials dropped. Its program is found on the agent's own PATH (a login shell's, ``_agent_path``),
-not only on the daemon's. Both runs share one wall-clock budget (``BUDGET_S``, the original-tests
-check's); past it their process groups are killed; the restored-tree run is not waited for when the
-gated tests pass. Each result is computed once per task and run. Anything that cannot be settled
+not only on the daemon's. Both runs share one wall-clock budget (``BUDGET_S``, 6 s, its own: not
+the original-tests check's); past it their process groups are killed; the restored-tree run is not waited for
+when the gated tests pass. Each result is computed once per task and run. Anything that cannot be settled
 (no sandbox, a timeout, a run that cannot be read) is silence, logged at INFO.
 """
 
@@ -73,7 +73,7 @@ log = logging.getLogger(__name__)
 
 __all__ = ["BUDGET_S", "concerns", "denied", "disclosed"]
 
-BUDGET_S = sandbox.BUDGET_S  # copies and both runs: the per-check budget (Stop itself has 12 s, G32)
+BUDGET_S = 6.0  # copies and both runs: this check's own budget, inside Stop's 12 s (G32); not original_tests'
 _CATEGORY = ReasonCategory.FAILING_TESTS
 MAX_SHOWN = 3
 MAX_MEMO = 64
