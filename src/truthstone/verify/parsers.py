@@ -818,3 +818,70 @@ def _without_task_prefixes(text: str) -> str | None:
     if not lines or prefixed * 2 < len(lines):
         return None
     return _TASK_PREFIX.sub("", text)
+
+
+# -- tests skipped behind an environment switch (day 5) ----------------------------------
+#
+# A test kept off until an environment variable is set usually says so in its skip reason, and
+# the runner prints that reason next to the skip:
+#   node:test, spec reporter    ``<U+FE63> <title> (<ms>) # <reason>`` (a small hyphen-minus)
+#   TAP (``--test-reporter=tap``) ``ok N - <title> # SKIP <reason>``
+#   pytest ``-rs`` / ``-ra`` / ``-rA``  ``SKIPPED [n] <path>:<line>: <reason>``
+#   pytest ``-v``               ``<path>::<name> SKIPPED (<reason>)``
+# The switch is read from that reason only, and only when it is written out as one:
+#   ``set NAME=value`` or ``export NAME=value`` (anywhere in the reason), or
+#   ``NAME=value to run`` / ``NAME=value to enable``,
+# with NAME in upper case (letters, digits, underscores; a letter first) and the value an on-word
+# (``SWITCH_ON``), optionally in backticks or quotes. A reason that assigns more than one variable
+# names no single switch; an upper-case word without one of those forms is never read as one.
+
+_SKIP_LINE = re.compile(
+    r"^[ \t]*\uFE63 (?P<spec>.+?)(?: \(\d+(?:\.\d+)?m?s\))? # (?P<spec_reason>.+?)[ \t]*$"
+    r"|^[ \t]*ok \d+ - (?P<tap>.+?) # (?i:skip)\b:?[ \t]*(?P<tap_reason>.*?)[ \t]*$"
+    r"|^SKIPPED \[\d+\] (?P<py>\S+?:\d+): (?P<py_reason>.+?)[ \t]*$"
+    r"|^(?P<pyv>\S+::\S+) SKIPPED \((?P<pyv_reason>.+)\)(?:[ \t]+\[[ \d]+%\])?[ \t]*$",
+    re.M,
+)
+_QUOTE = "[`'\"]?"
+_NAME = r"[A-Z][A-Z0-9_]+"
+_VALUE = r"[A-Za-z0-9_.-]{1,32}"
+_SWITCH_FORM = re.compile(
+    rf"(?<![\w$])(?i:set|export)[ \t]+{_QUOTE}(?P<a>{_NAME})=(?P<av>{_VALUE}){_QUOTE}(?![\w$=])"
+    rf"|(?<![\w$=]){_QUOTE}(?P<b>{_NAME})=(?P<bv>{_VALUE}){_QUOTE}[ \t]+(?i:to)[ \t]+(?i:run|enable)\b"
+)
+_ANY_ASSIGNMENT = re.compile(r"(?<![\w$])([A-Za-z_][A-Za-z0-9_]*)=")
+SWITCH_ON = frozenset({"1", "true", "yes", "on", "y", "enable", "enabled", "all"})
+MAX_SWITCH_SKIPS = 50
+
+
+def skip_switch(reason: str) -> str | None:
+    """The environment switch a skip reason tells the reader to set, as ``NAME=value``; None
+    when it names none in an accepted form, or assigns more than one variable."""
+    if "=" not in reason or len({m.group(1) for m in _ANY_ASSIGNMENT.finditer(reason)}) != 1:
+        return None
+    found = _SWITCH_FORM.search(reason)
+    if found is None:
+        return None
+    side = "a" if found.group("a") else "b"
+    name, value = found.group(side), found.group(f"{side}v")
+    return f"{name}={value}" if value.lower() in SWITCH_ON else None
+
+
+def switch_skips(text: str) -> tuple[tuple[str, str, str], ...]:
+    """The skipped tests whose printed skip reason names an environment switch, in order:
+    ``(NAME=value, the test as the output names it, the reason)``. Empty when there are none;
+    the runner forms and the switch forms are listed above."""
+    if not isinstance(text, str) or "=" not in text:
+        return ()
+    found: list[tuple[str, str, str]] = []
+    for match in _SKIP_LINE.finditer(clean(text)):
+        groups = match.groupdict()
+        kind = next(k for k in ("spec", "tap", "py", "pyv") if groups[k] is not None)
+        reason = groups[f"{kind}_reason"] or ""
+        switch = skip_switch(reason)
+        if switch is None:
+            continue
+        found.append((switch, groups[kind].strip()[:200], reason.strip()[:200]))
+        if len(found) >= MAX_SWITCH_SKIPS:
+            break
+    return tuple(found)

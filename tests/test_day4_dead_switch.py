@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from truthstone.adapters.codex import translate
+from truthstone.adapters.codex import render, translate
 from truthstone.bench.codex import acceptance
 from truthstone.bench.codex.guards import read_guard_db
 from truthstone.bench.codex.premise import names_absence
@@ -864,10 +864,11 @@ _LEVEL_ZERO_REPO = {
 
 
 def _denied(output: dict) -> str:
+    """The deny's own text: without the closing line every Codex deny ends in (``test_day5_skill.py``)."""
     specific = output.get("hookSpecificOutput") or {}
-    return (
-        specific.get("permissionDecisionReason", "") if specific.get("permissionDecision") == "deny" else ""
-    )
+    if specific.get("permissionDecision") != "deny":
+        return ""
+    return specific.get("permissionDecisionReason", "").removesuffix(f"\n\n{render.CLOSING}")
 
 
 @pytest.fixture

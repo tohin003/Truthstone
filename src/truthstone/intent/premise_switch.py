@@ -19,6 +19,10 @@ prototypes' ``install()`` patched it. The prototypes' explicit ``P`` parameter i
   (``premise._asserted``).
 * **v5.2's final precision filter** (``_library_kwarg``) applies to every noted name, today's
   rule's included.
+* **Day 5** (beyond the prototypes): in v4.3, a present-tense reading verb before the name in its
+  own clause ("<program> reads `x` from <file>") is a capability marker beside a condition, "with"
+  and "has a `x` option" (``_READS_BEFORE``), and "set/put … there" points back (``_verb_back``).
+  Every other v4.3 guard is unchanged.
 
 ``USED_SWITCH_SPEAKS`` carries battery 3's registered decision. When it is False, the noted
 names are v4.3's (today's rule, v4.3, C1b, C1c) after v5.2's final precision filter, exactly as
@@ -64,7 +68,9 @@ def _verb_back(ref: str) -> str:
         rf"|(?:switch|turn|flip)\s+on\s+{ref}"
         rf"|(?:enable|activate|use|pass|apply|call|include)\s+{ref}"
         rf"|(?:put|add|wire)\s+{ref}\s+(?:in|into|to)\b"
-        rf"|set\s+{ref}\s+(?:to\s+[`'\"]?[\w.-]+|on\b))"
+        rf"|set\s+{ref}\s+(?:to\s+[`'\"]?[\w.-]+|on\b)"
+        # day 5: values set at the place the sentence named ("set country DE and plan plus there")
+        r"|(?:set|put)\s+[^.;:!?]{1,60}?\s+there\b)"
     )
 
 
@@ -110,6 +116,10 @@ _SWITCH_NOUN = re.compile(
     r"[`'\"]?\s*(?:option|flag|setting|switch|mode|toggle|helper|function|method|key)s?\b", re.I
 )
 _FLAG_WITH = re.compile(r"\b(?:with|via|passing|by\s+passing)\s+[`'\"]?$", re.I)
+# Day 5: a present-tense reading verb in the name's own clause, before it and within 80 characters with
+# no clause break: "<the project's program> reads `x` from <file>", "the CLI takes defaults for ... from
+# `y`". It says the program reads the name today, as a condition or "has a `x` option" does.
+_READS_BEFORE = re.compile(r"\b(?:reads|takes|loads|picks\s+up|pulls)\b[^.;:!?]{0,80}$", re.I)
 
 # -- guards --------------------------------------------------------------------------------------
 # Generic tool nouns (design text: "test runner", not a bare "runner").
@@ -478,9 +488,11 @@ def _pointed_back(P, prompt: str):
             if P._BUILDS.search(clause):
                 continue
             after = s[offset + len(name) :]
-            cond = P._CONDITION.search(s[P._clause_start(s, offset) : offset][-160:])
+            lead = s[P._clause_start(s, offset) : offset][-160:]
+            cond = P._CONDITION.search(lead)
+            reads = _READS_BEFORE.search(lead)  # day 5
             flag_with = cand.kind == "flag" and _FLAG_WITH.search(before[-24:])
-            if not (cond or flag_with or supports or (has and _SWITCH_NOUN.match(after))):
+            if not (cond or reads or flag_with or supports or (has and _SWITCH_NOUN.match(after))):
                 continue
             out.append((P.Assertion(name, cand.kind, cand.keys, existing=True), Anchor(eff, pronoun, preds)))
     return out

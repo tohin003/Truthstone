@@ -30,7 +30,8 @@ What counts as weakening of an EXISTING test file
 
 * **Module-level code changed** (Stage 4): an existing module-level statement of a test file
   that failed, i.e. an import, constant, sample data, fixture or helper, modified or deleted
-  under test pressure. Adding one is never a finding.
+  under test pressure. Adding one is never a finding. Python since Stage 4; JS/TS since day 5
+  (top-level code outside the test and suite calls: ``validate/js_module_level.py``).
 
 Deleted, fewer-assertions and expected-changed speak only with a reason to believe the
 yardstick was moved to make the run green. Either the request said to leave the tests alone
@@ -755,6 +756,9 @@ def _javascript(path: str, before: str, after: str) -> list[Weakening]:
             )
         )
     out.extend(_js_edited(path, before, after))
+    from truthstone.validate import js_module_level  # its own module (day 5); it reads this one
+
+    out.extend(js_module_level.module_level(path, before, after))
     return out
 
 
@@ -1318,7 +1322,14 @@ _MODULE_KINDS = frozenset({"module-level", "import-extended"})
 def _gone(module: str, root: str) -> bool:
     """An import's module of this repository that is no longer there: its top-level package is
     in the repository (at the root, or under src/ or lib/), the module itself is not. A module
-    the session moved or renamed (audit H10); never a standard-library or third-party one."""
+    the session moved or renamed (audit H10); never a standard-library or third-party one. A JS/TS
+    module (``./src/a.ts``, a relative import resolved from the root) is gone when no file it can
+    name is there: as written, under another script extension, or as a folder's index (day 5)."""
+    if module.startswith("./"):
+        base = Path(root, module[2:])
+        stem = base.with_suffix("") if base.suffix in _JS else base
+        candidates = [base, *(stem.with_suffix(ext) for ext in _JS), *(stem / f"index{ext}" for ext in _JS)]
+        return not any(candidate.exists() for candidate in candidates)
     parts = module.split(".")
     if len(parts) < 2 or not all(part.isidentifier() for part in parts):
         return False

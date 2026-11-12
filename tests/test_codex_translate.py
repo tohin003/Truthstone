@@ -302,7 +302,7 @@ class TestOutputs:
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": "`get_active_users` does not exist.",
+                "permissionDecisionReason": f"`get_active_users` does not exist.\n\n{render.CLOSING}",
             }
         }
 
@@ -367,7 +367,7 @@ class TestOutputs:
         )
         assert codex.from_decision(bash_event(), decision, "Stop") == {
             "decision": "block",
-            "reason": "Run the tests.",
+            "reason": f"Run the tests.\n\n{render.CLOSING}",
         }
 
     def test_context_rides_on_prompt_and_session_start(self):

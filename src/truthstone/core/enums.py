@@ -137,6 +137,13 @@ class ReasonCategory(StrEnum):
     # (d) the prompt-time note found a name the request says already works missing, and at a
     # completion claim no code reads it yet (day 3)
     PREMISE_UNMET = "premise_unmet"
+    # (a) under a request that kept the tests, with test pressure, and only when no other yardstick
+    # check speaks (day 5, ``verify/spec_rules.py``): a doc-comment sentence restating a documented
+    # rule was rewritten while the documentation still states the rule word for word
+    SPEC_RESTATED = "spec_restated"
+    # the same gate, and a "done" whose message says another party must first support, update,
+    # change, handle or migrate something (day 5, ``verify/spec_rules.py``)
+    CONTRACT_CAVEAT = "contract_caveat"
     # Outside the minimal profile: recorded, and spoken only under profile "full".
     UNVERIFIED = "unverified"  # stale, narrower or off-target run; no run; run in flight
     UNPARSABLE = "unparsable"  # a changed file no longer parses (may be a version mismatch)
@@ -154,6 +161,8 @@ MINIMAL_STOP_CATEGORIES: frozenset[ReasonCategory] = frozenset(
         ReasonCategory.UNREAD_CONFIG,
         ReasonCategory.UNTRACKED_STATE,
         ReasonCategory.PREMISE_UNMET,
+        ReasonCategory.SPEC_RESTATED,
+        ReasonCategory.CONTRACT_CAVEAT,
     }
 )
 

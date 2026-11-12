@@ -43,6 +43,7 @@ from truthstone.daemon import degraded
 from truthstone.intent import dead_switch, premise
 from truthstone.intent.models import TaskSpec
 from truthstone.planning import integrity as integrity_note
+from truthstone.planning import spec_note
 from truthstone.repo import symbols_ts
 from truthstone.repo.gitinfo import repository_root
 from truthstone.repo.index import IndexDelta, RepoIndex
@@ -144,6 +145,8 @@ class Workspace:
         self.dead_switch_held: set[str] = set()
         # Sessions already given the integrity note (``[notes] integrity``): once per session.
         self.integrity_noted: set[str] = set()
+        # Sessions already given the spec note (``[notes] spec``, day 5): once per session.
+        self.spec_noted: set[str] = set()
         # Shell commands' changes, each holding its place on its task's timeline until a
         # sweep of the tree attributes them (G5).
         self.shell = shellchanges.ShellChanges()
@@ -378,6 +381,7 @@ class Workspace:
         self.session_waivers.discard(session_id)
         self.premises_noted.pop(session_id, None)
         self.integrity_noted.discard(session_id)
+        self.spec_noted.discard(session_id)
         self.spec_snapshot_tasks.pop(session_id, None)
         self.shell.forget_session(session_id)
 
@@ -841,6 +845,18 @@ class Guard:
                 ws.integrity_noted.add(session)
                 notes.append(integrity_note.NOTE)
                 findings.append(integrity_note.finding())
+        spec_on = self.settings.notes.spec
+        if spec_on and profile.active(self.settings).allows(EventType.USER_PROMPT, profile.SPEC_NOTE):
+            # Once per session, and only under a request that keeps the tests and asks for a failing
+            # test to pass (its cheap gate reads the prompt alone): the documented rule closest to the
+            # request (day 5). Context only.
+            session = event.session_id or ""
+            if session not in ws.spec_noted:
+                found_note = spec_note.render(event.prompt_text, index)
+                if found_note is not None:
+                    ws.spec_noted.add(session)
+                    notes.append(found_note.text)
+                    findings.append(found_note.finding())
         if profile.active(self.settings).allows(EventType.USER_PROMPT, profile.PLANNING_NOTE):
             budget = planning.render(spec, index)
             if budget:
@@ -1268,6 +1284,7 @@ class Guard:
             pending_tasks=event.pending_tasks,
             profile=getattr(self.settings, "profile", "minimal"),
             original_tests=bool(getattr(self.settings.challenge, "original_tests", False)),
+            gated_skips=bool(getattr(self.settings.challenge, "gated_skips", True)),
         )
         if not verdict.should_block:
             # Still carries findings: the gate can pass and have seen something worth
