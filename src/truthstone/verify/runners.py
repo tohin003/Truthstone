@@ -65,6 +65,10 @@ class TestOutcome:
     # may be cut short). And the tests its summary counted as skipped, None without a summary.
     environment: tuple[str, ...] | None = None
     skipped: int | None = None
+    # The skipped tests whose printed skip reason names the environment switch that runs them
+    # (``parsers.switch_skips``; day 5): (``NAME=value``, the test as the output names it, the
+    # reason). Read only from a run that counted skips; empty for a run rebuilt from storage.
+    switch_skips: tuple[tuple[str, str, str], ...] = ()
 
     @property
     def is_failure(self) -> bool:
@@ -309,6 +313,8 @@ def parse_output(command: str, output: str) -> TestOutcome:
     outcome.total = summary.total
     outcome.failed = summary.failed + summary.errors
     outcome.skipped = summary.skipped
+    if summary.skipped:
+        outcome.switch_skips = parsers.switch_skips(output or "")
     if summary.status == "no_tests":
         outcome.summary = f"no tests ran ({summary.line})" if summary.line else "no tests ran"
         return outcome

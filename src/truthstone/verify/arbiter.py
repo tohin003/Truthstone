@@ -22,6 +22,9 @@ per Stop. The checks are:
   file that existed before the task, and neither the request nor the final message names it;
 * a premise still unmet (``validate/premise_unmet.py``): the request said a named thing
   already works, the prompt-time note found it missing, and at "done" no code reads it yet.
+* switch-gated tests (``validate/gated_skips.py``, day 5): the last full run skipped tests behind an
+  environment switch its own output names, nothing set it after the last change, and with it set
+  (run by the guard in a sandboxed copy) they fail because of the change: spoken as failing tests (b).
 
 Each reason has a ``ReasonCategory``, and a category speaks at most once per task.
 
@@ -202,7 +205,7 @@ _MESSAGE: contextvars.ContextVar[str | None] = contextvars.ContextVar("truthston
 MAX_COMPARED_FILES = 400
 
 
-def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
+def _integrity_checks(original_tests: bool = False, gated_skips: bool = True) -> list[IntegrityCheck]:
     from truthstone.validate import (
         config_reads,
         fitting,
@@ -211,6 +214,7 @@ def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
         untracked_state,
         weakened_tests,
     )
+    from truthstone.validate import gated_skips as gated_skips_check
     from truthstone.validate import original_tests as original_tests_check
     from truthstone.verify import integrity
 
@@ -224,9 +228,13 @@ def _integrity_checks(original_tests: bool = False) -> list[IntegrityCheck]:
         untracked_state.concerns,
         premise_unmet.concerns,
     ]
+    if gated_skips:
+        # Runs tests (sandboxed, within its own time budget), but only when the latest full run skipped
+        # tests behind a switch its output names and nothing set it since: ``[challenge] gated_skips``.
+        checks.append(gated_skips_check.concerns)
     if original_tests:
-        # Last, and opt-in (``[challenge] original_tests``): the only check that runs tests
-        # (sandboxed, within its own time budget); it reuses the changed-file texts read above.
+        # Last, and opt-in (``[challenge] original_tests``): it runs tests (sandboxed, within its own
+        # time budget) and reuses the changed-file texts read above.
         checks.append(original_tests_check.concerns)
     return checks
 
@@ -273,6 +281,7 @@ def arbitrate(
     profile: str = "minimal",
     checks: Iterable[IntegrityCheck] | None = None,
     original_tests: bool = False,
+    gated_skips: bool = True,
 ) -> Arbitration:
     """Decide this Stop. Never raises."""
     if state is None:
@@ -296,7 +305,7 @@ def arbitrate(
     token, said_token = _TEXTS.set({}), _MESSAGE.set(message)
     try:
         found_all = []
-        for check in checks if checks is not None else _integrity_checks(original_tests):
+        for check in checks if checks is not None else _integrity_checks(original_tests, gated_skips):
             try:
                 found_all.append(check(state, index))
             except Exception:
