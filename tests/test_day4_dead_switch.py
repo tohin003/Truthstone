@@ -26,12 +26,17 @@ from truthstone.core.config import Settings
 from truthstone.core.engine import Guard
 from truthstone.core.enums import EventType
 from truthstone.core.events import AgentEvent
-from truthstone.intent import dead_switch
+from truthstone.intent import dead_switch, premise_switch
 
 
 @pytest.fixture(autouse=True)
 def _product_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TRUTHSTONE_PROFILE", raising=False)
+    # Day 6: these sessions test rule D on its own. With the relied-switch note (C7,
+    # ``intent/premise_names.py``) speaking, the prompt-time note names most of these switches first and
+    # the premise hold takes the edit, so D (which skips noted names) is never reached
+    # (``tests/test_day6_premise.py`` pins that path).
+    monkeypatch.setattr(premise_switch, "RELIED_SPEAKS", False)
 
 
 BASE = {

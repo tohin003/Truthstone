@@ -28,7 +28,7 @@ from tests.stop_session import StopSession, make_repo
 from truthstone.adapters.codex import render, translate
 from truthstone.core.config import Settings
 from truthstone.core.engine import Guard
-from truthstone.intent import dead_switch, premise
+from truthstone.intent import dead_switch, premise, premise_switch
 from truthstone.validate import config_reads
 
 
@@ -162,15 +162,19 @@ def test_b_a_reading_verb_and_a_back_reference_assert_the_name(tmp_path, prompt,
         "there-without-capability",
     ],
 )
-def test_b_what_stays_silent(tmp_path, prompt):
+def test_b_what_stays_silent(tmp_path, prompt, monkeypatch):
+    """Rule B's boundaries, B on its own. Day 6: the relied-switch rule (C7) is switched off here; with it
+    on, "verb-too-far" and "there-without-capability" are noted (``test_day6_premise.py``)."""
+    monkeypatch.setattr(premise_switch, "RELIED_SPEAKS", False)
     files = {**PARCELWREN, **TALLYHO, "package.json": TALLYHO["package.json"]}
     assert _check(tmp_path, files, prompt) == []
 
 
-def test_b_known_misses_stay_unreached(tmp_path):
-    """Documented limits: "uses/honours" wordings, the name as the subject, imperative-first requests that
-    only
-    presuppose the setting. Rule D at the first edit is what can still see these."""
+def test_b_known_misses_stay_unreached(tmp_path, monkeypatch):
+    """Documented limits of rule B: "uses/honours" wordings, the name as the subject, imperative-first
+    requests that only presuppose the setting. Day 6: C7 notes all three (``test_day6_premise.py``); this
+    pins rule B alone."""
+    monkeypatch.setattr(premise_switch, "RELIED_SPEAKS", False)
     for prompt in (
         "parcelwren uses `resend_limit` from parcelwren.toml to cap resends: set it to 5.",
         "`resend_limit` in parcelwren.toml caps how often parcelwren resends: set it to 5.",
@@ -402,9 +406,12 @@ def test_d_manifest_what_stays_silent(tmp_path, prompt, files, edits):
     assert _dead(tmp_path, {**TALLYHO, **files}, prompt, edits, "tallyho") == []
 
 
-def test_d_manifest_hold_through_the_engine(tmp_path):
+def test_d_manifest_hold_through_the_engine(tmp_path, monkeypatch):
     """A Codex patch to package.json; the prompt-time check is silent on this imperative wording, so rule D
-    holds the first edit and names the dotted setting."""
+    holds the first edit and names the dotted setting. Day 6: rule D on its own; with the relied-switch rule
+    (C7) on, the prompt-time note names the setting and the premise hold takes this edit
+    (``test_day6_premise.py``)."""
+    monkeypatch.setattr(premise_switch, "RELIED_SPEAKS", False)
     root, _files = _build(tmp_path / "tallyho", TALLYHO)
     prompt = "Set `tallyho.defaultRegion` to eu in package.json."
     guard = Guard(Settings())
