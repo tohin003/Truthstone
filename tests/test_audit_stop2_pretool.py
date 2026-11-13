@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 
 from tests.test_audit_stop_kit import CodexSession, assert_silent, make_repo, node_spec
+from truthstone.core.config import NotesSettings, Settings
+from truthstone.core.engine import Guard
 
 PACKAGE = """{
   "name": "parcelmint",
@@ -60,6 +62,11 @@ def codex():
 
     def start(repo):
         session = CodexSession(repo)
+        # Day 8: the feasibility reminder off (it is said at every session's first prompt; its own tests are
+        # tests/test_day8_feasibility.py), so "the prompt reaches the agent as nothing" pins the other rules.
+        session.guard.close()
+        session.guard = Guard(Settings(profile="minimal", notes=NotesSettings(feasibility=False)))
+        session.guard.workspace(repo).index.ready(timeout=30)
         opened.append(session)
         return session
 

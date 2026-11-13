@@ -614,6 +614,9 @@ def _prompt(guard: Guard, repo: Path, text: str, session: str = "s1") -> tuple[s
 
 def _guard(tmp_path: Path, **settings) -> tuple[Guard, Path]:
     repo = make_repo(tmp_path / "repo", REPO)
+    # Day 8: the feasibility reminder off, so these pin the spec note's own prompt-time output; the two
+    # together are tests/test_day8_feasibility.py.
+    settings.setdefault("notes", NotesSettings(feasibility=False))
     guard = Guard(Settings(**settings))
     guard.workspace(repo).index.ready(timeout=30)
     return guard, repo
@@ -716,7 +719,7 @@ def test_the_note_is_silent_when_no_rule_overlaps(tmp_path):
 
 
 def test_the_note_is_off_with_the_flag(tmp_path, gathered):
-    guard, repo = _guard(tmp_path, notes=NotesSettings(spec=False))
+    guard, repo = _guard(tmp_path, notes=NotesSettings(spec=False, feasibility=False))
     try:
         said, _ = _prompt(guard, repo, KEEP_RED)
     finally:
@@ -728,7 +731,7 @@ def test_the_note_is_off_with_the_flag(tmp_path, gathered):
 
 
 def test_the_note_is_off_with_the_flag_under_the_full_profile_too(tmp_path, gathered):
-    guard, repo = _guard(tmp_path, profile="full", notes=NotesSettings(spec=False))
+    guard, repo = _guard(tmp_path, profile="full", notes=NotesSettings(spec=False, feasibility=False))
     try:
         said, _ = _prompt(guard, repo, KEEP_RED)
     finally:

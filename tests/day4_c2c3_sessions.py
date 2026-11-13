@@ -1297,8 +1297,9 @@ def scenario_files(name: str) -> dict[str, str]:
 def pinned_settings() -> Settings:
     """The product default as the frozen prototypes ran it: the day-5 spec note (``[notes] spec``,
     on by default) is a prompt-time note those prototypes predate, so it is off here; its own tests
-    are ``tests/test_day5_spec_rules.py``."""
-    return Settings(profile="minimal", notes=NotesSettings(spec=False))
+    are ``tests/test_day5_spec_rules.py``. So is the day-8 feasibility reminder (``[notes]
+    feasibility``; its tests are ``tests/test_day8_feasibility.py``)."""
+    return Settings(profile="minimal", notes=NotesSettings(spec=False, feasibility=False))
 
 
 def settings_for(max_blocks: int | None = None) -> Settings:

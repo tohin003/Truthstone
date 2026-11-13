@@ -42,6 +42,7 @@ from truthstone.core.taskstate import TaskState
 from truthstone.daemon import degraded
 from truthstone.intent import dead_switch, premise
 from truthstone.intent.models import TaskSpec
+from truthstone.planning import feasibility as feasibility_note
 from truthstone.planning import integrity as integrity_note
 from truthstone.planning import spec_note
 from truthstone.repo import symbols_ts
@@ -147,6 +148,9 @@ class Workspace:
         self.integrity_noted: set[str] = set()
         # Sessions already given the spec note (``[notes] spec``, day 5): once per session.
         self.spec_noted: set[str] = set()
+        # Sessions already given the feasibility reminder (``[notes] feasibility``, day 8): once
+        # per session, at its first prompt.
+        self.feasibility_noted: set[str] = set()
         # Shell commands' changes, each holding its place on its task's timeline until a
         # sweep of the tree attributes them (G5).
         self.shell = shellchanges.ShellChanges()
@@ -382,6 +386,7 @@ class Workspace:
         self.premises_noted.pop(session_id, None)
         self.integrity_noted.discard(session_id)
         self.spec_noted.discard(session_id)
+        self.feasibility_noted.discard(session_id)
         self.spec_snapshot_tasks.pop(session_id, None)
         self.shell.forget_session(session_id)
 
@@ -806,9 +811,10 @@ class Guard:
     def _prompt_notes(
         self, event: AgentEvent, ws: Workspace, spec: TaskSpec, index: RepoIndex | None
     ) -> tuple[list[str], list[Finding], str]:
-        """What the prompt may carry back (M8, M9): nothing, on a routine prompt. Also the
-        hold for the task's first edit after a premise note ("" for none), and the names a
-        completion claim answers to, recorded on ``spec.premises`` (day 3).
+        """What the prompt may carry back (M8, M9): on a routine prompt, only the feasibility
+        reminder at a session's first prompt (day 8). Also the hold for the task's first edit
+        after a premise note ("" for none), and the names a completion claim answers to,
+        recorded on ``spec.premises`` (day 3).
 
         The planning note only when the profile lets it speak (``[notes] planning``, or the
         full profile): it is not even computed otherwise. Each note comes with the finding
@@ -862,6 +868,18 @@ class Guard:
             if budget:
                 notes.append(budget)
                 findings.append(planning.finding(budget))
+        if self.settings.notes.feasibility and profile.active(self.settings).allows(
+            EventType.USER_PROMPT, profile.FEASIBILITY_NOTE
+        ):
+            # Once per session, at its first prompt, on every task (day 8): no trigger, no file read.
+            # Last, so a premise or spec note keeps its kind and comes first.
+            session = event.session_id or ""
+            if session not in ws.feasibility_noted:
+                ws.feasibility_noted.add(session)
+                # A session the store already has a task for (a daemon restarted mid-session) has had it.
+                if not (session and ws.resolve_task_id(session)):
+                    notes.append(feasibility_note.TEXT)
+                    findings.append(feasibility_note.finding())
         return notes, findings, hold
 
     @classmethod

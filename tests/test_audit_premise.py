@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from truthstone.adapters.codex import translate
-from truthstone.core.config import Settings
+from truthstone.core.config import NotesSettings, Settings
 from truthstone.core.engine import Guard
 from truthstone.intent import premise
 
@@ -182,7 +182,8 @@ TS_PROMPTS = [
 
 def _notes(files: dict[str, str], prompts: list[str], tmp_path: Path) -> dict[str, str]:
     repo = _repo(tmp_path / "repo", files)
-    guard = Guard(Settings())
+    # Day 8: the feasibility reminder off, so this pins the premise rules' own prompt-time output.
+    guard = Guard(Settings(notes=NotesSettings(feasibility=False)))
     spoke: dict[str, str] = {}
     try:
         guard.workspace(repo).index.ready(timeout=30)

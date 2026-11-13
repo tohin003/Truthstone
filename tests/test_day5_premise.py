@@ -26,7 +26,7 @@ import pytest
 
 from tests.stop_session import StopSession, make_repo
 from truthstone.adapters.codex import render, translate
-from truthstone.core.config import Settings
+from truthstone.core.config import NotesSettings, Settings
 from truthstone.core.engine import Guard
 from truthstone.intent import dead_switch, premise, premise_switch
 from truthstone.validate import config_reads
@@ -414,7 +414,8 @@ def test_d_manifest_hold_through_the_engine(tmp_path, monkeypatch):
     monkeypatch.setattr(premise_switch, "RELIED_SPEAKS", False)
     root, _files = _build(tmp_path / "tallyho", TALLYHO)
     prompt = "Set `tallyho.defaultRegion` to eu in package.json."
-    guard = Guard(Settings())
+    # Day 8: the feasibility reminder off, so this pins the premise rules' own prompt-time output.
+    guard = Guard(Settings(notes=NotesSettings(feasibility=False)))
     try:
         guard.workspace(root).index.ready(timeout=30)
         assert translate.dispatch(guard, _prompt(root, prompt))[0] == {}

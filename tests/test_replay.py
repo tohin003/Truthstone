@@ -145,9 +145,17 @@ def test_a_recorded_cell_replays_to_every_output_decided_live(recorded, tmp_path
     assert kinds[6] == "signoff" and kinds[7] == "failing_tests"
 
 
+def _reminder_off(tmp_path: Path) -> Path:
+    """A config.toml with the day-8 feasibility reminder off: the replays below pin the other rules'
+    interventions; the reminder's own are in tests/test_day8_feasibility.py."""
+    config = tmp_path / "reminder-off.toml"
+    config.write_text("[notes]\nfeasibility = false\n")
+    return config
+
+
 def test_under_the_minimal_profile_the_replay_shows_what_was_withheld(recorded, tmp_path):
     cell, _live, _repo = recorded
-    result = replay.replay_cell(cell, profile_name="minimal")
+    result = replay.replay_cell(cell, config=_reminder_off(tmp_path), profile_name="minimal")
     assert {e.index: e.kind for e in result.interventions} == {6: "signoff"}  # A1 holds
     withheld = {e.index: e.withheld for e in result.events if e.withheld}
     # The failing run came before the fix: not (b), a result the task edited past.
@@ -244,7 +252,10 @@ def test_the_cli_prints_one_cell_as_json(recorded, tmp_path):
 
     cell, _live, _repo = recorded
     out = tmp_path / "out.json"
-    result = CliRunner().invoke(app, ["replay", str(cell), "--out", str(out), "--profile", "minimal"])
+    config = str(_reminder_off(tmp_path))
+    result = CliRunner().invoke(
+        app, ["replay", str(cell), "--out", str(out), "--profile", "minimal", "--config", config]
+    )
     assert result.exit_code == 0, result.output
     data = json.loads(out.read_text())
     assert data["cell"] == "cell" and [i["kind"] for i in data["interventions"]] == ["signoff"]

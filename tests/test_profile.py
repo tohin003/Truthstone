@@ -238,7 +238,9 @@ def test_routine_prompt_injects_nothing(tmp_path):
     repo = _python_repo(tmp_path)
     prompt = "real_helper() in pkg/core.py should return 2. Please fix it and run the tests."
     for settings, expect_context in (
-        (Settings(), False),
+        # Day 8: the feasibility reminder off (it speaks at every session's first prompt; its own tests
+        # are tests/test_day8_feasibility.py), so this pins what the other notes do with a routine prompt.
+        (Settings(notes={"feasibility": False}), False),
         (Settings(profile="full"), True),
         (Settings(notes={"planning": True}), True),
     ):

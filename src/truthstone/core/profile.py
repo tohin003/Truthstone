@@ -39,6 +39,8 @@ brief  kind               phase           when
                                           rewritten while the docs still state it (day 5)
 (a)    ``contract_caveat`` Stop           "done" under the same request, with a message that
                                           says another party must change first (day 5)
+(a)    ``admitted_conflict`` Stop         "done" with a message that says the request's
+                                          requirements cannot all be met (day 8)
 (c)    ``signoff``        before a tool   an irreversible or destructive action needs the
                                           developer's sign-off (A1: never rationed)
 (d)    ``false_premise``  prompt          the prompt asserts a named identifier exists or
@@ -47,7 +49,9 @@ brief  kind               phase           when
 
 The planning note (``planning_note``) is off: ``[notes] planning = true`` lets it speak again.
 The spec note (``spec_note``, ``planning/spec_note.py``) is on: ``[notes] spec = false`` keeps it
-from being computed or said. It is context only, never a hold, a deny or an ask.
+from being computed or said. It is context only, never a hold, a deny or an ask. So is the
+feasibility reminder (``feasibility_note``, ``planning/feasibility.py``, day 8), said once per
+session at its first prompt: ``[notes] feasibility = false`` keeps it from being said.
 
 Everything else — routine context, every other challenge, ask, note or Stop reason — is
 **recorded, never shown**: :func:`apply` turns the decision into a silent ALLOW that keeps
@@ -100,6 +104,7 @@ class Kind(StrEnum):
     PREMISE_UNMET = "premise_unmet"
     SPEC_RESTATED = "spec_restated"
     CONTRACT_CAVEAT = "contract_caveat"
+    ADMITTED_CONFLICT = "admitted_conflict"
     SIGNOFF = "signoff"
     FALSE_PREMISE = "false_premise"
 
@@ -108,6 +113,7 @@ class Kind(StrEnum):
 PLANNING_NOTE = "planning_note"
 INTEGRITY_NOTE = "integrity_note"  # ``[notes] integrity`` (planning/integrity.py): context only
 SPEC_NOTE = "spec_note"  # ``[notes] spec`` (planning/spec_note.py): context only, on by default
+FEASIBILITY_NOTE = "feasibility_note"  # ``[notes] feasibility`` (planning/feasibility.py): context only, on
 UNVERIFIED = "unverified"
 UNPARSABLE = "unparsable"
 OTHER = "other"
@@ -131,6 +137,7 @@ _STOP = frozenset(
         Kind.PREMISE_UNMET,
         Kind.SPEC_RESTATED,
         Kind.CONTRACT_CAVEAT,
+        Kind.ADMITTED_CONFLICT,
     }
 )
 # The minimal profile: per phase, the only kinds that reach the agent.
@@ -140,7 +147,14 @@ MINIMAL_ALLOWED: dict[EventType, frozenset[str]] = {
     EventType.PRE_TOOL_USE: frozenset({str(Kind.SIGNOFF), str(Kind.FALSE_PREMISE)}),
     EventType.USER_PROMPT: frozenset({str(Kind.FALSE_PREMISE)}),
 }
-_NAMED = frozenset(str(k) for k in Kind) | {PLANNING_NOTE, INTEGRITY_NOTE, SPEC_NOTE, UNVERIFIED, UNPARSABLE}
+_NAMED = frozenset(str(k) for k in Kind) | {
+    PLANNING_NOTE,
+    INTEGRITY_NOTE,
+    SPEC_NOTE,
+    FEASIBILITY_NOTE,
+    UNVERIFIED,
+    UNPARSABLE,
+}
 _SPEAKING = (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL)
 
 
@@ -154,9 +168,15 @@ class Profile:
         return self.allow_all or kind in self.allowed.get(phase, frozenset())
 
 
-def build(name: str = MINIMAL, planning: bool = False, integrity: bool = False, spec: bool = True) -> Profile:
+def build(
+    name: str = MINIMAL,
+    planning: bool = False,
+    integrity: bool = False,
+    spec: bool = True,
+    feasibility: bool = True,
+) -> Profile:
     """The named profile; an unknown name is the minimal one (the quiet direction). ``spec``
-    follows ``[notes] spec``, on by default."""
+    follows ``[notes] spec`` and ``feasibility`` ``[notes] feasibility``, both on by default."""
     if name == FULL:
         return Profile(FULL, dict(MINIMAL_ALLOWED), allow_all=True)
     allowed = dict(MINIMAL_ALLOWED)
@@ -166,23 +186,26 @@ def build(name: str = MINIMAL, planning: bool = False, integrity: bool = False, 
         allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {INTEGRITY_NOTE}
     if spec:
         allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {SPEC_NOTE}
+    if feasibility:
+        allowed[EventType.USER_PROMPT] = allowed[EventType.USER_PROMPT] | {FEASIBILITY_NOTE}
     return Profile(MINIMAL, allowed)
 
 
-_CACHE: dict[tuple[str, bool, bool, bool], Profile] = {}
+_CACHE: dict[tuple[str, bool, bool, bool, bool], Profile] = {}
 
 
 def active(settings: Any) -> Profile:
     """The profile ``settings`` select: ``settings.profile``, ``[notes] planning``,
-    ``[notes] integrity`` and ``[notes] spec``."""
+    ``[notes] integrity``, ``[notes] spec`` and ``[notes] feasibility``."""
     name = str(getattr(settings, "profile", MINIMAL) or MINIMAL)
     notes = getattr(settings, "notes", None)
     planning = bool(getattr(notes, "planning", False))
     integrity = bool(getattr(notes, "integrity", False))
     spec = bool(getattr(notes, "spec", True))
-    key = (name, planning, integrity, spec)
+    feasibility = bool(getattr(notes, "feasibility", True))
+    key = (name, planning, integrity, spec, feasibility)
     if key not in _CACHE:
-        _CACHE[key] = build(name, planning, integrity, spec)
+        _CACHE[key] = build(name, planning, integrity, spec, feasibility)
     return _CACHE[key]
 
 

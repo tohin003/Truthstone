@@ -387,6 +387,10 @@ class NotesSettings(BaseModel):
     # request, quoted, and the honest ways out. Context only. On in this build; a live dev check
     # decides whether it stays on.
     spec: bool = True
+    # The feasibility reminder (``planning/feasibility.py``, day 8): once per session, at its first
+    # prompt, on every task: check that the request can be done as asked, and report it as not done
+    # when it cannot. Context only, no trigger. On in this build; a live check decides whether it stays.
+    feasibility: bool = True
 
 
 _LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
