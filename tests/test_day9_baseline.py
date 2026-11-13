@@ -247,7 +247,10 @@ def test_python_a_disclosed_failure_the_change_caused_holds_the_done(session, re
         "update those tests" not in reason
         and '"not done: <which tests the change breaks, and why>"' in reason
     )
-    assert "premise" not in reason.lower() and "premise" not in one.last.findings[0].subject
+    # the guard's own words (the agent's command, quoted back, carries the interpreter's path: a checkout
+    # path may hold any word)
+    own = reason.replace(sys.executable, "")
+    assert "premise" not in own.lower() and "premise" not in one.last.findings[0].subject
     assert reruns == [["tests/test_tides.py"]]
 
 

@@ -32,7 +32,8 @@ per Stop. The checks are:
   them speaks and spec erosion recorded nothing;
 * a "done" whose own message says the request's requirements cannot all be met
   (``verify/admitted.py``, day 8, ``admitted_conflict``): last as well, under the same condition,
-  and with no gate on the request.
+  and with no gate on the request; and (day 10, same kind) a "done" whose message says that what the
+  request relies on is still missing, after every other check, only when no other concern speaks.
 
 Each reason has a ``ReasonCategory``, and a category speaks at most once per task.
 
@@ -249,6 +250,9 @@ def _integrity_checks(original_tests: bool = False, gated_skips: bool = True) ->
         config_reads.concerns,
         untracked_state.concerns,
         premise_unmet.concerns,
+        # Day 10: a "done" whose message says what the request relies on is still missing; after every
+        # other check, and only when none of them speaks (``_runs_after_all``).
+        admitted.missing_concerns,
     ]
     if gated_skips:
         # Runs tests (sandboxed, within its own time budget), but only when the latest full run skipped
@@ -287,6 +291,22 @@ def _runs_last(check: IntegrityCheck) -> bool:
     from truthstone.verify import admitted, spec_rules
 
     return check is spec_rules.concerns or check is admitted.concerns
+
+
+def _runs_after_all(check: IntegrityCheck) -> bool:
+    from truthstone.verify import admitted
+
+    return check is admitted.missing_concerns
+
+
+def _anything_spoke(concerns: list[Concern], found_all: list[list[Concern]]) -> bool:
+    """Whether the gate or a check before the last one has something to say (day 10), or recorded a
+    spec erosion (as ``_yardstick_spoke``)."""
+    return any(concern.can_speak for concern in concerns) or any(
+        concern.can_speak or concern.category is ReasonCategory.SPEC_EROSION
+        for found in found_all
+        for concern in found
+    )
 
 
 def _without_repeats(found_all: list[list[Concern]]) -> list[list[Concern]]:
@@ -365,6 +385,8 @@ def arbitrate(
         for check in checks if checks is not None else _integrity_checks(original_tests, gated_skips):
             if _runs_last(check) and (not done or _yardstick_spoke(found_all)):
                 continue  # spec_restated / contract_caveat / admitted_conflict: a claim nothing else holds
+            if _runs_after_all(check) and (not done or _anything_spoke(concerns, found_all)):
+                continue  # the missing-thing admission: a claim no other concern speaks about (day 10)
             try:
                 found_all.append(check(state, index))
             except Exception:

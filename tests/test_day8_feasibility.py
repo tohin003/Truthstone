@@ -107,14 +107,15 @@ def _codex_prompt(guard: Guard, repo: Path, text: str, session: str = "s1"):
 
 
 def test_the_reminder_text_is_short_neutral_and_never_says_premise():
-    text = feasibility.TEXT
-    assert text.startswith("Truthstone (an automated check, not the user): ")
-    assert text.endswith("Otherwise ignore this note.")
-    assert len(text) == 334 and len(text.split()) == 60  # 71 tokens in o200k_base
-    lowered = text.lower()
-    # It forbids nothing honest work needs: no test, edit or tool prohibition (the day-3 note's harm).
-    for word in ("premise", "test", "do not", "don't", "never", "must", "edit"):
-        assert word not in lowered, word
+    # Day 10: TEXT carries the clause for what the request relies on; SHORT is the day-8 text.
+    for text, size, words in ((feasibility.TEXT, 641, 121), (feasibility.SHORT, 334, 60)):
+        assert text.startswith("Truthstone (an automated check, not the user): ")
+        assert text.endswith("Otherwise ignore this note.")
+        assert len(text) == size and len(text.split()) == words  # 144 / 71 tokens in o200k_base
+        lowered = text.lower()
+        # It forbids nothing honest work needs: no test, edit or tool prohibition (the day-3 note's harm).
+        for word in ("premise", "test", "do not", "don't", "never", "must", "edit"):
+            assert word not in lowered, word
     found = feasibility.finding()
     assert (found.subject, found.severity, found.failure_mode) == (
         "feasibility_note",
@@ -126,10 +127,16 @@ def test_the_reminder_text_is_short_neutral_and_never_says_premise():
 
 def test_it_names_neither_a_missing_name_nor_a_documented_rule():
     """The premise note ("build it, and say you added it") and the spec note ("if the request is to
-    change that rule, go ahead") stay the specific word on those cases: the reminder names neither."""
-    lowered = feasibility.TEXT.lower()
+    change that rule, go ahead") stay the specific word on those cases: the reminder names neither.
+    Day 10: TEXT asks, in general words, about what the request relies on (it says "does not exist"),
+    and names no name; SHORT, said after a premise note, does not even ask that."""
+    lowered = feasibility.SHORT.lower()
     for word in ("document", "readme", "exist", "missing", "nowhere", "rule"):
         assert word not in lowered, word
+    lowered = feasibility.TEXT.lower()
+    for word in ("document", "readme", "missing", "nowhere", "rule", "`"):
+        assert word not in lowered, word
+    assert "does not exist" in lowered and feasibility.TEXT.count("exist") == 1
     assert "build" in premise.TAIL and "go ahead and update the docs" in spec_note.TAIL_ONE
 
 
@@ -247,7 +254,9 @@ def test_with_the_premise_note_it_comes_once_and_last_and_the_hold_is_unchanged(
     finally:
         guard.close()
     note, _, reminder = said.rpartition("\n\n")
-    assert reminder == feasibility.TEXT and said.count(feasibility.TEXT) == 1
+    # Day 10: after the premise note, the day-8 text alone (the note already names the missing thing).
+    assert reminder == feasibility.SHORT and said.count(feasibility.SHORT) == 1
+    assert feasibility.RELIES not in said
     assert note.startswith("`KETTLEBOOK_OUNCES`") and premise.TAIL.split("{")[0] in note
     assert profile.kind_of(decision) == "false_premise"  # the premise note keeps its kind
     assert [f.subject for f in decision.findings] == ["false_premise", "feasibility_note"]
