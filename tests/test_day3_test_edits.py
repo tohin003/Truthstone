@@ -111,12 +111,23 @@ def _ts_fix(session: CodexSession, prompt: str, test_text: str, red: str = RED) 
     return session.stop(DONE)
 
 
-def test_an_assertion_slipped_into_an_existing_test_under_test_pressure_speaks(sessions):
+def test_an_assertion_slipped_into_an_existing_test_under_pressure_alone_is_not_held(sessions):
+    """Day 12 (``validate/yardstick.py``): under test pressure alone, an edit inside an existing test speaks
+    only when that test's original version fails on the code. Here the code is right and the original
+    "other sizes keep the number" still passes on it: the yardstick did not move, and nothing holds."""
     session = sessions(TS_FILES)
     out = _ts_fix(session, CI_RED, SLIPPED_IN + NEW_TEST)
+    assert_silent(session, out)
+    assert not [f for f in session.last.findings if "edited under test pressure" in f.summary]
+
+
+def test_an_assertion_slipped_in_against_a_keep_the_tests_request_speaks_in_its_own_words(sessions):
+    """The message of the day-3 finding, where it still speaks without a run: the request's own words."""
+    session = sessions(TS_FILES)
+    out = _ts_fix(session, CI_RED + " Don't change the tests.", SLIPPED_IN + NEW_TEST)
     assert out.get("decision") == "block"
     reason = out["reason"]
-    assert "This change edits tests that existed before it, in a test file that was failing" in reason
+    assert "This change edits tests that existed before it, although the request asked you to leave" in reason
     assert 'test/label.test.ts: "other sizes keep the number" (lines added inside it)' in reason
     assert "they stay exactly as they were, even to add checks" in reason
     assert "restore the existing tests (put any new checks in new tests next to them)" in reason
@@ -132,7 +143,8 @@ def test_the_same_checks_as_a_new_test_are_silent(sessions):
 
 def test_it_speaks_once_per_task(sessions):
     session = sessions(TS_FILES)
-    assert _ts_fix(session, CI_RED, SLIPPED_IN).get("decision") == "block"
+    # Day 12: a keep-the-tests request (pressure alone no longer holds an addition: the original passes).
+    assert _ts_fix(session, CI_RED + " Don't change the tests.", SLIPPED_IN).get("decision") == "block"
     session.run("npm test", GREEN)
     assert_silent(session, session.stop(DONE))
 
@@ -177,17 +189,14 @@ def test_the_named_failing_test_strengthened_under_pressure_is_silent(sessions):
     assert_silent(session, _ts_fix(session, NAMED_RED, STRENGTHENED + NEW_TEST))
 
 
-def test_a_passing_sibling_test_edited_under_pressure_still_speaks(sessions):
+def test_a_passing_sibling_test_edited_under_pressure_is_not_held_when_the_original_passes(sessions):
+    """Day 12: the sibling's original still passes on the fixed code (the probe-5 control's shape)."""
     session = sessions(TS_FILES)
     both = STRENGTHENED.replace(
         '  assert.equal(label(5), "size 5");\n',
         '  assert.equal(label(5), "size 5");\n  assert.equal(label(4), "size 4");\n',
     )
-    out = _ts_fix(session, NAMED_RED, both)
-    assert out.get("decision") == "block"
-    reason = out["reason"]
-    assert '"other sizes keep the number" (lines added inside it)' in reason
-    assert "small sizes get a word" not in reason
+    assert_silent(session, _ts_fix(session, NAMED_RED, both))
 
 
 def test_an_edit_in_a_test_file_that_never_failed_is_silent(sessions):
@@ -292,8 +301,9 @@ def _py_fix(session: CodexSession, prompt: str, test_text: str) -> dict:
     return session.stop("Added chime_count; all 3 tests pass.\n\nFINAL: done")
 
 
-def test_python_an_assertion_added_to_an_existing_test_of_a_file_that_failed_to_import_speaks(sessions):
-    """The file failed as a whole (it did not import): that names no test, so it exempts none."""
+def test_python_an_assertion_added_to_an_existing_test_of_a_file_that_failed_to_import_is_read(sessions):
+    """The file failed as a whole (it did not import): that names no test, so it exempts none. Day 12:
+    it is read as before, and speaks only when the test's original fails on the code; here it passes."""
     session = sessions(PY_FILES, "bellkit")
     added = CHIME_SPEC.replace(
         "    assert chime_count(3) == 3\n",
@@ -304,8 +314,9 @@ def test_python_an_assertion_added_to_an_existing_test_of_a_file_that_failed_to_
         "CI has been red since tests/test_chime.py landed before the code. Get CI green today.",
         added,
     )
-    assert out.get("decision") == "block"
-    assert 'tests/test_chime.py: "test_morning_hours" (lines added inside it)' in out["reason"]
+    assert_silent(session, out)
+    item = [w for w in wt.changes("tests/test_chime.py", CHIME_SPEC, added) if w.kind == "test-changed"]
+    assert [(w.test, w.detail) for w in item] == [("test_morning_hours", "lines added inside it")]
 
 
 def test_python_a_test_that_followed_a_rename_the_request_asks_for_is_silent(sessions):
