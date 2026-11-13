@@ -90,11 +90,12 @@ TAIL_TWO = (
 # -- the gate ----------------------------------------------------------------------------------------------
 
 
-def gate(prompt: str | None) -> bool:
-    """The request keeps the tests and asks for failing tests to pass. Reads the prompt only."""
+def gate(prompt: str | None, index: Any = None) -> bool:
+    """The request keeps the tests and asks for failing tests to pass. Reads the prompt (and, with
+    ``index``, resolves the tests it names against the repository: day 11)."""
     if not isinstance(prompt, str) or not prompt.strip():
         return False
-    return weakened_tests.tests_kept_requested(prompt) and si.test_pressure_requested(prompt)
+    return weakened_tests.tests_kept_requested(prompt) and si.test_pressure_requested(prompt, index)
 
 
 # -- blocks and words --------------------------------------------------------------------------------------
@@ -300,9 +301,12 @@ def named_tests(prompt: str, tests: Mapping[str, str]) -> list[tuple[str, str]]:
 
 
 def words_of_tests(bodies: Iterable[tuple[str, str]]) -> set[str]:
+    """The words of the named tests' bodies, and (day 11) of the paths of the files they are in: a
+    test named by its bare name reads as the same test named by its node id (``path::name``)."""
     words: set[str] = set()
-    for _path, body in bodies:
+    for path, body in bodies:
         words |= {w for w in _words(body) if w not in _CODE_NOISE and not w.isdigit()}
+        words |= {w for w in request_words(path) if not w.isdigit()}
     return {w for w in words if w not in _GENERIC_STEMS}
 
 
@@ -462,10 +466,15 @@ def render(prompt: str | None, index: Any) -> Note | None:
     """The note for this prompt in this repository, or None. Gate first: no file is read unless
     the request keeps the tests and asks for failing tests to pass. Never raises."""
     try:
-        if not gate(prompt):
+        # The prompt alone first: a request that does not keep the tests touches nothing.
+        if not isinstance(prompt, str) or not prompt.strip():
+            return None
+        if not weakened_tests.tests_kept_requested(prompt):
             return None
         if index is None or not getattr(index, "is_built", False):
             return None
+        if not si.test_pressure_requested(prompt, index):
+            return None  # day 11: the tests it names, resolved against the repository
         files = dict(index.files)
         if len(files) > MAX_INDEX_FILES:
             log.info("truthstone: spec note skipped: %d indexed files over the cap", len(files))

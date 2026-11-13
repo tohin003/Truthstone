@@ -147,7 +147,7 @@ def _pressure(state: TaskState, index: RepoIndex, prompt: str) -> bool:
     from truthstone.validate import spec_integrity as si
     from truthstone.verify import integrity
 
-    if si.test_pressure_requested(prompt):
+    if si.test_pressure_requested(prompt, index):
         return True
     pressing, _latest = integrity._pressing_tests(state, index)
     return bool(pressing)

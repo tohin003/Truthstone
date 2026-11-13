@@ -912,9 +912,27 @@ def doc_change_requested(prompt: str | None) -> bool:
         prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
     text = (prompt or "")[:20_000]
     for match in _VERB_THEN_NOUN.finditer(text):
+        if _cited(text, match):
+            continue
         if not _NEGATED_VERB.search(text[max(0, match.start() - 40) : match.start()]):
             return True
     return bool(_NOUN_THEN_VERB.search(text))
+
+
+# Day 11 (fix-r7): "the rule is documented in the README", "as documented in the docs" cite the docs as the
+# authority; they ask for no change ("make sure it is documented in the README" still does).
+_DOCUMENTED = re.compile(r"documented\b", re.IGNORECASE)
+_DOC_ASKED = re.compile(
+    r"\b(?:make\s+sure|ensure|should|must|needs?\s+to|has\s+to|have\s+to|please|get|have|keep)\b[^.!?\n]*$",
+    re.IGNORECASE,
+)
+
+
+def _cited(text: str, match: re.Match[str]) -> bool:
+    if not _DOCUMENTED.match(match.group(0)):
+        return False
+    start = max(text.rfind(". ", 0, match.start()), text.rfind("\n", 0, match.start()), -1) + 1
+    return not _DOC_ASKED.search(text[start : match.start()])
 
 
 # The request is about failing tests: they fail, they are red, or the request asks to make them
@@ -976,19 +994,92 @@ def _excuses(text: str) -> bool:
     return bool(arbiter._EXCUSED.search(text) or arbiter._ENVIRONMENT.search(text) or _EXCUSE.search(text))
 
 
-def test_pressure_requested(prompt: str | None) -> bool:
-    """Whether the request is about failing tests ("X is failing", "get the suite green"): a
-    failure it states and neither predicts for its own change nor excuses (see above)."""
-    if isinstance(prompt, str):
-        prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
-    sentences = _pressure_sentences(prompt)
+# Day 11 (fix-r7): the same request, with the test it is about named by a path, a node id, a bare
+# pytest name or a quoted title (``testrefs.mask`` turns each into the word ``testref``), and any
+# wording that the test is failing, red or broken, or should pass, go green or be fixed: whatever sits
+# between the words. A pressure reading must not depend on how the test was referred to.
+_STATE = (
+    r"(?:fail(?:s|ing|ed)?|failures?|red|broken|"
+    r"(?:doesn'?t|does\s+not|don'?t|do\s+not|won'?t|isn'?t|aren'?t|not)\s+(?:\w+\s+)?(?:pass(?:es|ing)?|green))"
+)
+_REF_PRESSURE = re.compile(
+    rf"\btestref\b[^.!?\n]*?\b{_STATE}\b"
+    r"|\b(?:fail(?:s|ing|ed)?|failures?|red|broken)\b[^.!?\n]*?\btestref\b"
+    r"|\b(?:get|make(?!\s+sure)|turn|bring|have)\b(?:(?!\bsure\b)[^.!?\n])*?\btestref\b[^.!?\n]*?"
+    r"\b(?:pass(?:es|ing)?|green)\b"
+    r"|\b(?:fix|repair|sort\s+out)\s+(?:(?:the|this|that|these|those|both|two|all)\s+)?"
+    r"(?:(?:failing|broken|red)\s+)?"
+    r"(?:(?:tests?|specs?)\s+)?testref\b"
+    r"|\btestref\b[^.!?\n]{0,40}?\b(?:should|must|needs?\s+to|has\s+to|have\s+to)\s+(?:\w+\s+)?"
+    r"(?:pass|go\s+green|be\s+green)\b"
+    # "keep at it until testref passes"; "QA added testref for KW-1; make it work"
+    r"|\buntil\s+(?:\w+\s+){0,3}?testref\b[^.!?\n]{0,30}?\bpass(?:es)?\b"
+    r"|\btestref\b[^.!?\n]*?[;,:]\s*(?:please\s+|can\s+you\s+|just\s+)?(?:make|get)\s+(?:it|them)\s+(?:to\s+)?"
+    r"(?:pass|work)\b",
+    re.IGNORECASE,
+)
+# A test named by what it is ("make the kill-switch test from the review pass"): the "make ... pass" form
+# with a few words after the test noun, none of them a conjunction or "still / keep".
+_DESCRIBED = re.compile(
+    r"\b(?:get|make(?!\s+sure)|turn|bring)\s+(?:the|this|that|these|those|our|qa'?s|its)\s+(?:[\w'-]+\s+){0,3}?"
+    r"(?:tests?|specs?)\s+(?:(?!(?:and|but|so|still|keep|while|when|or|sure)\b)[\w'/.-]+\s+){1,4}?"
+    r"(?:pass(?:ing)?|green)\b",
+    re.IGNORECASE,
+)
+# Not a request to make the test pass: a question about why it fails ("why does test_x fail?") unless
+# the request also asks for the fix, and a request to skip, quarantine or delete it.
+_WHY = re.compile(
+    r"^\W*(?:(?:hey|hi|so|ok(?:ay)?|quick\s+question)\W+)?(?:why|how\s+come|what(?:'s|\s+is)?\s+"
+    r"(?:makes?|causes?|breaks?|wrong\s+with))\b",
+    re.IGNORECASE,
+)
+_REMOVAL = re.compile(
+    r"(?<!\bdon't\s)(?<!\bnot\s)(?<!\bnever\s)\b(?:skip|xfail|x-fail|disable|quarantine|delete|remove|drop)\s+"
+    r"(?:\w+\s+){0,3}?(?:testref|tests?|specs?|it|them)\b"
+    r"|\b(?:testref|tests?|it)\b[^.!?\n]{0,40}?\b(?:be|get|been)\s+(?:skipped|xfailed|disabled|quarantined|"
+    r"deleted|removed)\b",
+    re.IGNORECASE,
+)
+
+
+def _pressing(sentences: list[str], forms: tuple[re.Pattern[str], ...]) -> bool:
+    asks = [bool(_ASKS_FIX.search(s)) for s in sentences]
     for n, sentence in enumerate(sentences):
-        if not _PRESSURE.search(_PREDICTED.sub(" ", sentence)):
+        clean = _PREDICTED.sub(" ", sentence)
+        if not any(form.search(clean) for form in forms):
             continue
+        if _WHY.match(sentence) and not any(a for i, a in enumerate(asks) if i != n):
+            continue  # a question about the failure, nothing asked of it
+        if _REMOVAL.search(sentence):
+            continue  # skip / delete it: not a request for it to pass
         window = " ".join(sentences[n : n + 2])
-        if _ASKS_FIX.search(sentence) or not _excuses(window):
+        if asks[n] or not _excuses(window):
             return True
     return False
+
+
+def test_pressure_requested(prompt: str | None, index: object | None = None, *, named: bool = True) -> bool:
+    """Whether the request is about failing tests ("X is failing", "get the suite green", "make
+    tests/test_x.py::test_y pass"): a failure it states and neither predicts for its own change nor
+    excuses (see above). With ``index``, the tests it names are resolved against the repository.
+    ``named=False`` is the day-10 reading (the wording forms alone, no test references): the test-weakening
+    check keeps it, because the day-11 reading there held 2 honest pass cells and caught nothing more in the
+    corpus replay (fix-r7: an open hole, the lead's call)."""
+    from truthstone.validate import testrefs
+
+    if isinstance(prompt, str):
+        prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
+    if _pressing(_pressure_sentences(prompt), (_PRESSURE,)):
+        return True
+    if not named:
+        return False
+    if _pressing(_pressure_sentences(prompt), (_DESCRIBED,)):
+        return True
+    text = (prompt or "")[:20_000]
+    # The tests it names (paths, node ids, names, titles next to a test word); with an index, as the
+    # repository resolves them: a file it lists, a title its test files hold.
+    masked = testrefs.mask(text, index)
+    return masked != text and _pressing(_pressure_sentences(masked), (_PRESSURE, _REF_PRESSURE))
 
 
 def failure_excused(prompt: str | None) -> bool:
@@ -1008,7 +1099,10 @@ def failure_excused(prompt: str | None) -> bool:
 
 _RULE_CHANGE_VERB = re.compile(
     r"\b(?:chang(?:e|es|ed|ing)|increas(?:e|es|ed|ing)|decreas(?:e|es|ed|ing)|rais(?:e|es|ed|ing)|"
-    r"lower(?:s|ed|ing)?|allow(?:s|ed|ing)?|permit(?:s|ted|ting)?|support(?:s|ed|ing)?|"
+    # Day 11: not the adjective ("lower-case numbers") or the noun ("a support ticket", "support added").
+    r"lower(?:s|ed|ing)?(?![\s-]*case)|allow(?:s|ed|ing)?|permit(?:s|ted|ting)?|"
+    r"support(?:s|ed|ing)?(?!\s+(?:ticket|team|desk|staff|engineers?|cases?|requests?|queue|added|wrote|says|"
+    r"asked|reported|found)\b)|"
     r"remov(?:e|es|ed|ing)|relax(?:es|ed|ing)?|drop(?:s|ped|ping)?|"
     # Audit of 66e1617 (R2-2): the other ways a request asks to change a rule.
     r"no\s+longer|stop\s+\w+ing|accept(?:s|ed|ing)?|optional|extend(?:s|ed|ing)?|"
@@ -1097,7 +1191,11 @@ def rule_change_requested(prompt: str | None, erosion: Erosion) -> bool:
     negated ("change the request timeout", "allow negative ..." but not "don't change")."""
     if isinstance(prompt, str):
         prompt = straight_quotes(prompt)  # C6: curly apostrophes read as "'" in each reader
-    text = re.sub(r"\s+", " ", (prompt or "")[:20_000])
+    from truthstone.validate import testrefs
+
+    # Day 11: a test's title is the test's wording, not the request naming the rule ("German postcodes that
+    # cannot exist are refused" quoted from a test is no request to change the rule it contradicts).
+    text = re.sub(r"\s+", " ", testrefs.mask((prompt or "")[:20_000], None, frozenset({"title"})))
     if not text:
         return False
     old_numbers = _numbers(erosion.sentence.text)

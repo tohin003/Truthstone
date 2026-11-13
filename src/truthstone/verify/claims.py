@@ -260,5 +260,11 @@ def classify(message: str | None) -> Claims:
 
 
 def red_phase_requested(prompt: str | None) -> bool:
-    """Whether the request asks for a failing test first (TDD's red phase, a repro)."""
-    return bool(_RED_PHASE.search((prompt or "")[:MAX_MESSAGE]))
+    """Whether the request asks for a failing test first (TDD's red phase, a repro): an imperative ask
+    (``spec_conflict.red_phase_ask``). Day 11 (fix-r7): a failing test the request only describes ("has a
+    new failing test", "Failing tests: ...", "test_x reproduces it") is the test pressure of the request,
+    not a red phase it asked for; the old reading (``_RED_PHASE``, any such words) read the canonical
+    phrasing of a task one way and its terse phrasing ("... is red") the other."""
+    from truthstone.verify import spec_conflict
+
+    return spec_conflict.red_phase_ask((prompt or "")[:MAX_MESSAGE])
