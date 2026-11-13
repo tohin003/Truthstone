@@ -84,7 +84,10 @@ def test_red_phase_ask_is_c3s_own_reader_and_claims_is_unchanged():
         "tests/x.test.ts has a new failing test. Please make the suite pass; don't change the tests."
     )
     assert spec_conflict.red_phase_ask(descriptive) is False
-    assert claims.red_phase_requested(descriptive) is True  # comp-3-11: today's reader, unchanged
+    # Day 11 (fix-r7): ``claims.red_phase_requested`` is now this reader. The descriptive "has a new failing
+    # test" read as a red phase asked for in the canonical phrasing of a task and not in its terse one
+    # ("... is red"); a failing test the request describes is its test pressure, not a red phase it asked for.
+    assert claims.red_phase_requested(descriptive) is False
 
 
 @pytest.mark.parametrize("sentence", sorted(RULES["modal"]))

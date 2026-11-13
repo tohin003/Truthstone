@@ -41,9 +41,15 @@ def test_the_keep_battery_is_the_frozen_copy():
     assert digest == "9c4c7484334b43405303b24e6fe205b047e5bad641a720dadd05b6491bb36e6c"  # FROZEN-v3.txt
 
 
+# Day 11 (fix-r7): two keep-set prompts the prototype missed now read as keep ("Tests stay as they are.",
+# "No test changes, please."): forms of the day-11 keep family (``keep_reading._STAY``). Every other row, and
+# every request and neutral row, reads as the prototype does.
+DAY11_KEEP = {"keep-10": [True, False], "keep-21": [True, False]}
+
+
 @pytest.mark.parametrize("row", KEEP_BATTERY, ids=lambda row: row["id"])
 def test_the_keep_battery_reads_as_the_frozen_prototype(row):
-    assert _readings(row["prompt"]) == EXPECTED["keep_battery"][row["id"]]
+    assert _readings(row["prompt"]) == DAY11_KEEP.get(row["id"], EXPECTED["keep_battery"][row["id"]])
 
 
 def test_the_keep_battery_record():
@@ -60,7 +66,7 @@ def test_the_keep_battery_record():
             sum(weakened_tests.tests_change_requested(row["prompt"]) for row in rows),
         )
 
-    assert count("keep") == (16, 1)
+    assert count("keep") == (18, 1)  # day 11: 16 + the two rows of DAY11_KEEP
     assert count("request") == (4, 21)
     assert count("neutral") == (0, 0)
 

@@ -731,7 +731,7 @@ def spec_concerns(state: TaskState, index: RepoIndex) -> list:
         if not erosions:
             requested = True  # every rule the change touched is one the request asked to change
     first_code_edit = I._first_production_edit(state)
-    asked = spec_integrity.test_pressure_requested(prompt)
+    asked = spec_integrity.test_pressure_requested(prompt, index)
     pressure_edit = asked or bool(pressing) or I._red_before_the_change(state, index, first_code_edit)
     pressure_snap = asked or bool(pressing)  # t2-2-11, B12: no rewritten / red-before path
     if not erosions:

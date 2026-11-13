@@ -858,7 +858,7 @@ def conflict_concerns(state: TaskState, index: RepoIndex) -> list:
     pressing = file_pressing(state, index)
     if not pressing:
         latest = latest_conclusive(state)
-        if not (si.test_pressure_requested(prompt) and latest is not None and bool(latest.passed)):
+        if not (si.test_pressure_requested(prompt, index) and latest is not None and bool(latest.passed)):
             return []
     texts = arbiter.changed_texts(state, index)
     production = [

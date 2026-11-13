@@ -104,7 +104,7 @@ def concerns(state: TaskState, index: RepoIndex) -> list:
 
     prompt = state.spec.prompt or ""
     early = weakened_tests._failed_earlier(state, until=state.first_change_seq or 0)
-    if not (spec_integrity.test_pressure_requested(prompt) or early[0] or early[1]):
+    if not (spec_integrity.test_pressure_requested(prompt, index) or early[0] or early[1]):
         return []
     texts = arbiter.changed_texts(state, index)
     code = {

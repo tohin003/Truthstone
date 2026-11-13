@@ -101,7 +101,9 @@ _IF_WRONG_TELL = re.compile(
 # The request veto.
 _NEGATOR_VETO = (
     r"(?:don't|dont|do\s+not|never|without|no|must\s+not|mustn't|may\s+not|should\s+not|shouldn't|cannot|can't"
-    r"|can\s+not|(?:not|n't)\s+allowed\s+to|instead\s+of|rather\s+than|avoid|refrain\s+from)"
+    r"|can\s+not|(?:not|n't)\s+allowed\s+to|instead\s+of|rather\s+than|avoid|refrain\s+from"
+    # Day 11: "the contract test stops skipping", "no longer skips": un-skipping, not a skip asked for.
+    r"|stops?|stopped|no\s+longer)"
 )
 _LOOK_BACK = re.compile(rf"\b{_NEGATOR_VETO}\s+(?:\w+\s+){{0,2}}$", re.I)
 _TRAILING_VETO = re.compile(
@@ -142,6 +144,14 @@ _NEG_COORD = re.compile(
 )
 
 
+_NAMED_KINDS = frozenset({"title", "node", "name"})
+# "Fix the failing test \"x\"", "fix tests/test_x.py::test_y": the named test is to pass, not to change.
+_FIX_NAMED = re.compile(
+    r"\b(?:fix|repair)\w*\s+(?:(?:the|this|that)\s+)?(?:(?:failing|broken|red)\s+)?(?:(?:tests?|specs?)\s+)?testref\b",
+    re.I,
+)
+
+
 def _inside(spans, a: int, b: int) -> bool:
     return any(s0 <= a and b <= s1 for s0, s1 in spans)
 
@@ -154,24 +164,54 @@ def _vetoed(text: str, verb_at: int, end: int, window: int | None) -> bool:
     return bool(_NEG_COORD.search(sentence))
 
 
+# Day 11 (fix-r7): the other ways a request says the tests stay as they are, wherever the clause sits:
+# "tests stay as they are", "no test changes", "with the tests unchanged", "keep the tests as-is",
+# and a prohibition whose object is a test the request names ("don't edit tests/test_x.py::test_y").
+_STAY = re.compile(
+    rf"\b{_TESTS}\s+(?:stays?|remains?)\s+(?:exactly\s+)?(?:as\s+(?:they|it)\s+(?:are|is)|unchanged|untouched|intact|"
+    r"the\s+same|as[-\s]is)\b"
+    rf"|\bno\s+(?:{_TESTS}\s+(?:changes?|edits?)|(?:changes?|edits?)\s+to\s+(?:the\s+|any\s+)?{_TESTS})\b"
+    rf"|\b(?:with|keeping)\s+(?:the\s+|all\s+)?(?:existing\s+)?{_TESTS}\s+(?:unchanged|untouched|intact|as[-\s]is)\b"
+    rf"|\b(?:leave|keep)\s+(?:the\s+|all\s+|any\s+)?(?:existing\s+)?{_TESTS}\s+as[-\s]is\b"
+    rf"|^\W*{_TESTS}\s+(?:unchanged|untouched|as[-\s]is)\b"
+    rf"|[;:,(]\s*{_TESTS}\s+(?:unchanged|untouched|as[-\s]is)\b",
+    re.I,
+)
+_FORBIDS_REF = re.compile(
+    r"\b(?:don.?t|do\s+not|never|without|please\s+don.?t)\s+(?:\w+\s+){0,3}?"
+    r"(?:change|changing|modify|modifying|edit|editing|touch|touching|alter|altering|rewrite|rewriting)"
+    r"\s+(?:\w+\s+){0,2}?testref\b",
+    re.I,
+)
+
+
 def tests_kept_requested(prompt: str | None) -> bool:
     """The request said to leave the tests alone: today's reading ("the tests are the spec",
-    "don't change the tests"), any ``_FORBIDS`` form, or "leave them alone" after tests."""
-    from truthstone.validate import weakened_tests
+    "don't change the tests"), any ``_FORBIDS`` form, "leave them alone" after tests, and (day 11)
+    "tests stay as they are", "no test changes", "with the tests unchanged", or a prohibition on a
+    test the request names."""
+    from truthstone.validate import testrefs, weakened_tests
 
     text = straight_quotes(prompt or "")
     flat = re.sub(r"\s+", " ", text)[:20_000]
     if weakened_tests._KEPT.search(flat):  # today's reading, unchanged
         return True
-    return bool(_FORBIDS_FORM.search(flat) or _leave_them(flat))
+    if _FORBIDS_FORM.search(flat) or _leave_them(flat):
+        return True
+    if any(_STAY.search(s) for s in re.split(r"(?<=[.!?])\s+", flat)):
+        return True
+    return "testref" not in flat and bool(_FORBIDS_REF.search(testrefs.mask(flat)))
 
 
 def tests_change_requested(prompt: str | None) -> bool:
     """The request asks for test changes ("update the tests", "the test is outdated", "skip the
     flaky test", "xfail test_x for now"), and does not also forbid them."""
-    from truthstone.validate import weakened_tests
+    from truthstone.validate import testrefs, weakened_tests
 
     text = re.sub(r"\s+", " ", straight_quotes(prompt or ""))[:20_000]
+    # Day 11: a test's own title, node id or name is not the request's wording ("users can preview a
+    # disabled flag" is a title, not a skip asked for), and fixing a named test is making it pass (pressure).
+    text = testrefs.mask(text, None, _NAMED_KINDS) if "testref" not in text else text
     for match in weakened_tests._SKIP_REQUEST.finditer(text):
         body = match.group(0)
         if _SKIP_VERB.match(body):
@@ -185,7 +225,7 @@ def tests_change_requested(prompt: str | None) -> bool:
             return True  # a skip asked for is a skip asked for (the veto order is today's)
     if tests_kept_requested(text):
         return False
-    guarded = [m.span() for p in _NOT_A_REQUEST for m in p.finditer(text)]
+    guarded = [m.span() for p in (*_NOT_A_REQUEST, _FIX_NAMED) for m in p.finditer(text)]
     for match in weakened_tests._CHANGE.finditer(text):
         if _inside(guarded, match.start(), match.end()):
             continue  # inside a prohibition-like form: neither keep nor a request
