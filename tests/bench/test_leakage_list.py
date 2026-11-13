@@ -3,14 +3,36 @@
 from __future__ import annotations
 
 import json
+import sys
+
+import pytest
 
 from truthstone.bench.codex import leakage, suite
 
+# The strings leave out Python's own vocabulary, read from the running interpreter's standard
+# library (`leakage._generic`), so only the minor version that built the stored list rebuilds them
+# exactly: under 3.12, 2 of its 2,446 strings drop out and 1 comes in. The ids do not depend on it.
+BUILT_WITH = (3, 13)
 
-def test_the_stored_list_matches_the_tasks():
-    """Rebuild with `python -m truthstone.bench.codex leakage --write` after any task change."""
+
+@pytest.fixture(scope="module")
+def built() -> dict:
+    return {k: v for k, v in leakage.build().items() if not k.startswith("_")}
+
+
+def test_the_stored_ids_match_the_tasks(built):
     stored = json.loads(leakage.LIST_PATH.read_text(encoding="utf-8"))
-    built = {k: v for k, v in leakage.build().items() if not k.startswith("_")}
+    assert stored["ids"] == built["ids"]
+
+
+@pytest.mark.skipif(
+    sys.version_info[:2] != BUILT_WITH,
+    reason="the stored strings are built with Python 3.13's stdlib vocabulary",
+)
+def test_the_stored_list_matches_the_tasks(built):
+    """Rebuild with `python -m truthstone.bench.codex leakage --write` under Python 3.13 after any
+    task change."""
+    stored = json.loads(leakage.LIST_PATH.read_text(encoding="utf-8"))
     assert stored == built
 
 
