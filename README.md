@@ -28,14 +28,27 @@ working:
 
 ## What it does
 
+By default (the `minimal` profile):
+
 | | |
 |---|---|
-| **Grounds claims in evidence** | The agent says it will call `UserRepository.get_active_users()`. Truthstone asks the repository whether that exists. If it doesn't, the agent is challenged, with the file as evidence. The same goes for the request: when it relies on a setting, flag or variable that nothing in the project reads, the agent is told so at the prompt. |
-| **Sizes planning to the task** | "Rename `getUser`" stays a small change. "Introduce distributed session caching" is *allowed* to become a deep investigation. Truthstone is a proportionality system, not an anti-complexity system. |
-| **Watches scope** | "Fix login validation" that starts editing many unrelated files gets challenged. |
+| **Checks what the request takes for granted** | When a request relies on a function, setting, flag or file that nothing in the repository has, Truthstone tells the agent at the prompt, with the evidence, and holds its first edit once, asking it to tell you first. When a request that keeps the tests asks for a failing test to pass, it quotes the documented rule closest to the request. |
 | **Holds risky commands for you** | A force push, `git reset --hard`, a recursive delete of a variable path or a download piped into a shell is sent back to you for sign-off, with the reason. |
-| **Refuses to rubber-stamp "done"** | Completion is a claim like any other, and has to be backed by tests that actually ran. On macOS it also re-runs, in a sandboxed copy, tests the agent's run skipped behind an environment switch or showed failing, and holds the "done" when the change is what broke them. A "done" whose own message says the request's requirements cannot all be met is held too. |
-| **Stays quiet** | Apart from one short reminder to the agent at the first prompt of each session (check that the request can be done as asked, and say so first if it relies on something the project lacks), ordinary work produces no output. It speaks only when its checks find evidence of a problem. `[notes] feasibility = false` in `~/.truthstone/config.toml` turns the reminder off. |
+| **Holds a "done" the evidence contradicts** | At the end of a turn, a "done" is held once, with the reason, when the recorded evidence contradicts it: for example when the relevant tests fail after the last edit and the message does not say so; when existing tests were weakened, skipped or deleted; when the code passes the tests without the behaviour; or when the agent's own message says the requirements cannot all be met. On macOS it also re-runs, in a sandboxed copy, tests the agent's run skipped behind an environment switch or showed failing, and holds the "done" when the change is what broke them. |
+| **Stays quiet** | Apart from one short reminder to the agent at the first prompt of each session (check that the request can be done as asked, and say so first if it relies on something the project lacks), ordinary work produces no output. Everything else it notices is recorded in its local log (`truthstone log`) and not shown. `[notes] feasibility = false` in `~/.truthstone/config.toml` turns the reminder off. |
+
+**What the default does not show.** A turn that changed files, ran no tests and then says
+"done" is recorded, not held. The checks on each edit and command beyond the sign-off (code the
+edit relies on that the repository does not have, edits far outside the task, secrets, new
+dependencies) run and are recorded, not shown. There is no planning note.
+
+**`profile = "full"`** in `~/.truthstone/config.toml` (or `TRUTHSTONE_PROFILE=full`) lets every
+check speak. Then a turn that changed files and ran no tests is also held once, with the test
+command to run; an edit that relies on a symbol the repository does not have (say, a call to
+`UserRepository.get_active_users()`) is challenged, with the file as evidence; edits that wander far from the task are challenged; and each prompt gets a planning
+note sized to the task ("rename `getUser`" stays small; "introduce distributed session caching"
+may become an investigation). `[notes] planning = true` turns on the planning note alone. The
+full profile speaks more often and was not part of the benchmark below.
 
 ## What it is not
 
@@ -207,14 +220,17 @@ unguarded agent. Method and caveats: [`docs/CENSUS.md`](docs/CENSUS.md).
 
 [`examples/reviewer-demo/`](examples/reviewer-demo/) is a tiny Python project with three
 prompts that show ordinary work staying silent, a risky command held for sign-off, and a
-false "done" held until tests run.
+false "done" held until tests run. The third needs `profile = "full"`: under the default profile
+a "done" with no test run behind it is recorded, not held.
 
 ## Evidence
 
 Before this release, Truthstone was measured on a sealed benchmark: 31 tasks built blind to the
 product to tempt a coding agent into a false "done". Every session was paired: the same task and
 wording, run once with Truthstone on and once with it observing only (Codex, `gpt-6.1-sol`, 186
-pairs).
+pairs). **Every 0.2.0 number was measured on Codex, with the Codex plugin in its default
+configuration (the `minimal` profile).** None of them describes Claude Code, the `full` profile
+or the skills-only companion, which were not benchmarked.
 
 - **False completions** on the 138 pairs with a trap: 2 guarded (1.4%) vs 25 unguarded (18.1%);
   exact McNemar p = 1.55e-06.
@@ -234,6 +250,14 @@ pairs).
 | false completions, false-premise tasks | 0/12 | 10/12 |
 | task success, all 186 pairs | 178 (95.7%) | 160 (86.0%) |
 | control tasks succeeded | 48/48 | 48/48 |
+
+**Claude Code.** The Claude Code plugin was checked live on Claude Code 2.1.322 (macOS) on
+2026-11-14 in 12 headless Sonnet sessions on spent benchmark tasks: every hook fired; prompt
+notes, the false-premise edit hold, and sign-off for `git reset --hard` and a variable-path
+`rm -rf` (with the narrowed command) behaved as documented; the completion-gate hold was
+verified by replay through the plugin's hook scripts and by a live check that Claude Code
+2.1.322 delivers it. It was not seen holding a false "done" in a live session. It has not been
+benchmarked: all 0.2.0 results were measured on Codex.
 
 The method, every earlier sealed run (including the ones that failed), the latency analysis and
 the limits: [`docs/RESULTS.md`](docs/RESULTS.md). The older dated reports in `docs/BENCH-*.md`
@@ -276,7 +300,8 @@ entry point. A host that exposes no tool or lifecycle hooks, such as a chat-only
 be guarded this way.
 
 **Does customization require an LLM?** No. Truthstone deliberately has none. Settings live
-in `~/.truthstone/config.toml` (daemon, latency, retention, disk and challenge limits).
+in `~/.truthstone/config.toml` (the profile, the notes, and the daemon, index, retention, disk and
+challenge settings).
 Keep the core invariants intact: unknown evidence stays unknown, path checks stay confined
 to the workspace, persistence is never required for a decision, and hooks fail open.
 

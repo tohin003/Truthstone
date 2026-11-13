@@ -483,14 +483,14 @@ Verified with a throwaway `CLAUDE_CONFIG_DIR`:
 ## Releasing
 
 1. Set the same version in `pyproject.toml` and
-   `plugins/truthstone-claude/.claude-plugin/plugin.json`, for example `0.1.0`. Use a
+   `plugins/truthstone-claude/.claude-plugin/plugin.json`, for example `0.2.0`. Use a
    plain version: the runtime installs from tag `v<version>`, and the community scanner
    rejects pre-release tags.
-2. Commit, then tag and push: `git tag v0.1.0 && git push origin master v0.1.0`. The tag
+2. Commit, then tag and push: `git tag v0.2.0 && git push origin master v0.2.0`. The tag
    must exist before anyone installs that plugin version, or the first session reports
    "could not install its runtime".
 3. Optionally, `claude plugin tag plugins/truthstone-claude` also creates
-   `truthstone--v0.1.0` after validating that `plugin.json` and the marketplace entry
+   `truthstone--v0.2.0` after validating that `plugin.json` and the marketplace entry
    agree.
 4. Users get it with `/plugin update truthstone@truthstone`, or automatically with
    auto-update on. The next session reinstalls the runtime and restarts the daemon.

@@ -17,8 +17,10 @@ gate lines (`analyze --gate`).
 - **Cost**: tokens 1.01x, wall-clock time 1.00x (guarded divided by unguarded, medians).
 - **Gate**: 7 of the 8 registered targets passed on the sealed run. **The registered gate reads
   FAIL because of T6**: hook latency p95 was 38.3 ms against a 30 ms bar. See [Latency](#latency-t6).
-- **Scope**: one agent and one model (Codex, `gpt-6.1-sol`). The tasks are built to tempt failure,
-  so these rates are not the rates of everyday work.
+- **Scope**: one agent and one model (Codex, `gpt-6.1-sol`), with Truthstone's default
+  configuration (the `minimal` profile). Claude Code, the `full` profile and the skills-only
+  companion were not benchmarked. The tasks are built to tempt failure, so these rates are not the
+  rates of everyday work.
 
 ![False completions by task family, guarded vs unguarded](assets/heldout6-false-completions.svg)
 
@@ -27,7 +29,8 @@ gate lines (`analyze --gate`).
 **Paired design.** Every session was run twice, back to back, on the same task, phrasing and
 replicate:
 
-- **guarded**: the full Truthstone plugin;
+- **guarded**: the Truthstone Codex plugin, in its default configuration (see
+  "Configuration" below);
 - **unguarded**: a hooks-only copy of the plugin in observe-only mode. Every check runs and is
   recorded, but nothing reaches the agent, and the model is never shown the product (checked in
   every unguarded session: 0 showed it).
@@ -39,15 +42,40 @@ impossible ones). 48 pairs are on the 8 control tasks. 19 tasks are Python, 12 T
 **Agent.** Codex CLI 0.167.2, model `gpt-6.1-sol`, reasoning effort medium. Truthstone build
 `f64ef60`.
 
+**Host.** Every number on this page was measured on Codex. None of them describes Claude Code,
+and none describes the skills-only companion `truthstone-practices`, which was not measured. The
+Claude Code plugin was checked live on Claude Code 2.1.322 (macOS) on 2026-11-14 in 12 headless
+Sonnet sessions on spent benchmark tasks: every hook fired; prompt notes, the false-premise edit
+hold, and sign-off for `git reset --hard` and a variable-path `rm -rf` (with the narrowed
+command) behaved as documented; the completion-gate hold was verified by replay through the
+plugin's hook scripts and by a live check that Claude Code 2.1.322 delivers it. It was not seen
+holding a false "done" in a live session. It has not been benchmarked: all 0.2.0 results were
+measured on Codex.
+
+**Configuration.** The guarded arm ran Truthstone's defaults: the `minimal` profile, with the
+first-prompt reminder and the spec note on and the planning note off.
+Only the sign-offs, the prompt notes, the false-premise edit hold and the Stop holds listed in the
+README can reach the agent under this profile; every other check runs and is recorded. The
+evidence: each guarded arm's `config.toml` in the run records sets only `observe_only = false`
+and the daemon's port; the harness starts the daemon without `TRUTHSTONE_PROFILE`
+(`write_guard_config` and `start_arm_daemon` in `src/truthstone/bench/codex/guards.py`); and 17
+guarded session records carry `withheld:` entries, which only the `minimal` profile writes. The
+`full` profile was not measured.
+
 **Grading.** Each task has hidden tests and checks. The agent's final line says whether it is
 done; a false completion is a "done" that the grader contradicts. On an impossible task, any
 "done" is false.
 
-**Blind, sealed tasks.** The tasks were built after the previous sealed split was spent, by
-builders and a separate reviewer who read no product code outside the benchmark harness, no run
-results and no earlier held-out task. The split was frozen by its digest when it was registered
-(amendment G51). Nobody who worked on the product saw the tasks before the run. They are in
+**Blind, sealed tasks.** The tasks were built after the previous sealed split was spent, by AI
+agents (three builders and a separate reviewer) working blind to the product: they read no
+product code outside the benchmark harness, no run results and no earlier held-out task. The
+split was frozen by its digest when it was registered (amendment G51). Nobody who worked on the product saw the tasks before the run. They are in
 [`tests/fixtures/golden/heldout6/`](../tests/fixtures/golden/heldout6/).
+
+**Who did the work.** The maintainer developed Truthstone with AI assistance; the benchmark
+registry calls the maintainer's orchestrating session "the lead" (see the note at the top of
+[`BENCH-golden.md`](BENCH-golden.md)). The benchmark tasks were built and frozen by separate AI
+agents, as above.
 
 **The run.** 2026-11-13 21:07 to 2026-11-14 00:59 IST. 186 of 186 pairs complete, 0 excluded.
 378 sessions ran and 373 were valid; the 5 void ones (4 transport errors, 1 failed attestation
@@ -172,25 +200,37 @@ registered.
 post-tool-use hook call and records its wall time end to end. T6 is the 95th percentile over all
 of them: 38.3 ms over 1,993 hook calls, against a 30 ms bar.
 
-**Why we think the reading is high.** The two halves of the run (shards) ran at the same time on
-one machine, each under its own Codex account, so two agents and their guards shared the CPU. The
-registered plan for this run had the shards run one after the other on one account (§9.9 of
-`BENCH-golden.md`); running them in parallel was the maintainer's decision. An earlier amendment
-(G18) had already recorded that two runners on one machine time hooks slower (p95 32.3 ms with
-two runners against 28.4 ms with one, in a development check). The evidence, read after the run from its
-timing records (these are not gate lines):
+**Why the reading is high.** The two halves of the run (shards) ran at the same time on one
+machine, each under its own Codex account, so two agents and their guards shared the CPU. The
+registered plan for this run had the shards run one after the other on one account (§9.10 of
+`BENCH-golden.md`); running them in parallel was the maintainer's decision, recorded after the run
+as G52. An earlier amendment (G18) had already recorded that two runners on one machine time hooks
+slower (p95 32.3 ms with two runners against 28.4 ms with one, in a development check).
 
-- Read by time of day from the same timing records: p95 36.5 ms while both shards were running,
-  21.8 ms while only one was. This reading was made with a separate script, and its hook counts
-  (2,079 and 388) do not add up to the gate's 1,993, so treat it as indicative.
+The evidence, read after the run from its timing records with the gate's own population of 1,993
+hooks (these are not gate lines):
+
+- While the other shard was also running: p95 41.3 ms over 1,657 hooks. While it was not: 16.9 ms
+  over 336 hooks.
+- By hour of the run (IST): 21h 60.0 ms, 22h 30.9 ms, 23h 17.1 ms, 00h 21.8 ms.
+- By hook type: pre-tool-use 46.5 ms (997 hooks), post-tool-use 24.8 ms (996 hooks). The extra
+  time sits in the pre-tool-use hook.
 - The dress rehearsal of 2026-11-08 (one runner, the earlier build `e708e4b`) read 19.7 ms.
-- By hook type, read with the gate's own code: pre-tool-use p95 46.4 ms and 46.9 ms (the two
-  shards), post-tool-use 23.4 ms and 30.2 ms. The extra time sits in the pre-tool-use hook.
 
-**A separate re-measurement.** The same 31 tasks x 3 phrasings, the same build, guarded arm only,
-one replicate (93 sessions), run alone on the machine with one runner, read
-LATENCY_FINAL_PENDING. This re-measurement is supplementary. It was not registered as the gate,
-and it does not change the registered verdict: T6 for this run stays FAIL.
+**Supplementary re-measurements (not the gate).** Both re-run the same 31 tasks x 3 phrasings on
+the same build, guarded arm only, one replicate (93 sessions), with one runner.
+
+- The first re-run (2026-11-14, early morning) was spoiled: partway through, other work (release
+  preparation) was started on the same machine. The quiet part (20 sessions, 204 hooks) read p95
+  21.9 ms; the busy part (73 sessions, 810 hooks) read 68.7 ms; the whole run read 56.1 ms over
+  1,014 hooks, median 7.6 ms. It is reported here and not used as the single-runner number.
+- The second re-run was registered before it started and ran with nothing else on the machine:
+  LATENCY_FINAL_PENDING.
+
+**What these readings support.** The median hook costs 5 to 9 ms. The p95 was within the 30 ms
+bar whenever the machine was otherwise idle (16.9 to 21.9 ms, and 19.7 ms on the 2026-11-08
+rehearsal) and above it under concurrent load (38 to 69 ms). None of the re-measurements is the
+gate: the registered verdict for this run stays T6 FAIL.
 
 ## Every sealed run
 
@@ -234,8 +274,9 @@ control had even a correct block), and T4a under the pre-G46 detector is also 12
 
 ## Limits
 
-- **One agent, one model.** Codex with `gpt-6.1-sol` at medium effort. Claude Code and other
-  models were not measured in this run.
+- **One agent, one model, one configuration.** Codex with `gpt-6.1-sol` at medium effort, and
+  Truthstone's default `minimal` profile. Claude Code, other models, the `full` profile and the
+  skills-only companion were not measured.
 - **Tasks built to tempt failure.** The rates describe these tasks, not typical coding work.
 - **Known gaps stay open.** 35 known request wordings that the checks do not yet read are left
   open (the list is kept by the maintainer).
@@ -250,10 +291,12 @@ control had even a correct block), and T4a under the pre-G46 detector is also 12
   its impossible tasks used each recipe (counts only, from an environment check); nothing was tuned
   to it. For heldout5 and heldout6, those who built and froze the splits reported their
   composition to the product lead as counts only.
-- **The run deviated from its registered plan in one way**: the shards ran at the same time on
-  two accounts instead of one after the other on one account. Both arms of a pair ran back to
-  back on the same account and machine, so they shared the same conditions. The hook latency
-  reading (T6) is the number this most likely affected (see above).
+- **The run deviated from its registered design**: the shards ran at the same time on two
+  accounts (with 80% weekly stops) instead of one after the other on one account (98%). The two
+  stopped runs before it, heldout4 and heldout5, ran the same way. The plan files were hashed
+  before the first session, and the deviation is recorded after the run as G52 in
+  `BENCH-golden.md`. Both arms of a pair ran back to back on the same account and machine, so
+  they shared the same conditions. The hook latency reading (T6) is the number this affected.
 - **Small numbers.** The false completions come from a few tasks, so the task-level confidence
   intervals are wide.
 

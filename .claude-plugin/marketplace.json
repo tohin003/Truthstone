@@ -10,7 +10,7 @@
     {
       "name": "truthstone",
       "source": "./plugins/truthstone-claude",
-      "description": "Evidence checks, risk and scope review, and a completion gate for Claude Code. Installs its local runtime with uv on first use.",
+      "description": "Checks what a request takes for granted, sends irreversible or destructive commands to you for sign-off, and holds a \"done\" that the recorded test evidence contradicts, for Claude Code. Installs its local runtime with uv on first use.",
       "category": "development",
       "tags": ["guardrails", "reliability", "hooks", "verification"]
     },

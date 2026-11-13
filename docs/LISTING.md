@@ -14,7 +14,7 @@ Rules were verified on 2026-11-04 against the raw Markdown of the official pages
 - [6. Legal pages: drafts and hosting](#6-legal-pages-drafts-and-hosting)
 - [7. Validation results](#7-validation-results)
 - [8. Discovery listings (prepared, not submitted)](#8-discovery-listings-prepared-not-submitted)
-- [9. Evidence (to be filled after the paired benchmark)](#9-evidence-to-be-filled-after-the-paired-benchmark)
+- [9. Evidence](#9-evidence)
 - [10. Renaming](#10-renaming)
 - [11. Rejection risks that remain](#11-rejection-risks-that-remain)
 - [12. Contract with the hook plugin](#12-contract-with-the-hook-plugin)
@@ -343,7 +343,7 @@ The scanner was installed from wheel `plugin_scanner-3.58.0`. Its sha256 `13bb0e
 | `plugins/truthstone` (Codex, hooks) | 80/100 (B) | No `README.md`, `LICENSE` or `SECURITY.md` in the plugin directory. Version `0.1.0-dev.0` is valid semver, but the scanner rejects pre-release tags. Info: no `.codexignore`; no `license` in SKILL.md front matter |
 | `plugins/truthstone-claude` (Claude Code, hooks) | 75/100 (C) | Exactly at the threshold. SKILL.md files lack a `name` field (×6), and there is no `LICENSE` or `SECURITY.md` in the plugin directory |
 
-**Since these snapshots (2026-11-04, `readiness` branch):** the Codex plugin's generator now writes `README.md`, `LICENSE` and `SECURITY.md`, and the Claude plugin has a `README.md` next to its `LICENSE` and `SECURITY.md`, with a `name` in every SKILL.md. Neither plugin has been re-scanned. The Codex plugin's pre-release version goes away when `pyproject.toml` is set to the release version and the plugin is regenerated.
+**Since these snapshots (2026-11-04, `readiness` branch):** the Codex plugin's generator now writes `README.md`, `LICENSE` and `SECURITY.md`, and the Claude plugin has a `README.md` next to its `LICENSE` and `SECURITY.md`, with a `name` in every SKILL.md. Neither plugin has been re-scanned. The Codex plugin's pre-release version is gone: since release 0.2.0 the package and both hook plugins carry the plain version `0.2.0`.
 
 Both hook plugins remain ineligible for OpenAI's directory, which bars hooks. These scores matter only for the HOL list.
 
@@ -395,21 +395,30 @@ Notes:
 
 | List | Reach | Gate | Verdict |
 |---|---|---|---|
-| **Anthropic's directory** (claude.ai/directory/manage); approved plugins are mirrored to `anthropics/claude-plugins-community` (4,819 stars; direct PRs are closed automatically) | claude.ai, Cowork and Claude Code, through account sync | Paid claude.ai plan; GitHub connected; validation plus a security scan; one plugin folder per submission | **Primary.** The companion fits: skills load on all three surfaces |
-| **hesreallyhim/awesome-claude-code** (57,179 stars, pushed 2026-11-03) | The largest Claude Code resource list | Web issue form only, no PRs and no `gh`, filed by a human. The repository must be at least 14 days old with ongoing commits (Truthstone's first commit was 2026-08-11), or have 100 stars. One resource at a time; one plain descriptive line | **Secondary**, after the completion-gate fix lands |
+| **Anthropic's directory** (claude.ai/directory/manage, **Plugin bundle**); approved plugins are mirrored to Anthropic's community marketplace, `anthropics/claude-plugins-community` (4,819 stars; direct PRs are closed automatically), which Claude Code does not install by default. The official default marketplace does not take third-party submissions | claude.ai, Cowork and Claude Code, through account sync | Paid claude.ai plan; GitHub connected; validation plus a security scan; one plugin folder per submission | **Primary.** The companion fits: skills load on all three surfaces |
+| **hesreallyhim/awesome-claude-code** (57,179 stars, pushed 2026-11-03) | The largest Claude Code resource list | Web issue form only, no PRs and no `gh`, filed by a human. The repository must be at least 14 days old with ongoing commits (Truthstone's first commit was 2026-08-11), or have 100 stars. One resource at a time; one plain descriptive line | **Secondary**, once the repository is public and tag `v0.2.0` exists |
 | ccplugins/awesome-claude-code-plugins (996 stars, last push 2026-08-12) | Small | PR | Skip: stale |
 
 **Anthropic directory submission** (the user, at claude.ai/directory/manage → **Submit new** → **Plugin bundle**):
 
 - **Source.** Repository `tohin003/Truthstone`, plugin path `plugins/truthstone-practices`, branch `master`, or a release tag.
-- **Pre-checks.** `claude plugin validate --strict ./plugins/truthstone-practices` passes. The README has well over 40 words and serves as the listing description. `LICENSE` is present, there are no `.DS_Store` files, every file is under 256 KiB and there are 21 files in total.
+- **Pre-checks.** `claude plugin validate --strict ./plugins/truthstone-practices` passes. The README has well over 40 words (577) and serves as the listing description. `LICENSE` is present, there are no `.DS_Store` files, every file is under 256 KiB and the folder holds 23 files (21 of them go into the OpenAI ZIP, §1).
 - **Data handling answers.**
   - Reads or stores personal data: **no**.
   - Sends data to services other than declared connectors: **no**.
   - Retention: **none, nothing is stored**.
   - Intended for people under 18: **no; general developer audience**.
 - **Compliance.** Contact email (your support address) and the four acknowledgements are yours to give.
-- **Hook plugin.** `plugins/truthstone-claude` would be its own submission.
+- **Hook plugin.** `plugins/truthstone-claude` is its own submission, from the same repository and branch.
+
+**Directory pre-submission checklist, both folders** (Claude Code 2.1.322, `claude plugin validate --strict` and the published checklist, checked 2026-11-14):
+
+| Folder | Result | What a reviewer will likely hold |
+|---|---|---|
+| `plugins/truthstone-practices` | Passes every row: manifest fields, README (577 words), LICENSE, file sizes and count (23 files), file types, no lockfile install, no package-source config, no credentials; instruction-only, so no data destinations | Nothing expected: it should pass clean |
+| `plugins/truthstone-claude` | Passes `validate --strict` and every blocking row: hook commands use full `${CLAUDE_PLUGIN_ROOT}` paths, `hooks/hooks.json` is valid, no unpinned package launcher, README (about 1,700 words), LICENSE, 16 files, no credentials (the daemon's bearer token is created locally and sent only to 127.0.0.1); its README discloses every data destination (GitHub for the runtime at tag `v0.2.0`, PyPI for its dependencies, uv's Python builds only without a usable Python) | Two holds, not blocks: (1) a package install in a hook script: `session-start.sh` installs the runtime from GitHub tag `v0.2.0`, with dependencies resolved from PyPI at install time within version ranges; (2) scripts the validator cannot follow: `hook.sh` and `session-start.sh` use `CLAUDE_PLUGIN_DATA`, `PWD` and command substitution and run the installed runtime's Python, and the six command skills run `command.sh` with `${CLAUDE_PLUGIN_DATA}`. The README section on what it runs, sends and fetches is the material for that review |
+
+Before either submission: the repository must be public, and tag `v0.2.0` must exist on GitHub. Until the tag exists, every first session of the Claude Code plugin reports that it could not install its runtime and runs unguarded.
 
 **awesome-claude-code form draft** (for the Truthstone repository, which is the Claude Code–specific piece the list prefers):
 
@@ -420,27 +429,56 @@ Notes:
 | Link | https://github.com/tohin003/Truthstone |
 | Author Name | Tohin Majumder |
 | Author Link | https://github.com/tohin003 |
-| Description | Local, deterministic Claude Code hooks that check an agent's claims and edits against the repository, flag out-of-scope edits and risky shell commands, and check for test evidence before the agent stops. Ships with a skills-only companion plugin. |
+| Description | Local, deterministic Claude Code hooks that check what a request takes for granted against the repository, send irreversible or destructive shell commands to you for sign-off, and hold a "done" that the recorded test evidence contradicts. Ships with a skills-only companion plugin. |
 | Checklist | Only you can tick these attestations. One box is a deliberate trap: leave "Do not check the following box" unchecked |
 
 ---
 
-## 9. Evidence (to be filled after the paired benchmark)
+## 9. Evidence
 
-> **PLACEHOLDER: lead to fill once the paired live benchmark has run.**
->
-> Until then, no Truthstone benchmark figure may appear in any listing, README, community blurb or reviewer note. That covers precision, recall, percentages and anything worded as "proven" or "guaranteed". The earlier published figures are withdrawn:
-> - the precision figure was measured on files with no extractable claims
-> - the recall figure came from a self-selected sample
-> - the completion gate currently misses failing test runs in real sessions
->
-> When real numbers exist, record here:
-> - the method
-> - the sample
-> - the exact figures
-> - where each figure may be quoted
->
-> The listing copy in §2 does not depend on them.
+The paired benchmark has run. The full record is [`docs/RESULTS.md`](RESULTS.md); the
+pre-registration is [`docs/BENCH-golden.md`](BENCH-golden.md) (§9.10, G51; the run's deviations
+from its registered design are recorded in G52).
+
+**Method.** One sealed run, `golden-heldout6`. Every task, phrasing and replicate ran twice, back
+to back, on Codex: once with the Truthstone Codex hook plugin (`plugins/truthstone`) in its
+default configuration (the `minimal` profile), and once with a hooks-only copy that only observes.
+The tasks were built blind to the product by AI agents and frozen by digest before the run. The
+gate (targets T1 to T6) was registered before the run.
+
+**Sample.** 31 tasks x 3 phrasings x 2 replicates = 186 pairs: 138 on tasks built to tempt a
+false "done", 48 on control tasks. Codex CLI 0.167.2, model `gpt-6.1-sol`, effort medium,
+Truthstone build `f64ef60`, run 2026-11-13 to 14.
+
+**Exact figures.**
+
+| Figure | Value |
+|---|---|
+| False completions, 138 trap pairs | guarded 2 (1.4%, 95% CI 0.2 to 5.1) vs unguarded 25 (18.1%, 95% CI 12.1 to 25.6) |
+| Paired test | 24 vs 1 discordant pairs, exact McNemar p = 1.55e-06 |
+| Controls | 48 of 48 succeeded in both arms; 0 of 48 false blocks |
+| Task success, 186 pairs | guarded 178 vs unguarded 160 (+9.7 points, task-cluster 95% CI +0.5 to +21.0) |
+| Cost | tokens 1.01x, wall-clock time 1.00x |
+| Gate | 7 of 8 targets passed; T6 (hook latency p95 at most 30 ms) missed: 38.3 ms over 1,993 hooks, with two runners on one machine |
+
+**Where each figure may be quoted.**
+
+- **Only for the hook plugin on Codex**, and only with "7 of 8 targets on a sealed run; T6
+  latency missed" beside them, and the context that the agent was Codex with `gpt-6.1-sol` on
+  tasks built to tempt failure. Places: the repository README's Evidence section,
+  `docs/RESULTS.md`, release notes, and a listing line or PR for the Codex hook plugin.
+- **Never for the skills-only companion, Truthstone Practices.** It was not measured. No figure
+  goes into its manifest, README, §2 listing copy, §3 reviewer notes, the §8 drafts or any blurb
+  about it. (Checked 2026-11-14: §2 and §3 contain none.)
+- **Never for Claude Code**: not for `plugins/truthstone-claude`, its marketplace entry or the
+  awesome-claude-code draft. It was not benchmarked. What may be said about it is the live-check
+  statement in the "Host" paragraph of `docs/RESULTS.md`.
+- **Never** "passes all gates", "proven" or "guaranteed", and never a figure without the gate
+  verdict beside it.
+
+The earlier precision and recall figures stay withdrawn (the precision figure was measured on
+files with no extractable claims; the recall figure came from a self-selected sample). The
+listing copy in §2 does not depend on any figure.
 
 ---
 
