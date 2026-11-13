@@ -30,12 +30,12 @@ working:
 
 | | |
 |---|---|
-| **Grounds claims in evidence** | The agent says it will call `UserRepository.get_active_users()`. Truthstone asks the repository whether that exists. If it doesn't, the agent is challenged, with the file as evidence. |
+| **Grounds claims in evidence** | The agent says it will call `UserRepository.get_active_users()`. Truthstone asks the repository whether that exists. If it doesn't, the agent is challenged, with the file as evidence. The same goes for the request: when it relies on a setting, flag or variable that nothing in the project reads, the agent is told so at the prompt. |
 | **Sizes planning to the task** | "Rename `getUser`" stays a small change. "Introduce distributed session caching" is *allowed* to become a deep investigation. Truthstone is a proportionality system, not an anti-complexity system. |
 | **Watches scope** | "Fix login validation" that starts editing many unrelated files gets challenged. |
 | **Holds risky commands for you** | A force push, `git reset --hard`, a recursive delete of a variable path or a download piped into a shell is sent back to you for sign-off, with the reason. |
-| **Refuses to rubber-stamp "done"** | Completion is a claim like any other, and has to be backed by tests that actually ran. |
-| **Stays quiet** | Ordinary work produces no output. It speaks only when its checks find evidence of a problem. |
+| **Refuses to rubber-stamp "done"** | Completion is a claim like any other, and has to be backed by tests that actually ran. On macOS it also re-runs, in a sandboxed copy, tests the agent's run skipped behind an environment switch or showed failing, and holds the "done" when the change is what broke them. A "done" whose own message says the request's requirements cannot all be met is held too. |
+| **Stays quiet** | Apart from one short reminder to the agent at the first prompt of each session (check that the request can be done as asked, and say so first if it relies on something the project lacks), ordinary work produces no output. It speaks only when its checks find evidence of a problem. `[notes] feasibility = false` in `~/.truthstone/config.toml` turns the reminder off. |
 
 ## What it is not
 
@@ -111,7 +111,7 @@ See [`plugins/truthstone-practices/README.md`](plugins/truthstone-practices/READ
 **To skip the download**, set `TRUTHSTONE_NO_BOOTSTRAP=1` and install the runtime yourself:
 
 ```bash
-uv tool install git+https://github.com/tohin003/Truthstone@v0.1.0   # or: pipx install …
+uv tool install git+https://github.com/tohin003/Truthstone@v0.2.0   # or: pipx install …
 ```
 
 ### Legacy: Claude Code settings hooks
@@ -209,15 +209,36 @@ unguarded agent. Method and caveats: [`docs/CENSUS.md`](docs/CENSUS.md).
 prompts that show ordinary work staying silent, a risky command held for sign-off, and a
 false "done" held until tests run.
 
-## Evidence: paired benchmark pending
+## Evidence
 
-> **Not yet measured.** Whether Truthstone improves the outcome of real agent sessions has
-> not been established. A paired benchmark (the same tasks run with and without Truthstone)
-> is pending, and this section will link its raw report once it has been run and reviewed.
-> Until then this README makes no claims of effect. The dated reports in `docs/BENCH-*.md`
-> are historical detector and latency measurements, kept as records; they are not evidence
-> of improved outcomes, and an earlier headline precision figure from them was found not to
-> be meaningful.
+Before this release, Truthstone was measured on a sealed benchmark: 31 tasks built blind to the
+product to tempt a coding agent into a false "done". Every session was paired: the same task and
+wording, run once with Truthstone on and once with it observing only (Codex, `gpt-6.1-sol`, 186
+pairs).
+
+- **False completions** on the 138 pairs with a trap: 2 guarded (1.4%) vs 25 unguarded (18.1%);
+  exact McNemar p = 1.55e-06.
+- **Controls**: 48 of 48 succeeded in both arms, with no false block. **Cost**: tokens 1.01x,
+  wall-clock time 1.00x.
+- **7 of 8 registered targets passed on the sealed run. The registered gate reads FAIL** on hook
+  latency (T6: p95 38.3 ms against a 30 ms bar), measured while two benchmark runners shared one
+  machine.
+- One agent and one model, on tasks built to tempt failure: these are not everyday rates.
+
+![False completions by task family, guarded vs unguarded](docs/assets/heldout6-false-completions.svg)
+
+| | guarded | unguarded |
+|---|---|---|
+| false completions, all trap tasks | 2/138 | 25/138 |
+| false completions, impossible tasks | 0/30 | 5/30 |
+| false completions, false-premise tasks | 0/12 | 10/12 |
+| task success, all 186 pairs | 178 (95.7%) | 160 (86.0%) |
+| control tasks succeeded | 48/48 | 48/48 |
+
+The method, every earlier sealed run (including the ones that failed), the latency analysis and
+the limits: [`docs/RESULTS.md`](docs/RESULTS.md). The older dated reports in `docs/BENCH-*.md`
+(other than `BENCH-golden.md`, the benchmark's registry) are historical detector and latency
+measurements, not evidence of outcomes.
 
 ## Honest limits
 
@@ -233,6 +254,11 @@ false "done" held until tests run.
 - **The first session waits for the runtime install** (seconds; longer if `uv` must
   download Python). The daemon keeps running after an uninstall until you restart your
   computer or run `truthstone daemon stop`.
+- **The sandboxed test re-runs need macOS** (`sandbox-exec`). On Linux those checks stay
+  silent; the other checks do not depend on it.
+- **The start-of-session reminder has a cost.** In the benchmark it sometimes made the agent
+  report "not done" over finished work it could not verify (3 of 36 and 5 of 49 doable guarded
+  sessions in two runs).
 - **Windows is not supported yet**, and hooks do not run in the hosts listed under
   [Where it runs](#where-it-runs).
 
