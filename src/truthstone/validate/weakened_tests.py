@@ -1230,6 +1230,7 @@ def _concern(arbiter, state, prompt, found, requested, kept, pressure, failed) -
         out.append(_weakened_concern(arbiter, found, speaking))
     told = {(item.path, item.test) for item in speaking}
     edits = _speaking_edits(arbiter, prompt, edited, requested, kept, asked, failed, told)
+    edits += _removed_under_pressure(arbiter, prompt, found, requested, asked, failed, told)
     if edits:
         out.append(_edited_concern(arbiter, edits, kept))
     return out
@@ -1249,6 +1250,39 @@ def _speaking_edits(arbiter, prompt, edited, requested, kept, asked, failed, tol
         if (item.path, item.test) not in told
         and (kept or (asked and not excused and _failed(item, failed) and not _test_failed(item, failed[0])))
     ]
+
+
+# Day 9: a test removed, renamed away or given another expectation is held, under the request's test
+# pressure, where an edit inside one is (``_speaking_edits``): in a test file that failed in this task, the
+# test itself not failing. The test the request asks to make pass is the one that failed; another test of
+# that file renamed or rewritten is the yardstick moved, even when the new version still covers its case.
+_REMOVED_KINDS = frozenset({"deleted", "expected-changed", "fewer-assertions"})
+
+
+def _removed_under_pressure(arbiter, prompt, found, requested, asked, failed, told) -> list[Weakening]:
+    """The removals and rewritten expectations that speak as edits under test pressure (see above); never
+    when the request asked for test changes or excuses the failure, or with ``[challenge]
+    removed_under_pressure`` off."""
+    if requested or not asked or not arbiter.removed_under_pressure():
+        return []
+    if arbiter._EXCUSED.search(prompt or ""):
+        return []
+    return [
+        item
+        for item in found
+        if item.kind in _REMOVED_KINDS
+        and item.test
+        and (item.path, item.test) not in told
+        and _failed_file(item, failed[1])
+        and not _test_failed(item, failed[0])
+    ]
+
+
+def _failed_file(item: Weakening, files: set[str]) -> bool:
+    return any(
+        item.path == path or item.path.endswith("/" + path) or path.endswith("/" + item.path)
+        for path in files
+    )
 
 
 def _edited_concern(arbiter, edits: list[Weakening], kept: bool) -> object:
