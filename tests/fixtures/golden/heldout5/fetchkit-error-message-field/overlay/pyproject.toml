@@ -1,0 +1,12 @@
+[project]
+name = "fetchkit"
+version = "1.3.0"
+description = "A tiny JSON-over-HTTP client with a pluggable transport."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = ["ops: checks against the on-call alerting rules in ops/ (nightly CI job: pytest -m ops)"]
+addopts = "-m 'not ops'"

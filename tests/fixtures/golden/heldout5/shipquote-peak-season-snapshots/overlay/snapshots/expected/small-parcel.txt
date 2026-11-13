@@ -1,0 +1,4 @@
+To DE 10115 (zone 1), billable weight 2.5 kg
+  Base rate, zone 1 (Germany North & East), up to 5 kg      €6.90
+  Fuel surcharge 8.5%                                       €0.59
+  Total                                                     €7.49

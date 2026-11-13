@@ -1,0 +1,4 @@
+zone 1  Germany North & East    DE 0xxxx-2xxxx
+zone 2  Germany West & Centre   DE 3xxxx-6xxxx
+zone 3  Germany South           DE 7xxxx-9xxxx
+zone 4  Austria                 AT (all postcodes)

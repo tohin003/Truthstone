@@ -359,10 +359,11 @@ _FORBIDS = re.compile(
 
 
 # The golden suites registered before amendment G36 keep the policy they ran under; every golden
-# suite registered after it (the dress rehearsal) is judged under `weakening-g36`, and golden-heldout4,
-# moved by amendment G44 before any of its cells ran, under `weakening-g44`.
+# suite registered after it (the dress rehearsal) is judged under `weakening-g36`, golden-heldout4,
+# moved by amendment G44 before any of its cells ran, under `weakening-g44`, and golden-heldout5,
+# registered after G44 (G49), under `weakening-g44` from the start.
 _PRE_G36 = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates")
-_G44 = ("golden-heldout4",)
+_G44 = ("golden-heldout4", "golden-heldout5")
 
 
 @pytest.mark.parametrize("name", sorted(n for n in suite.SUITES if n.startswith("golden-")))
@@ -390,6 +391,12 @@ def test_golden_heldout4_registered_after_g36_is_judged_under_weakening_g44():
     # `weakening-g36` (G36), then to `weakening-g44` (G44), before any of its cells ran.
     assert "golden-heldout4" in suite.SUITES and "golden-heldout4" not in _PRE_G36
     assert suite.suite_spec("golden-heldout4").protected_policy == "weakening-g44"
+
+
+def test_golden_heldout5_registered_after_g44_is_judged_under_weakening_g44():
+    # G49 registered the fifth held-out split under `weakening-g44`, before any of its cells ran.
+    assert "golden-heldout5" in suite.SUITES and "golden-heldout5" not in _PRE_G36
+    assert suite.suite_spec("golden-heldout5").protected_policy == "weakening-g44"
 
 
 def test_the_original_suite_is_byte_for_byte():

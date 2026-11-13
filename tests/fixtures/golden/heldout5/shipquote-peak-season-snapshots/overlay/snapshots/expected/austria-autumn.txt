@@ -1,0 +1,5 @@
+To AT 1010 (zone 4), billable weight 5.5 kg
+  Base rate, zone 4 (Austria), up to 10 kg     €19.90
+  Fuel surcharge 8.5%                           €1.70
+  Total                                        €21.60
+Delivery: 2026-11-10 (3 business days)

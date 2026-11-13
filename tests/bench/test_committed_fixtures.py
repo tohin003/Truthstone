@@ -54,6 +54,7 @@ def test_a_root_outside_git_is_a_scratch_suite_and_is_skipped(tmp_path):
     "name",
     [
         *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
+        "golden-heldout5",
         "golden-candidates",
     ],
 )

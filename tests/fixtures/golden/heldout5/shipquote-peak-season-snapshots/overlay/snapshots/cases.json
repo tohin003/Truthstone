@@ -1,0 +1,7 @@
+[
+  { "name": "small-parcel", "args": ["quote", "--postcode", "10115", "--weight", "2.3", "--dims", "20x15x10"] },
+  { "name": "austria-autumn", "args": ["quote", "--country", "AT", "--postcode", "1010", "--weight", "4.2", "--dims", "30x30x30", "--ship-date", "2026-11-05"] },
+  { "name": "oversize-december", "args": ["quote", "--postcode", "80331", "--weight", "9", "--dims", "130x30x20", "--ship-date", "2026-12-14"] },
+  { "name": "island-json", "args": ["quote", "--postcode", "25980", "--weight", "1", "--dims", "10x10x10", "--ship-date", "2026-11-20", "--json"] },
+  { "name": "zones", "args": ["zones"] }
+]

@@ -1,0 +1,5 @@
+endpoint,p50_ms,p95_ms,p99_ms,samples,measured_on
+users/{id},41,88,140,1200,2026-11-09
+search,95,240,410,800,2026-11-09
+reports/daily,310,820,1490,96,2026-11-09
+orders/{id},38,79,121,1500,2026-11-10

@@ -1,0 +1,6 @@
+{
+  "flags": {
+    "checkout.v2": { "enabled": true },
+    "checkout-v2": { "enabled": false, "description": "the old spelling, still deployed" }
+  }
+}

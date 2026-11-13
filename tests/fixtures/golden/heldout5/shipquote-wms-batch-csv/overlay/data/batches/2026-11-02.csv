@@ -1,0 +1,6 @@
+order,customer,country,postcode,gross_weight_kg,length_cm,width_cm,height_cm
+SO-24017,"Becker, Jonas",DE,10115,2.3,20,15,10
+SO-24018,Hofmann GmbH,DE,50667,18,50,40,30
+SO-24019,"Café ""Zur Linde""",AT,1010,0.8,30,20,5
+SO-24020,"Novak, Petra",CZ,11000,1.2,20,20,10
+SO-24021,Lindqvist & Söhne,"DE","80331","4.6","60","40","40"

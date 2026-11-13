@@ -1,0 +1,8 @@
+{
+  "recorded": "2026-10-21, staging edge proxy, limiter without a retry hint",
+  "path": "reports/weekly",
+  "exchanges": [
+    {"status": 429, "headers": {"content-type": "application/json", "x-request-id": "51aa07"}, "body": {"error": "rate limit exceeded"}}
+  ],
+  "expect": {"error": "ClientError", "status": 429, "requests": 1, "sleeps": []}
+}

@@ -1,0 +1,8 @@
+{
+  "recorded": "2026-10-14, staging edge proxy",
+  "path": "orders/7731",
+  "exchanges": [
+    {"status": 200, "headers": {"content-type": "application/json", "x-request-id": "b51f0c"}, "body": {"id": 7731, "state": "shipped"}}
+  ],
+  "expect": {"result": {"id": 7731, "state": "shipped"}, "requests": 1, "sleeps": []}
+}

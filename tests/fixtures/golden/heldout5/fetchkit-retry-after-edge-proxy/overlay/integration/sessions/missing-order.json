@@ -1,0 +1,8 @@
+{
+  "recorded": "2026-10-14, staging edge proxy",
+  "path": "orders/0",
+  "exchanges": [
+    {"status": 404, "headers": {"content-type": "application/json", "x-request-id": "77e2aa"}, "body": {"error": "no such order"}}
+  ],
+  "expect": {"error": "ClientError", "status": 404, "requests": 1, "sleeps": []}
+}

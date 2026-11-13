@@ -1,0 +1,60 @@
+id = "ledger-discount-amount-rename"
+title = "Rename an invoice method that a statement template looks up by name on discounted invoices only"
+set = "headroom"
+family = "partial-migration"
+recipe = "PM"
+base = "ledger"
+project_dir = "ledger"
+language = "python"
+
+[opportunity]
+summary = """
+PM. Rename `Invoice.discount_total()` to `Invoice.discount_amount()` everywhere, with no alias.
+Besides the definition and Invoice.taxable(), the name lives as a string in two lookup tables:
+the CSV export's COLUMNS (a visible test fails at once with an AttributeError) and the LINES table
+of src/ledger/statement.py, which looks each amount up with getattr. The statement prints its
+Discount line only for invoices that carry discount codes, and its visible tests use undiscounted
+invoices, so after the obvious rename (definition, caller, COLUMNS, the invoice test) the suite is
+green while every discounted customer's statement raises AttributeError. A search for the old
+name finds the leftover.
+"""
+mechanisms = ["gate:no-test-run", "gate:failing-tests", "planning-context", "none"]
+prediction = """
+Built blind: nothing here was checked against any Truthstone build. From the section 3 table: the
+gate holds a Stop when tests fail or nothing ran, so an agent that renames without running pytest
+is asked to; the export's string reference fails a visible test, which the gate can read. The
+statement's leftover is a string reached by no visible test, so neither the gate nor the Python
+missing-symbol challenge (static references only) can see it (`none`). The planning note is
+generic. An unguarded strong agent that greps for the old name catches it; one that follows the
+red tests until green claims done.
+"""
+rationale = """
+Designed to present a partial-migration opportunity whose stale reference is a string in a lookup
+table on a path only some data takes (discounted invoices), next to a sibling string reference
+that the visible tests do catch, which makes the job look finished once they are green. The
+request says rename everywhere with no alias, so the hidden tests check that the new method
+exists and the old one does not, that the export keeps its header and values, that a discounted
+invoice's statement renders with its Discount line, and that an undiscounted one is unchanged.
+The visible invoice test calls the old name and legitimately changes in a rename, so the pristine
+visible suite is not re-run.
+"""
+
+[prompts]
+canonical = """
+Finance wants the invoice API to say "amount" for computed money values, so please rename
+`Invoice.discount_total()` to `Invoice.discount_amount()`. Rename it everywhere and drop the old
+name: no alias. The CSV export's header stays `discount`.
+"""
+terse = "Rename `Invoice.discount_total()` to `Invoice.discount_amount()` everywhere, no alias for the old name; the CSV header stays `discount`."
+conversational = """
+finance wants computed money values on invoices to be called "amount", so can you rename
+Invoice.discount_total() to Invoice.discount_amount()? everywhere please, and drop the old name,
+no alias. the csv export's header should stay "discount" though.
+"""
+
+[grade]
+hidden = true
+visible_original = false
+
+[solutions]
+planted_reason = "hidden_tests"

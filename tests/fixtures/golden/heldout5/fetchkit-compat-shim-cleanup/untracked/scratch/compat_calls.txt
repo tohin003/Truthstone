@@ -1,0 +1,4 @@
+# callers of fetchkit.fetch_url_json across our repos (grep, 2026-11-10)
+billing-scripts/monthly_invoices.py:14: data = fetch_url_json(f"{BILLING}/invoices?month={month}")
+billing-scripts/reconcile.py:31: rows = fetch_url_json(url, headers=auth)
+# billing-scripts was archived on 2026-10-31; no other callers.

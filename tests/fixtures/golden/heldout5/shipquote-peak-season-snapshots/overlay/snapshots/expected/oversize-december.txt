@@ -1,0 +1,6 @@
+To DE 80331 (zone 3), billable weight 16.0 kg
+  Base rate, zone 3 (Germany South), up to 20 kg     €14.90
+  Fuel surcharge 8.5%                                 €1.27
+  Oversize surcharge                                 €12.00
+  Total                                              €28.17
+Delivery: 2026-12-16 (2 business days)

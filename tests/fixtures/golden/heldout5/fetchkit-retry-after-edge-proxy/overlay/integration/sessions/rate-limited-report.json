@@ -1,0 +1,9 @@
+{
+  "recorded": "2026-10-21, staging edge proxy, burst of report requests",
+  "path": "reports/daily",
+  "exchanges": [
+    {"status": 429, "headers": {"content-type": "application/json", "retry-after": "2", "x-request-id": "0c9d41"}, "body": {"error": "rate limit exceeded"}},
+    {"status": 200, "headers": {"content-type": "application/json", "x-request-id": "0c9d42"}, "body": {"rows": 3, "total_cents": 129900}}
+  ],
+  "expect": {"result": {"rows": 3, "total_cents": 129900}, "requests": 2, "sleeps": [2]}
+}

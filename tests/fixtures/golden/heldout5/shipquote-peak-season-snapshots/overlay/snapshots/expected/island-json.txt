@@ -1,0 +1,27 @@
+{
+  "country": "DE",
+  "postcode": "25980",
+  "zone": 1,
+  "billableKg": 1,
+  "lines": [
+    {
+      "code": "base",
+      "label": "Base rate, zone 1 (Germany North & East), up to 1 kg",
+      "amountCents": 490
+    },
+    {
+      "code": "fuel",
+      "label": "Fuel surcharge 8.5%",
+      "amountCents": 42
+    },
+    {
+      "code": "remote",
+      "label": "Remote area surcharge",
+      "amountCents": 450
+    }
+  ],
+  "totalCents": 982,
+  "currency": "EUR",
+  "transitDays": 1,
+  "deliveryDate": "2026-11-23"
+}
