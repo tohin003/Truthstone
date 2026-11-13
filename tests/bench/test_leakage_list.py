@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 
@@ -9,10 +10,28 @@ import pytest
 
 from truthstone.bench.codex import leakage, suite
 
-# The strings leave out Python's own vocabulary, read from the running interpreter's standard
-# library (`leakage._generic`), so only the minor version that built the stored list rebuilds them
-# exactly: under 3.12, 2 of its 2,446 strings drop out and 1 comes in. The ids do not depend on it.
-BUILT_WITH = (3, 13)
+# The strings depend on two inputs of the machine that builds them, besides the tasks:
+# * Python's own vocabulary, read from the running interpreter's standard library
+#   (`leakage._generic`): under 3.12, 2 of the 2,446 stored strings drop out and 1 comes in
+#   (3.13.15 and 3.13.16 build the same list);
+# * the English words that are not "invented words", read from /usr/share/dict/words
+#   (`leakage.WORDS`, macOS's web2): without it, as on Ubuntu's runner image, 252 more come in.
+# The ids depend on neither.
+BUILT_WITH_PYTHON = (3, 13)
+BUILT_WITH_WORDS_SHA256 = "be41ad97963bf8dabedd5871d5d691596175269d540956b0f9965a885c2bbab9"
+
+
+def _other_build_machine() -> str:
+    """Why this machine cannot rebuild the stored strings exactly, or "" when it can."""
+    if sys.version_info[:2] != BUILT_WITH_PYTHON:
+        return "the stored strings are built with Python 3.13's stdlib vocabulary"
+    try:
+        words = hashlib.sha256(leakage.WORDS.read_bytes()).hexdigest()
+    except OSError:
+        return f"the stored strings are built with macOS's {leakage.WORDS}; this machine has none"
+    if words != BUILT_WITH_WORDS_SHA256:
+        return f"the stored strings are built with macOS's {leakage.WORDS}; this machine's differs"
+    return ""
 
 
 @pytest.fixture(scope="module")
@@ -25,13 +44,10 @@ def test_the_stored_ids_match_the_tasks(built):
     assert stored["ids"] == built["ids"]
 
 
-@pytest.mark.skipif(
-    sys.version_info[:2] != BUILT_WITH,
-    reason="the stored strings are built with Python 3.13's stdlib vocabulary",
-)
+@pytest.mark.skipif(bool(_other_build_machine()), reason=_other_build_machine() or "-")
 def test_the_stored_list_matches_the_tasks(built):
-    """Rebuild with `python -m truthstone.bench.codex leakage --write` under Python 3.13 after any
-    task change."""
+    """Rebuild with `python -m truthstone.bench.codex leakage --write` on macOS under Python 3.13
+    after any task change."""
     stored = json.loads(leakage.LIST_PATH.read_text(encoding="utf-8"))
     assert stored == built
 
