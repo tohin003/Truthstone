@@ -243,12 +243,15 @@ hooks (these are not gate lines):
 **Supplementary re-measurements (not the gate).** Both re-run the same 31 tasks x 3 phrasings on
 the same build, guarded arm only, one replicate (93 sessions), with one runner.
 
-- The first re-run (2026-11-14, early morning) was spoiled: partway through, other work (release
-  preparation) was started on the same machine. The quiet part (20 sessions, 204 hooks) read p95
-  21.9 ms; the busy part (73 sessions, 810 hooks) read 68.7 ms; the whole run read 56.1 ms over
-  1,014 hooks, median 7.6 ms. It is reported here and not used as the single-runner number.
-- The second re-run was registered before it started and ran with nothing else on the machine:
-  LATENCY_FINAL_PENDING.
+- The first re-run (2026-11-14, early morning) was spoiled: partway through, other work was
+  started on the same machine (release preparation, and an unrelated software build). The quiet
+  part (20 sessions, 204 hooks) read p95 21.9 ms; the busy part (73 sessions, 810 hooks) read
+  68.7 ms; the whole run read 56.1 ms over 1,014 hooks, median 7.6 ms. It is reported here and
+  not used as the single-runner number.
+- A second re-run was registered before starting, to run only on an idle machine (no other heavy
+  process, load average below 3) with the load recorded throughout. When this page was written
+  it had not been run, because the machine was in use by unrelated work. Its reading will be
+  added here whatever it is.
 
 **What these readings support.** The median hook costs 5 to 9 ms. The p95 was within the 30 ms
 bar whenever the machine was otherwise idle (16.9 to 21.9 ms, and 19.7 ms on the 2026-11-08
