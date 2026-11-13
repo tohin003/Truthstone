@@ -308,6 +308,13 @@ control had even a correct block), and T4a under the pre-G46 detector is also 12
   stopped early.
 - **Not seen:** an agent that rewrites tests through a shell script; a self-contradictory
   request that itself asks for the rule change.
+- **A known false report, found while preparing this release.** Truthstone looks a class up by
+  its name alone. A repository class that shares its name with an imported library class (your
+  own `Counter` beside `collections.Counter`) makes a call to a member your class lacks read as
+  a member that does not exist. In this repository that was 8 of 24,493 checked claims, all from
+  one benchmark fixture class. Under the default profile it is only recorded in the local log;
+  under `full` the edit is refused once and a retry goes through. It is not fixed in 0.2.0,
+  because 0.2.0 ships the decision code that was measured.
 - **macOS only for the sandbox checks.** The checks that re-run tests in a sandboxed copy need
   macOS's `sandbox-exec`. Elsewhere they stay silent.
 - **Blindness.** Before heldout4 ran, the product lead (who made the fixes) learned how many of

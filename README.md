@@ -280,6 +280,12 @@ measurements, not evidence of outcomes.
   computer or run `truthstone daemon stop`.
 - **The sandboxed test re-runs need macOS** (`sandbox-exec`). On Linux those checks stay
   silent; the other checks do not depend on it.
+- **A class is looked up by its name alone.** If your repository defines a class with the
+  same name as one it imports from the standard library or a dependency (your own `Counter`
+  somewhere, `from collections import Counter` elsewhere), a call to a member your class lacks
+  is reported as a member that does not exist. Under the default `minimal` profile this is only
+  recorded in the local log. Under `profile = "full"` the edit is refused once with that wrong
+  reason, and a retry goes through.
 - **The start-of-session reminder has a cost.** In the benchmark it sometimes made the agent
   report "not done" over finished work it could not verify (3 of 36 and 5 of 49 doable guarded
   sessions in two runs).
