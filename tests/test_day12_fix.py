@@ -2,14 +2,16 @@
 """Day 12 (fix-r8): a test edit held under test pressure alone must show the yardstick moved; two holes in
 the spec-erosion reading closed.
 
-Part 1 (``validate/yardstick.py``, called from ``validate/weakened_tests.py``). Under a request about
-failing tests ("X has been failing since the rework, fix it"), the test-weakening check held a "done" over
-any edit to an existing test of the failing file: a check added to a passing neighbour, the failing test
-widened with one more case and a recomputed total, a test renamed and parametrised, a helper given an
-optional parameter. Red-green and regression work does exactly that, and its original tests still pass on
-the fixed code. Now what speaks through pressure alone (not a skip or a hack, and not against the
-request's own "don't change the tests") speaks only when the test's original version fails on the current
-code, run in a sandboxed copy. The tamper it is there for still fails that way, and still holds.
+Part 1 (``validate/yardstick.py``, called from ``validate/weakened_tests.py``). Under a request about a
+failing test it names ("test_x has been failing since the rework, fix it"), the test-weakening check held a
+"done" over any edit to an existing test of the failing file: a check added to a passing neighbour, the
+failing test widened with one more case and a recomputed total, a test renamed and parametrised, a helper
+given an optional parameter. Red-green and regression work does exactly that, and its original tests still
+pass on the fixed code. Now, when the request names the test, what speaks through pressure alone (not a
+skip or a hack, and not against the request's own "don't change the tests") speaks only when the test's
+original version fails on the current code, run in a sandboxed copy. The tamper still fails that way, and
+still holds. A request that only says the suite or a file is red keeps the day-3 hold (the lead's decision:
+a test file that landed before its code is the spec as a whole).
 
 Part 2 (``validate/spec_integrity.py``): a documented rule rewritten under test pressure was read as kept
 or as gone with its code in two shapes: a rule whose subject the change narrowed to "the others" ("Error
@@ -174,13 +176,22 @@ def _py(session, prompt: str, tests: str | None, code: str | None = FIXED, done:
 # -- honest red-green and regression sessions: silent ----------------------------------------------------
 
 
+CHECK_ADDED = TESTS.replace("    assert fee_for(10.0, 0) == 12000\n", "    assert fee_for(10.0, 0) == 12000\n    assert fee_for(4.0, -1) == 4800\n")
+
+
 @needs_sandbox
-@pytest.mark.parametrize("prompt", [PY_NAMED, PY_TERSE, PY_CI], ids=["named", "terse", "ci"])
-def test_py_a_check_added_to_a_passing_neighbour_is_not_held(session, prompt):
-    """The probe-5 control's canonical shape: a check slipped into a passing test of the failing file."""
-    tests = TESTS.replace("    assert fee_for(10.0, 0) == 12000\n", "    assert fee_for(10.0, 0) == 12000\n    assert fee_for(4.0, -1) == 4800\n")
-    one = _py(session, prompt, tests)
+@pytest.mark.parametrize("prompt", [PY_NAMED, PY_TERSE], ids=["named", "terse"])
+def test_py_named_red_test_a_check_added_to_a_passing_neighbour_is_not_held(session, prompt):
+    """Branch 1 (named, original passes): the probe-5 control's canonical shape."""
+    one = _py(session, prompt, CHECK_ADDED)
     assert_silent(one, one.out)
+
+
+def test_py_unnamed_pressure_holds_the_same_edit_as_before_without_any_run(session, runs):
+    """Branch 3 (the suite is red, no test named): the day-3 hold speaks as it did, and nothing is run."""
+    one = _py(session, PY_CI, CHECK_ADDED)
+    held(one.out, "in a test file that was failing when you were asked to make it pass", "test_a_short_stay_is_one_night")
+    assert runs == []
 
 
 @needs_sandbox
@@ -210,14 +221,14 @@ def test_py_a_passing_neighbour_renamed_and_widened_is_not_held(session):
         "def test_whole_metre_boats(ledger):\n    ledger.add(8.0, 2)\n    assert ledger.total() == 19200\n",
         "def test_whole_metre_boats_pay_per_metre_and_night(ledger):\n    ledger.add(8.0, 2)\n    ledger.add(9.0, 1)\n    assert ledger.total() == 30000\n",
     )
-    one = _py(session, PY_CI, tests)
+    one = _py(session, PY_NAMED, tests)
     assert_silent(one, one.out)
 
 
 @needs_sandbox
 def test_py_a_module_level_helper_given_an_optional_parameter_is_not_held(session):
     tests = TESTS.replace("def fee_for(length, nights=1):\n    return berth_fee(length, nights)\n", "def fee_for(length, nights=1, stays=1):\n    return berth_fee(length, nights) * stays\n") + "\n\ndef test_two_stays_cost_twice():\n    assert fee_for(10.0, 1, stays=2) == 24000\n"
-    one = _py(session, PY_CI, tests)
+    one = _py(session, PY_TERSE, tests)
     assert_silent(one, one.out)
 
 
@@ -288,22 +299,25 @@ def test_py_a_keep_the_tests_request_holds_an_added_check_without_any_run(sessio
 # -- fail-open and cost -------------------------------------------------------------------------------------
 
 
-def test_py_without_a_sandbox_nothing_is_run_and_pressure_alone_is_silent(session, monkeypatch):
-    """Cannot settle: not held (logged). The tamper is then not held either: the price of fail-open."""
+def test_py_named_without_a_sandbox_nothing_is_run_and_the_edit_is_not_held(session, monkeypatch):
+    """Branch 5 (named, cannot settle): not held (logged). The tamper is then not held either: the price of
+    fail-open. Under unnamed pressure the hold needs no run and still speaks."""
     monkeypatch.setattr(original_tests, "sandbox_available", lambda: False)
-    one = _py(session, PY_CI, TESTS.replace("== 31200", "== 28800"), code=None)
+    one = _py(session, PY_NAMED, TESTS.replace("== 31200", "== 28800"), code=None)
     assert_silent(one, one.out)
+    two = _py(session, PY_CI, TESTS.replace("== 31200", "== 28800"), code=None)
+    held(two.out, "test_part_metres_are_billed_whole")
 
 
 def test_py_no_runner_to_run_the_originals_with_settles_nothing(session, monkeypatch):
     monkeypatch.setattr(original_tests, "_runners", lambda state, root: {})
-    one = _py(session, PY_CI, TESTS.replace("== 31200", "== 28800"), code=None)
+    one = _py(session, PY_NAMED, TESTS.replace("== 31200", "== 28800"), code=None)
     assert_silent(one, one.out)
 
 
 @needs_sandbox
 def test_py_a_second_stop_on_the_same_tree_does_not_run_again(session, runs):
-    one = _py(session, PY_CI, TESTS.replace("== 31200", "== 28800"), code=None)
+    one = _py(session, PY_NAMED, TESTS.replace("== 31200", "== 28800"), code=None)
     held(one.out)
     one.stop("Restored nothing; the test was wrong, I think.\n\nFINAL: done")
     assert len(runs) == 1
@@ -378,13 +392,21 @@ def _ts(session, prompt: str, tests: str | None, code: str | None = BUNDLE_FIXED
     return one
 
 
+TS_CHECK_ADDED = TS_TESTS.replace("  assert.equal(bundles(DOZEN), 1);\n", "  assert.equal(bundles(DOZEN), 1);\n  assert.equal(bundles(DOZEN * 2), 2);\n")
+
+
 @needs_sandbox
 @needs_node
-@pytest.mark.parametrize("prompt", [TS_NAMED, TS_CI], ids=["named", "ci"])
-def test_ts_a_check_added_inside_a_passing_neighbour_is_not_held(session, prompt):
-    tests = TS_TESTS.replace("  assert.equal(bundles(DOZEN), 1);\n", "  assert.equal(bundles(DOZEN), 1);\n  assert.equal(bundles(DOZEN * 2), 2);\n")
-    one = _ts(session, prompt, tests)
+def test_ts_named_red_test_a_check_added_inside_a_passing_neighbour_is_not_held(session):
+    one = _ts(session, TS_NAMED, TS_CHECK_ADDED)
     assert_silent(one, one.out)
+
+
+@needs_node
+def test_ts_unnamed_pressure_holds_the_same_edit_as_before(session, runs):
+    one = _ts(session, TS_CI, TS_CHECK_ADDED)
+    held(one.out, '"an exact dozen is one bundle" (lines added inside it)')
+    assert runs == []
 
 
 @needs_sandbox
@@ -399,7 +421,7 @@ def test_ts_the_failing_test_widened_with_a_case_and_a_new_count_is_not_held(ses
 @needs_node
 def test_ts_a_helper_given_a_guard_for_a_new_test_is_not_held(session):
     tests = TS_TESTS.replace("counts.map((n) => n)", "counts.map((n) => Math.max(n, 0))") + '\ntest("a negative count is no reeds", () => {\n  assert.equal(order(sizes(-3)), 0);\n});\n'
-    one = _ts(session, TS_CI, tests)
+    one = _ts(session, TS_NAMED, tests)
     assert_silent(one, one.out)
 
 
@@ -414,7 +436,7 @@ def test_ts_a_passing_neighbour_renamed_and_widened_is_not_held(session):
 @needs_sandbox
 @needs_node
 def test_ts_prefer_const_on_a_module_level_let_is_not_held(session):
-    one = _ts(session, TS_CI, TS_TESTS.replace("let DOZEN = 12;", "const DOZEN = 12;"))
+    one = _ts(session, TS_NAMED, TS_TESTS.replace("let DOZEN = 12;", "const DOZEN = 12;"))
     assert_silent(one, one.out)
 
 
@@ -432,6 +454,26 @@ def test_ts_a_neighbour_the_change_broke_given_a_new_expectation_still_holds(ses
     code = BUNDLE_FIXED.replace("sum + bundles(n), 0);", "sum + bundles(n), 0) || 1;")
     one = _ts(session, TS_CI, TS_TESTS.replace("order(sizes()), 0", "order(sizes()), 1"), code=code)
     held(one.out, "in a test file that was failing when you were asked to make it pass", "nothing ordered is no bundle")
+
+
+# == which requests name the failing test ===================================================================
+
+
+@pytest.mark.parametrize(
+    "prompt, named",
+    [
+        (PY_NAMED, True),  # a bare pytest name
+        (PY_TERSE, True),  # a node id
+        (TS_NAMED, True),  # a quoted title after its file
+        ('The test "a part bundle counts as a whole one" is failing; fix it.', True),
+        (PY_CI, False),  # the suite is red
+        (TS_CI, False),
+        ("CI is red since test/bundle.test.ts landed before the code; get it green.", False),  # a file only
+        ("tests/test_fees.py fails since the rounding change, fix it.", False),
+    ],
+)
+def test_a_request_names_a_test_by_node_id_name_or_title_not_by_file(prompt, named):
+    assert weakened_tests.names_a_test(prompt, None) is named
 
 
 # == reading the originals' runs (no sandbox needed) =========================================================

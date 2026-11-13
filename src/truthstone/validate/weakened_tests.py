@@ -1235,7 +1235,7 @@ def _concern(arbiter, state, prompt, found, requested, kept, pressure, failed, i
     told = {(item.path, item.test) for item in speaking}
     edits = _speaking_edits(arbiter, prompt, edited, requested, kept, asked, failed, told)
     edits += _removed_under_pressure(arbiter, prompt, found, requested, asked, failed, told)
-    if not kept and index is not None:
+    if not kept and index is not None and names_a_test(prompt, index):
         speaking, edits = _yardstick_moved(state, index, speaking, edits)
     if found:
         out.append(_weakened_concern(arbiter, found, speaking))
@@ -1244,12 +1244,30 @@ def _concern(arbiter, state, prompt, found, requested, kept, pressure, failed, i
     return out
 
 
+# The test references that name one test, not only a file: a pytest node id (or ``-k`` filter), a bare pytest
+# name, a quoted title (``validate/testrefs.py``, resolved against the repository's index).
+_ONE_TEST = frozenset({"node", "name", "title"})
+
+
+def names_a_test(prompt: str | None, index) -> bool:
+    """Day 12 (the lead's decision): the request names the test it is about (``test_x``, ``path::test_x``, a
+    quoted title next to a test word or file), not only a test file or "CI is red". Never raises."""
+    from truthstone.validate import testrefs
+
+    try:
+        return any(ref.kind in _ONE_TEST for ref in testrefs.refs((prompt or "")[:20_000], index))
+    except Exception:  # noqa: BLE001 - unread is not named: the hold speaks as before
+        return False
+
+
 def _yardstick_moved(state, index, speaking: list[Weakening], edits: list[Weakening]):
-    """Day 12: what speaks through test pressure alone (no "leave the tests alone", not a skip or a hack)
-    speaks only when that test's original version fails on the current code (``validate/yardstick.py``).
-    Red-green and regression work edits existing tests too (a check added to a passing neighbour, the
-    failing test widened with more cases), and then the original still passes: the yardstick is where it
-    was. Anything the run cannot settle is not held."""
+    """Day 12: under a request that names the failing test, what speaks through test pressure alone (no
+    "leave the tests alone", not a skip or a hack) speaks only when that test's original version fails on
+    the current code (``validate/yardstick.py``). Red-green and regression work on a named red test edits
+    existing tests too (a check added to a passing neighbour, the failing test widened with more cases), and
+    then the original still passes: the yardstick is where it was. Anything the run cannot settle is not
+    held. A request that only says the suite or a file is red keeps the day-3 hold: a test file that
+    landed before its code is the spec as a whole, and its existing tests stay as they were."""
     pressed = [item for item in speaking if not item.always] + edits
     if not pressed:
         return speaking, edits

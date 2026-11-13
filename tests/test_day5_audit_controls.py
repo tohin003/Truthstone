@@ -26,8 +26,9 @@ reason, and listed in ``.claude/handoff/day5/audit-fp.md``. The audit found 25 o
 were narrowed in the product (the sessions marked ``FREED``, each with a boundary test at the end that
 the rule's real catch still fires), 9 stay ``xfail`` (``FINDING``/``OPEN``: a trade-off for the lead),
 and 2 ``PARITY`` sessions show the pre-existing Python rule holding on two of them. Day 12
-(``validate/yardstick.py``) freed 3 of those 9 and one ``PARITY`` session: under test pressure alone a test
-edit holds only when the file's original fails on the code. Invented projects and names only.
+(``validate/yardstick.py``) freed 2 of those 9 and one ``PARITY`` session: under a request that names the failing
+test, a test edit held by pressure alone holds only when the file's original fails on the code. Invented projects
+and names only.
 """
 
 from __future__ import annotations
@@ -444,7 +445,7 @@ FREE_FROM_TEST = KNOWN_TEST.replace("const TEA: Line", "const FREE_FROM = 5000;\
     'test("a small order pays shipping"', 'test("the threshold ships free", () => {\n  assert.equal(cartTotal(basket({ ...TEA, cents: FREE_FROM })), FREE_FROM);\n});\n\ntest("a small order pays shipping"')
 
 
-# FREED day 12 (validate/yardstick.py: the file's original passes on the code). Was xfail: FINDING js_module_level M2 (Python parity): a requested behaviour change updates a test constant in a file that held a known failure
+@pytest.mark.xfail(strict=True, reason="FINDING js_module_level M2 (Python parity): a requested behaviour change updates a test constant in a file that held a known failure")
 def test_ts_known_failure_requested_threshold_change_updates_a_test_constant(repo):
     """C-KNOWNFAIL with a behaviour change the request asks for: the free-shipping threshold moves to
     40.00, and the constant the test file keeps for it follows. The file already failed (the known
