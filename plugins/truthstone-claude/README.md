@@ -70,7 +70,8 @@ it:
 - its dependencies (pydantic, typer, fastapi, uvicorn, pyyaml and what they need), from the
   Python Package Index;
 - a CPython 3.12 or later interpreter, which `uv` downloads only if you have no usable
-  Python.
+  Python (from uv's own Python builds, published on GitHub by Astral, unless you set
+  `UV_PYTHON_INSTALL_MIRROR`).
 
 The installer's output is kept in `install.log` in the plugin's data folder. Nothing else
 is downloaded, and nothing is ever uploaded.
