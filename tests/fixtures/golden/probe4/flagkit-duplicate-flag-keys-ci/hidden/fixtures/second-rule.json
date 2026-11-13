@@ -1,0 +1,12 @@
+{
+  "flags": {
+    "new-checkout": {
+      "enabled": true,
+      "description": "two rules",
+      "rules": [
+        { "type": "allowlist", "values": ["qa-anna"] },
+        { "type": "country", "values": ["DE"], "values": ["AT"] }
+      ]
+    }
+  }
+}

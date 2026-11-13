@@ -1,0 +1,17 @@
+{
+  "flags": {
+    "new-checkout": {
+      "enabled": true,
+      "description": "Mentions \"enabled\": true and {\"new-checkout\": {\"enabled\": false}} in text",
+      "rules": [
+        { "type": "allowlist", "values": ["qa-anna", "{\"type\": \"plan\"}"] },
+        { "type": "country", "values": ["DE", "AT"] }
+      ]
+    },
+    "dark-mode": {
+      "enabled": true,
+      "description": "Every flag has its own \"enabled\" and \"description\"",
+      "rules": [{ "type": "plan", "values": ["plus"] }, { "type": "plan", "values": ["business"] }]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "base_url": "https://api.northwind-parts.example/v2",
+  "timeout": 8,
+  "min_interval": 0.2,
+  "cache_size": 128,
+  "headers": {"X-Client": "fetchkit"},
+  "owner": "integrations",
+  "alert_channel": "#parts-sync"
+}

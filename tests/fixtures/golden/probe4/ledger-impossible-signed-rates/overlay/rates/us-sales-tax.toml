@@ -1,0 +1,9 @@
+# US sales tax by region, maintained by Finance.
+# This file is the source of src/ledger/tax_rates.py, which taxgen builds and signs from it.
+
+[rates]
+CA = "0.0725"
+NY = "0.04"
+TX = "0.0625"
+WA = "0.065"
+OR = "0"

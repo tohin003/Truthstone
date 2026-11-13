@@ -54,7 +54,7 @@ def test_the_original_suite_is_the_default_and_its_digest_is_unchanged():
     assert suite.DEFAULT_SUITE == "codex_bench"
     expected = {"codex_bench", "golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3"}
     expected |= {"golden-rehearsal", "golden-candidates", "golden-dev-keeptests"}  # G40: a dev split
-    expected |= {"golden-probe1", "golden-probe2", "golden-probe3"}  # a probe split, never frozen
+    expected |= {"golden-probe1", "golden-probe2", "golden-probe3", "golden-probe4"}  # probe splits
     assert set(suite.SUITES) == expected
     tasks = suite.load_suite()
     assert len(tasks) == 32

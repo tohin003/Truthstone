@@ -1,0 +1,6 @@
+order_id,email,amount,quantity,region,created_at
+H-3101,orders@harbor-supply.example,4.125,12,wa,2026-11-02T07:40:00Z
+H-3102,orders@harbor-supply.example,18.40,3,wa,2026-11-02T07:41:00Z
+H-3103,orders@harbor-supply.example,102.375,1,or,2026-11-02T08:05:00Z
+H-3104,orders@harbor-supply.example,0.875,40,wa,2026-11-02T08:30:00Z
+H-3105,orders@harbor-supply.example,61.00,2,or,2026-11-03T09:12:00Z

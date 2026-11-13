@@ -33,6 +33,7 @@ GOLDEN_SUITES = (
     "golden-probe1",  # G42: a probe split, never frozen; its strings are task material too
     "golden-probe2",  # G45: a second probe split, never frozen; its strings are task material too
     "golden-probe3",  # G47: a third probe split, never frozen; its strings are task material too
+    "golden-probe4",  # G48: a fourth probe split, never frozen; its strings are task material too
 )
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")
@@ -196,6 +197,11 @@ STOPWORDS = frozenset(
         # exception name (sqlite3's, defined in C, so no stdlib source spells it); the one
         # task-specific overlap (a hidden test's function name) was renamed in its task.
         "operationalerror",
+        # Reviewed 2026-11-13 (G48, freezing golden-probe4, built blind after the product code):
+        # generic, in a new task and already in the product's code or tests. A common package-script
+        # name (as typecheck above); the two task-specific overlaps (a hidden test's helper name and a
+        # generated module's constant) were renamed in their tasks.
+        "codegen",
     }
 )  # fmt: skip
 

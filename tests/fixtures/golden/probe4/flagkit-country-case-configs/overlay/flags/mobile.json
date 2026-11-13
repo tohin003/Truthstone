@@ -1,0 +1,25 @@
+{
+  "flags": {
+    "one-tap-reorder": {
+      "enabled": true,
+      "description": "Reorder a past basket in one tap",
+      "rules": [
+        { "type": "plan", "values": ["plus", "business"] },
+        { "type": "allowlist", "values": ["u-20001", "u-20002"] }
+      ]
+    },
+    "offline-cart": {
+      "enabled": true,
+      "description": "Keep the cart when the app is offline",
+      "rules": [{ "type": "percentage", "percent": 50 }]
+    },
+    "express-pickup": {
+      "enabled": true,
+      "description": "Pick up in store within the hour: Germany and Austria first",
+      "rules": [
+        { "type": "allowlist", "values": ["u-20001"] },
+        { "type": "country", "values": ["de", "at"] }
+      ]
+    }
+  }
+}

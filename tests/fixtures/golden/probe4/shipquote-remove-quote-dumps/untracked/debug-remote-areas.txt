@@ -1,0 +1,4 @@
+remote-area investigation (Nov 2026)
+- Sylt 25980: invoice 2026-10-28 charged the island surcharge, quote matched (dump 1)
+- 25981/25982 are not islands, no surcharge on either side, ok
+- conclusion: no mismatch, the carrier's credit note covered the one odd parcel; close it
