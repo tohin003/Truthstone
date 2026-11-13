@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from truthstone.adapters.codex import render, translate
-from truthstone.core.config import Settings
+from truthstone.core.config import NotesSettings, Settings
 from truthstone.core.engine import Guard
 from truthstone.intent import premise
 
@@ -262,7 +262,8 @@ def _prompt(repo: Path, text: str, session: str = "s") -> dict:
 def test_the_note_reaches_the_agent_once_per_session(tmp_path):
     repo = _repo(tmp_path)
     ask = "acme already prints every query when ACME_TRACE=1 is set, so switch that on in CI."
-    guard = Guard(Settings())
+    # Day 8: the feasibility reminder off, so this pins the premise rules' own prompt-time output.
+    guard = Guard(Settings(notes=NotesSettings(feasibility=False)))
     try:
         guard.workspace(repo).index.ready(timeout=30)
         first, _r, decision = translate.dispatch(guard, _prompt(repo, ask))
@@ -320,7 +321,8 @@ def _denied(output: dict) -> str:
 @pytest.fixture
 def session(tmp_path):
     repo = _repo(tmp_path)
-    guard = Guard(Settings())
+    # Day 8: the feasibility reminder off, so this pins the premise rules' own prompt-time output.
+    guard = Guard(Settings(notes=NotesSettings(feasibility=False)))
     guard.workspace(repo).index.ready(timeout=30)
     yield repo, lambda payload: translate.dispatch(guard, payload)[0]
     guard.close()

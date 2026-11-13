@@ -26,7 +26,7 @@ import pytest
 
 from truthstone.adapters.codex import translate
 from truthstone.bench.codex.premise import names_absence
-from truthstone.core.config import Settings
+from truthstone.core.config import NotesSettings, Settings
 from truthstone.core.engine import Guard
 from truthstone.intent import premise, premise_switch
 
@@ -258,7 +258,8 @@ def test_a_recorded_name_is_never_noted_held_or_answered_to(tmp_path):
     assert found.missing == [] and [a.name for a in found.recorded] == ["--totals"]
     assert found.note == "" and found.hold == "" and found.finding() is None
     assert "--totals" not in [a.name for a in premise.assertions(USED)]  # premise_unmet's names
-    guard = Guard(Settings())
+    # Day 8: the feasibility reminder off, so this pins the premise rules' own prompt-time output.
+    guard = Guard(Settings(notes=NotesSettings(feasibility=False)))
     try:
         ws = guard.workspace(repo)
         ws.index.ready(timeout=30)

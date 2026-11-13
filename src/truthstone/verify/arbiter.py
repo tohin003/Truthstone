@@ -29,7 +29,10 @@ per Stop. The checks are:
   doc comment restating a documented rule rewritten while the docs still state it
   (``spec_restated``), or a "done" that says another party must change first
   (``contract_caveat``). They run after every other yardstick check, and only when none of
-  them speaks and spec erosion recorded nothing.
+  them speaks and spec erosion recorded nothing;
+* a "done" whose own message says the request's requirements cannot all be met
+  (``verify/admitted.py``, day 8, ``admitted_conflict``): last as well, under the same condition,
+  and with no gate on the request.
 
 Each reason has a ``ReasonCategory``, and a category speaks at most once per task.
 
@@ -117,6 +120,7 @@ _ORDER = (
     ReasonCategory.GAMING_SIGNATURE,
     ReasonCategory.SPEC_RESTATED,
     ReasonCategory.CONTRACT_CAVEAT,
+    ReasonCategory.ADMITTED_CONFLICT,
     ReasonCategory.ORIGINAL_TESTS_FAIL,
     ReasonCategory.FAILING_TESTS,
     ReasonCategory.UNREAD_CONFIG,
@@ -137,6 +141,7 @@ _YARDSTICK = frozenset(
         ReasonCategory.SPEC_CONFLICT,
         ReasonCategory.SPEC_RESTATED,
         ReasonCategory.CONTRACT_CAVEAT,
+        ReasonCategory.ADMITTED_CONFLICT,
     }
 )
 # A ``spec_conflict`` concern yields to these when they speak at the same Stop (C3).
@@ -225,7 +230,7 @@ def _integrity_checks(original_tests: bool = False, gated_skips: bool = True) ->
     )
     from truthstone.validate import gated_skips as gated_skips_check
     from truthstone.validate import original_tests as original_tests_check
-    from truthstone.verify import integrity, spec_rules
+    from truthstone.verify import admitted, integrity, spec_rules
 
     checks: list[IntegrityCheck] = [
         integrity.spec_concerns,
@@ -235,6 +240,8 @@ def _integrity_checks(original_tests: bool = False, gated_skips: bool = True) ->
         gaming.concerns,
         # After every other yardstick check: it runs only when none of them speaks (``_yardstick_spoke``).
         spec_rules.concerns,
+        # Then a "done" whose message says the requirements cannot all be met (day 8), likewise last.
+        admitted.concerns,
         config_reads.concerns,
         untracked_state.concerns,
         premise_unmet.concerns,
@@ -268,9 +275,9 @@ def _yardstick_spoke(found_all: list[list[Concern]]) -> bool:
 
 
 def _runs_last(check: IntegrityCheck) -> bool:
-    from truthstone.verify import spec_rules
+    from truthstone.verify import admitted, spec_rules
 
-    return check is spec_rules.concerns
+    return check is spec_rules.concerns or check is admitted.concerns
 
 
 def _without_repeats(found_all: list[list[Concern]]) -> list[list[Concern]]:
@@ -336,7 +343,7 @@ def arbitrate(
         found_all = []
         for check in checks if checks is not None else _integrity_checks(original_tests, gated_skips):
             if _runs_last(check) and (not done or _yardstick_spoke(found_all)):
-                continue  # spec_restated / contract_caveat: only a claim nothing else holds (day 5)
+                continue  # spec_restated / contract_caveat / admitted_conflict: a claim nothing else holds
             try:
                 found_all.append(check(state, index))
             except Exception:

@@ -55,7 +55,8 @@ def _prompt(guard: Guard, repo: Path, text: str, session: str) -> str:
 
 
 def _guard(integrity_on: bool, **settings) -> Guard:
-    return Guard(Settings(notes=NotesSettings(integrity=integrity_on), **settings))
+    # Day 8: the feasibility reminder off, so these pin the integrity note's own prompt-time output.
+    return Guard(Settings(notes=NotesSettings(integrity=integrity_on, feasibility=False), **settings))
 
 
 def test_off_by_default():

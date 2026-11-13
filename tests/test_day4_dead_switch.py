@@ -22,7 +22,7 @@ from truthstone.adapters.codex import render, translate
 from truthstone.bench.codex import acceptance
 from truthstone.bench.codex.guards import read_guard_db
 from truthstone.bench.codex.premise import names_absence
-from truthstone.core.config import Settings
+from truthstone.core.config import NotesSettings, Settings
 from truthstone.core.engine import Guard
 from truthstone.core.enums import EventType
 from truthstone.core.events import AgentEvent
@@ -879,7 +879,8 @@ def _denied(output: dict) -> str:
 @pytest.fixture
 def engine(tmp_path, speaking):
     root, _files = _repo(tmp_path)
-    guard = Guard(Settings())
+    # Day 8: the feasibility reminder off, so this pins the premise rules' own prompt-time output.
+    guard = Guard(Settings(notes=NotesSettings(feasibility=False)))
     guard.workspace(root).index.ready(timeout=30)
     yield root, guard, lambda payload: translate.dispatch(guard, payload)
     guard.close()
@@ -1043,7 +1044,10 @@ def test_a_hold_is_recorded_when_the_guard_defers_its_bookkeeping(tmp_path):
     """The daemon defers the advice; rule D is decided before it, so the hold the host sees is the decision
     stored, with its finding: what T4b and the bench's attestation read."""
     root, _files = _repo(tmp_path)
-    guard = Guard(Settings(profile="minimal"), defer_bookkeeping=True)
+    # Day 8: the feasibility reminder off, so this pins the premise rules' own prompt-time output.
+    guard = Guard(
+        Settings(profile="minimal", notes=NotesSettings(feasibility=False)), defer_bookkeeping=True
+    )
     try:
         ws = guard.workspace(root)
         ws.index.ready(timeout=30)

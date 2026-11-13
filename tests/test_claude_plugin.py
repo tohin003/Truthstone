@@ -682,8 +682,12 @@ class TestWholeSession:
 
     def test_by_default_a_routine_prompt_injects_nothing_and_a_sign_off_still_asks(self, guarded_project):
         """The product's default, the minimal intervention profile (WP7, M9), end to end."""
-        _, project, _, env = guarded_project
+        _, project, home, env = guarded_project
         env = {key: value for key, value in env.items() if key != "TRUTHSTONE_PROFILE"}
+        # Day 8: the feasibility reminder off (it speaks once, at a session's first prompt; its own tests
+        # are tests/test_day8_feasibility.py), so this pins what the other rules do with a routine prompt.
+        config = home / "config.toml"
+        config.write_text(config.read_text() + "\n[notes]\nfeasibility = false\n")
         base = {"session_id": "quiet-1", "cwd": str(project), "permission_mode": "default"}
 
         def hook(event: str, **fields) -> dict:
