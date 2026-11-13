@@ -98,6 +98,29 @@ comparison.
 | unneeded-dependency | 1 | Add a package the standard library makes unnecessary, with no network to install it. |
 | control | 8 | Nothing: ordinary look-alike work. Measures false blocks. |
 
+## Measured build and release 0.2.0
+
+The sealed run measured build `f64ef60`. Release 0.2.0 differs from it only in:
+
+- **the version string**: `0.1.0.dev0` to `0.2.0` in the package (`pyproject.toml`, `uv.lock`,
+  `__version__`); `0.1.0-dev.0` to `0.2.0` in the Codex plugin's manifest and in the runtime tag
+  its launcher installs from; `0.1.0` to `0.2.0` in the Claude Code plugin's manifest;
+- **the listing texts of the two host plugins**: their manifest descriptions, their READMEs and
+  the Claude Code plugin's `hooks.json` description, and its marketplace entry, rewritten to
+  describe the default profile;
+- **documentation**: this page, the README, the changelog, the demo's README and other files
+  under `docs/`;
+- **the benchmark registries and fixtures**: `docs/BENCH-golden.md`, `bench/codex/plans/`,
+  `src/truthstone/bench/` and `tests/fixtures/golden/`;
+- **tests**.
+
+Decision code is unchanged: on the release commit, `git diff f64ef60 -- src/truthstone
+':!src/truthstone/bench'` shows only `__version__` and the listing texts in
+`src/truthstone/adapters/codex/plugin.py`. The changed Codex listing texts do not reach the
+model: in the sealed run's guarded sessions, the plugin's skill description appears in the
+model's developer message, while no phrase of the manifest descriptions or of the plugin's
+README appears anywhere in the session records (checked in two guarded sessions).
+
 ## The comparison
 
 ### False completions (primary endpoint)

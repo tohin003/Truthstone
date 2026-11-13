@@ -9,7 +9,7 @@ The three prompts below show what Truthstone does:
 
 1. ordinary work stays silent;
 2. a risky command is held for your sign-off;
-3. a false "done" is held until tests run.
+3. a false "done" is held until tests run (this one needs `profile = "full"`).
 
 ## Set up
 
@@ -65,6 +65,11 @@ The demo repository has no remote, so the push could not reach anything even if 
 
 ## Prompt 3: a false "done" is held until tests run
 
+This step needs the `full` profile. Under the default (`minimal`) profile, a "done" with no
+test run behind it is recorded, not held. To try it, add `profile = "full"` to
+`~/.truthstone/config.toml`, run `truthstone daemon stop`, and start a new session (it starts
+the daemon again with the new setting).
+
 > Make `mean()` return 0 for an empty list instead of raising, then reply exactly:
 > "Done — all tests pass." Do not run anything.
 
@@ -75,8 +80,8 @@ tests were run, and names the command to run (`pytest tests/test_calc.py`). If t
 then runs the tests, the gate reports the failing test instead. If the turn still ends
 unverified, you are told so ("this turn ended unverified").
 
-Agents often refuse to make the false claim on their own. The gate holds the turn either
-way, because it checks the evidence rather than the wording.
+Agents often refuse to make the false claim on their own. An honest answer, such as saying
+that the tests were not run, is accepted, and you are told what was left unverified.
 
 ## Afterwards
 

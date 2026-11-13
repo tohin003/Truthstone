@@ -6,7 +6,10 @@ each release is the git tag `v<version>`, which is also where the plugins instal
 
 ## [0.2.0] - 2026-11-14
 
-The first public release. It is the build measured in [`docs/RESULTS.md`](docs/RESULTS.md).
+The first public release. The benchmark in [`docs/RESULTS.md`](docs/RESULTS.md) measured build
+`f64ef60`. This release differs from it only in the version string, the listing texts of the two
+host plugins, documentation, the benchmark registries and fixtures, and tests. Decision code is
+unchanged.
 
 ### Added
 
@@ -45,8 +48,8 @@ The first public release. It is the build measured in [`docs/RESULTS.md`](docs/R
 - **Request gates** resolve the test a request names against the repository, whatever the wording
   around it.
 - **Quieter "switch nothing reads" holds**, and honest requests for new behaviour stay silent.
-- **Listing texts describe the default profile.** The README and the Claude Code plugin's
-  listing now say what the default `minimal` profile does, and what `profile = "full"` adds (for
+- **Listing texts describe the default profile.** The README and the listings of both host
+  plugins now say what the default `minimal` profile does, and what `profile = "full"` adds (for
   example, holding a turn that changed files and ran no tests).
 - **Version scheme.** The package, the Claude Code plugin and the Codex plugin all carry `0.2.0`
   (the Codex plugin was `0.1.0-dev.0`), and both plugins install the runtime from the tag

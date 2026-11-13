@@ -2,11 +2,16 @@
 
 Truthstone (previously named AgentGuard) is a local, deterministic reliability layer for Codex. It has no
 model of its own. Through Codex lifecycle hooks it checks what the agent is about to do
-against your repository: symbols that do not exist, edits that wander far outside the task,
-irreversible shell commands, and a finished turn whose changes no test has exercised. When
-it finds evidence of a problem, it hands that evidence back to Codex so the agent's own
-reasoning can fix it. Otherwise it says nothing. It never grants a permission, and if it is
+against your repository. By default (the `minimal` profile) it speaks in a few cases only: a
+request that relies on something the repository does not have, an irreversible shell
+command, and a "done" that the recorded test evidence contradicts. When it speaks, it hands
+its evidence back to Codex so the agent's own reasoning can fix the problem. Everything else
+it checks is recorded in its local log, not shown. It never grants a permission, and if it is
 unavailable, Codex simply continues unguarded.
+
+With `profile = "full"` in `~/.truthstone/config.toml` every check speaks: it also challenges
+code the repository does not have and edits that wander far outside the task, holds a
+finished turn whose changes no test has exercised, and adds a planning note to each prompt.
 
 It works only inside git repositories. Elsewhere its hooks do nothing at all.
 
@@ -36,16 +41,22 @@ set it, else `truthstone-codex-hook` on your `PATH`, else a private copy in the 
 - **Session start** (`SessionStart`): if no runtime is found, installs the private copy
   (below). Starts Truthstone's local helper process, and says once if the session is
   unguarded.
-- **Every prompt you send** (`UserPromptSubmit`): records the task, and may add a short
-  planning note to Codex's context.
+- **Every prompt you send** (`UserPromptSubmit`): records the task. At the first prompt of
+  each session it adds a short reminder to Codex's context (check that the request can be
+  done as asked). When the request relies on something the repository lacks, or keeps the
+  tests while asking for a failing test to pass, it adds a note saying so.
 - **Before shell commands and patches** (`PreToolUse` on `Bash` and `apply_patch`): checks
-  the call against your repository and the task. Usually it says nothing. Otherwise it hands
-  Codex a challenge with its evidence. For an irreversible action it denies the call until
-  you confirm, because Codex has no permission prompt that hooks can use.
+  the call against your repository and the task. Usually it says nothing. For an
+  irreversible action it denies the call until you confirm, because Codex has no permission
+  prompt that hooks can use. After a note that the request relies on something the
+  repository lacks, it holds the first edit once and asks Codex to tell you first.
 - **After those calls** (`PostToolUse`): records what changed and any test results it can
   see.
-- **End of each turn** (`Stop`): the completion gate. If files changed and no passing test
-  run was seen, it holds the turn once, with the reason and the command to run.
+- **End of each turn** (`Stop`): the completion gate. When Codex finishes with a "done" that
+  the recorded evidence contradicts (relevant tests failing after the last edit and not
+  mentioned; existing tests weakened, skipped or deleted; code that passes the tests without
+  the behaviour; a message that itself says the requirements cannot all be met), it holds the
+  turn once, with the reason.
 - **Session end** (`SessionEnd`): closes the session record.
 
 **The native forwarder.** At session start the runtime also compiles the small C program that

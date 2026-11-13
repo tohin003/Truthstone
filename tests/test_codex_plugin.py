@@ -178,6 +178,9 @@ class TestPackage:
 # Re-pinned 2026-11-14 for the 0.2.0 release: the version in plugin.json and the runtime tag
 # (v0.2.0) in the launcher, README.md and SECURITY.md only (declarations unchanged; computed with
 # plugin_content_hash, to confirm via Codex hooks/list before release).
+# Re-pinned 2026-11-14 again for the listing texts (manifest description and longDescription,
+# README.md): they describe the default minimal profile; hooks, launcher, skill and declarations
+# unchanged (plugin_content_hash; confirm via Codex hooks/list before release).
 EXPECTED_DECLARATIONS = {
     "session_start:0:0": "sha256:16dff026e1a8d1e64802603624e8b79a31721cd548267e454c61785e61eb44f1",
     "user_prompt_submit:0:0": "sha256:84136a898ae55a7db4af13318f1a7d1cb886b9887902badeb965c2cee8c56aea",
@@ -186,7 +189,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:ebe3736d54b1276a1a042ec87adae5ebf3b8224b34ec522413c842aae1f7189e"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:afaec19d9d71c2c699dae593d0695a58a0848e111dbf7889e4dd04484db472cd"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
@@ -470,6 +473,18 @@ class TestDocuments:
             plugin.PRIVACY_POLICY_URL,
         ):
             assert disclosure in text, disclosure
+
+    def test_listing_describes_the_default_profile(self):
+        """The README and the manifest's descriptions are the listing. They describe what the
+        default ``minimal`` profile does; a turn that ran no tests is held only under
+        ``profile = "full"``."""
+        text = (PLUGIN / "README.md").read_text()
+        assert "`minimal` profile" in text and 'profile = "full"' in text
+        assert "no passing test" not in text
+        ui = manifest()["interface"]
+        for listed in (manifest()["description"], ui["longDescription"]):
+            assert "watches scope" not in listed and "until tests back it" not in listed
+        assert 'profile = "full"' in ui["longDescription"]
 
     def test_security_policy_and_license(self):
         security = (PLUGIN / "SECURITY.md").read_text()
