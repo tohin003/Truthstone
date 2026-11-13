@@ -4,16 +4,26 @@ Truthstone (previously named AgentGuard) is a local, deterministic reliability l
 Claude Code. It has no model of its own. It watches what the agent does through Claude
 Code hooks and does three things:
 
-- **Grounds claims in evidence.** It checks the agent's edits and statements against your
-  repository, and hands back anything that does not match, with the files and lines it
-  checked.
-- **Sends risky or out-of-scope actions back to you.** Before a destructive or
-  out-of-scope edit, shell command or MCP tool call runs, it asks you through Claude
-  Code's own permission prompt, with its reason. Sometimes it proposes a narrower command
-  for you to approve instead. It never approves anything on your behalf.
-- **Holds an unverified "done".** When a turn ends after files changed and no passing test
-  run was seen, its completion gate holds the turn once and names the test command to
-  run. If the turn still ends unverified, it tells you.
+- **Grounds the request in evidence.** When your prompt relies on a function, setting or
+  file that nothing in the repository has, it tells Claude so before any file changes,
+  and holds the first edit once, asking Claude to tell you first. When the request is
+  close to a rule your project documents, it quotes that rule, with file and line.
+- **Sends risky commands back to you.** Before an irreversible or destructive command
+  runs (a force push, `git reset --hard`, a recursive delete of a variable path, a
+  download piped into a shell), it asks you through Claude Code's own permission prompt,
+  with its reason. Sometimes it proposes a narrower command for you to approve instead.
+  It never approves anything on your behalf.
+- **Holds a "done" that the evidence contradicts.** For example, when a turn ends with a
+  "done" while the relevant tests fail after the last edit and the message does not say
+  so, or after existing tests were weakened, skipped or deleted, or over code that passes
+  tests without the behaviour, its completion gate holds the turn once and says why. If
+  the turn still ends that way, it tells you.
+
+These are the defaults (the `minimal` profile). Everything else Truthstone checks, such as
+a turn that changed files and ran no tests, or an edit outside the task's scope, is
+recorded in its local log (`/truthstone:log`) and not shown. `profile = "full"` in
+`~/.truthstone/config.toml` lets those speak too: then a turn that changed files and ran
+no tests is also held once, with the test command to run.
 
 It works only inside git repositories. Elsewhere its hooks do nothing at all. If anything
 is missing or broken, Truthstone gets out of the way: Claude Code behaves as if it were not
@@ -42,11 +52,11 @@ hook exits at once and does nothing.
 | When | Hook | What Truthstone does |
 |---|---|---|
 | Session start, resume or `/clear` | `SessionStart` runs `scripts/session-start.sh` | The first time, and after each plugin update, it installs the runtime (below). It starts Truthstone's local helper process and checks for a duplicate settings-based install. If it cannot run, it tells you once. |
-| Every prompt you send | `UserPromptSubmit` runs `scripts/hook.sh` | It passes the prompt to the local helper, which records the task and may add a short planning note to Claude's context. The note is visible in the transcript. It also checks that guarding is healthy. |
-| Before Edit, Write, MultiEdit, NotebookEdit, Bash, PowerShell and MCP tool calls | `PreToolUse` runs `scripts/hook.sh` | It checks the call against your repository and the task. Usually it says nothing. Otherwise it adds a note for Claude, or asks you to confirm through Claude Code's permission prompt with its reason. In non-interactive runs (`claude -p`) nobody can answer, so Claude Code denies the call. |
-| After those tool calls | `PostToolUse` runs `scripts/hook.sh` | It records what changed and any test results it can see, and tells Claude when a claim does not match the evidence. |
+| Every prompt you send | `UserPromptSubmit` runs `scripts/hook.sh` | It passes the prompt to the local helper, which records the task. At the first prompt of each session it adds a short reminder to Claude's context (check that the request can be done as asked); when the request relies on something the repository lacks, or is close to a documented rule, it adds a note saying so. These notes are visible in the transcript. It also checks that guarding is healthy. |
+| Before Edit, Write, MultiEdit, NotebookEdit, Bash, PowerShell and MCP tool calls | `PreToolUse` runs `scripts/hook.sh` | It checks the call against your repository and the task. Usually it says nothing. For an irreversible or destructive command it asks you to confirm through Claude Code's permission prompt, with its reason, sometimes showing a narrower command instead; in non-interactive runs (`claude -p`) nobody can answer, so Claude Code denies the call. After a note that the request relies on something missing, it holds the first edit once, so that Claude tells you first. |
+| After those tool calls | `PostToolUse` runs `scripts/hook.sh` | It records what changed and any test results it can see. |
 | After a failed Bash or PowerShell command | `PostToolUseFailure` runs `scripts/hook.sh` | It records the failure, for example a failing test run. |
-| End of each turn | `Stop` runs `scripts/hook.sh` | The completion gate: if files changed and no passing test run was seen, it holds the turn once, with the reason and the command to run. It reads Claude's last message for this and does not store it. |
+| End of each turn | `Stop` runs `scripts/hook.sh` | The completion gate: when Claude finishes with a "done" that the recorded evidence contradicts (above), it holds the turn once, with the reason. It reads Claude's last message for this and does not store it. |
 | Session end | `SessionEnd` runs `scripts/hook.sh` | It closes the session record. |
 
 **The one-time download.** `scripts/session-start.sh` is the only part of the plugin that
@@ -74,8 +84,8 @@ analytics. It never reads Claude Code transcripts, Claude's memory or your other
 conversations. At session start it reads Claude Code's settings files only to detect a
 duplicate install.
 
-**What reaches Claude.** When Truthstone has something to say (a challenge, the reason for
-a permission prompt, a planning note, a completion-gate hold), that text becomes part of
+**What reaches Claude.** When Truthstone has something to say (a note on the prompt, the
+reason for a permission prompt or a held edit, a completion-gate hold), that text becomes part of
 your Claude Code conversation, which Claude Code handles like everything else in the
 session.
 

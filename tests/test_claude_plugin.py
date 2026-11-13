@@ -95,6 +95,16 @@ class TestManifest:
         # The directory holds a plugin whose README names a bundled image in backticks.
         assert not re.search(r"`[^`]*assets/[^`]*`", text)
 
+    def test_listing_describes_the_default_profile(self):
+        """The README and the manifest description are the directory listing. They describe
+        what the default ``minimal`` profile does: a turn that changed files and ran no tests
+        is held only under ``profile = "full"`` (checked live on Claude Code 2.1.322)."""
+        text = (harness.PLUGIN_ROOT / "README.md").read_text()
+        assert "`minimal` profile" in text and 'profile = "full"' in text
+        assert "no passing test run was seen" not in text
+        description = json.loads(harness.MANIFEST.read_text())["description"]
+        assert "until tests have run" not in description and "out-of-scope" not in description
+
     def test_no_codex_manifest_and_no_bin(self):
         """Claude-only. `bin/` would also stop claude.ai and Cowork installing it."""
         assert not (harness.PLUGIN_ROOT / ".codex-plugin").exists()
