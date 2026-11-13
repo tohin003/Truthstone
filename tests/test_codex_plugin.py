@@ -181,6 +181,8 @@ class TestPackage:
 # Re-pinned 2026-11-14 again for the listing texts (manifest description and longDescription,
 # README.md): they describe the default minimal profile; hooks, launcher, skill and declarations
 # unchanged (plugin_content_hash; confirm via Codex hooks/list before release).
+# Re-pinned 2026-11-14 a third time for listing text only: how a sign-off is approved (the code,
+# `approve <code>` or `truthstone approve`) and "Windows is not supported yet" (README.md, manifest).
 EXPECTED_DECLARATIONS = {
     "session_start:0:0": "sha256:16dff026e1a8d1e64802603624e8b79a31721cd548267e454c61785e61eb44f1",
     "user_prompt_submit:0:0": "sha256:84136a898ae55a7db4af13318f1a7d1cb886b9887902badeb965c2cee8c56aea",
@@ -189,7 +191,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:afaec19d9d71c2c699dae593d0695a58a0848e111dbf7889e4dd04484db472cd"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:f3dcda944e42cf695a0971eab9c7e976558df773e724ec4142de82418ce6c1e7"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "

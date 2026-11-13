@@ -71,7 +71,7 @@ The listing copy is final and within every limit. It comes from `.codex-plugin/p
 | `version` | `1.0.0` | semver |
 | `displayName` | Truthstone Practices | 20 / 30 |
 | `shortDescription` | Verify work before saying done | 30 / 30 |
-| `longDescription` | below | 2,727 / 4,000 |
+| `longDescription` | below | 2,757 / 4,000 |
 | `description` (package) | Six instruction-only skills that guide a coding agent to show evidence before saying a task is done: a requirement ledger, file:line grounding, scope checks, proportional planning, a pre-flight for irreversible shell commands, and a review of the diff against the request. | 272 / 1,024 |
 | `developerName` | Tohin Majumder, the publisher. The portal replaces it with your verified identity's name if they differ (`developer_name_defaulted`) | 14 / 80 |
 | `category` | Developer Tools | allowed value |
@@ -116,7 +116,7 @@ The listing copy is final and within every limit. It comes from `.codex-plugin/p
 >
 > Who it is for: developers who use an agent to change code in a repository, for example in Codex. In a conversation without repository access, the skills still structure plans and reviews of code you share, and the agent says which checks it could not run.
 >
-> Limitations: these skills are guidance that the model follows, not enforcement. They cannot block a command or a reply. Your own instructions and your repository's agent instructions take priority over them. Deterministic, hook-based checks are a separate open-source project, Truthstone, which runs locally and is installed from its GitHub repository (see the website link).
+> Limitations: these skills are guidance that the model follows, not enforcement. They cannot block a command or a reply. Your own instructions and your repository's agent instructions take priority over them. Deterministic, hook-based checks are a separate open-source project, Truthstone (previously named AgentGuard), which runs locally and is installed from its GitHub repository (see the website link).
 
 Copy rules applied:
 
@@ -193,7 +193,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 | `skills`: "must resolve to the root `skills/` directory" [E] | `./skills/` | SKILLS-PATH |
 | `interface` required in the Codex format [S] | Present | INTERFACE |
 | `displayName` at most 30, `shortDescription` at most 30, one line [E] | 20 and 30 | DISPLAY-NAME, SHORT-DESCRIPTION |
-| `longDescription` at most 4,000 [E] | 2,727 | LONG-DESCRIPTION |
+| `longDescription` at most 4,000 [E] | 2,757 | LONG-DESCRIPTION |
 | `developerName` at most 80 [E] | 18 (the portal then replaces it with the verified name) | DEVELOPER-NAME |
 | `category` from the dashboard list [E] | Developer Tools | CATEGORY |
 | `capabilities`: at most 20, each at most 120 characters, one line [E] | 6, each at most 66 | CAPABILITIES |
@@ -416,7 +416,7 @@ Notes:
 | Folder | Result | What a reviewer will likely hold |
 |---|---|---|
 | `plugins/truthstone-practices` | Passes every row: manifest fields, README (577 words), LICENSE, file sizes and count (23 files), file types, no lockfile install, no package-source config, no credentials; instruction-only, so no data destinations | Nothing expected: it should pass clean |
-| `plugins/truthstone-claude` | Passes `validate --strict` and every blocking row: hook commands use full `${CLAUDE_PLUGIN_ROOT}` paths, `hooks/hooks.json` is valid, no unpinned package launcher, README (about 1,700 words), LICENSE, 16 files, no credentials (the daemon's bearer token is created locally and sent only to 127.0.0.1); its README discloses every data destination (GitHub for the runtime at tag `v0.2.0`, PyPI for its dependencies, uv's Python builds only without a usable Python) | Two holds, not blocks: (1) a package install in a hook script: `session-start.sh` installs the runtime from GitHub tag `v0.2.0`, with dependencies resolved from PyPI at install time within version ranges; (2) scripts the validator cannot follow: `hook.sh` and `session-start.sh` use `CLAUDE_PLUGIN_DATA`, `PWD` and command substitution and run the installed runtime's Python, and the six command skills run `command.sh` with `${CLAUDE_PLUGIN_DATA}`. The README section on what it runs, sends and fetches is the material for that review |
+| `plugins/truthstone-claude` | Passes `validate --strict` and every blocking row: hook commands use full `${CLAUDE_PLUGIN_ROOT}` paths, `hooks/hooks.json` is valid, no unpinned package launcher, README (about 1,900 words), LICENSE, 16 files, no credentials (the daemon's bearer token is created locally and sent only to 127.0.0.1); its README discloses every data destination (GitHub for the runtime at tag `v0.2.0`, PyPI for its dependencies, uv's Python builds only without a usable Python) | Two holds, not blocks: (1) a package install in a hook script: `session-start.sh` installs the runtime from GitHub tag `v0.2.0`, with dependencies resolved from PyPI at install time within version ranges; (2) scripts the validator cannot follow: `hook.sh` and `session-start.sh` use `CLAUDE_PLUGIN_DATA`, `PWD` and command substitution and run the installed runtime's Python, and the six command skills run `command.sh` with `${CLAUDE_PLUGIN_DATA}`. The README section on what it runs, sends and fetches is the material for that review |
 
 Before either submission: the repository must be public, and tag `v0.2.0` must exist on GitHub. Until the tag exists, every first session of the Claude Code plugin reports that it could not install its runtime and runs unguarded.
 
@@ -459,12 +459,13 @@ Truthstone build `f64ef60`, run 2026-11-13 to 14.
 | Controls | 48 of 48 succeeded in both arms; 0 of 48 false blocks |
 | Task success, 186 pairs | guarded 178 vs unguarded 160 (+9.7 points, task-cluster 95% CI +0.5 to +21.0) |
 | Cost | tokens 1.01x, wall-clock time 1.00x |
-| Gate | 7 of 8 targets passed; T6 (hook latency p95 at most 30 ms) missed: 38.3 ms over 1,993 hooks, with two runners on one machine |
+| Gate | The registered gate prints seven verdict lines (T1, T1b, T2, T3, T4, T5, T6; T4 covers T4a and T4b): six pass and T6 fails, so it reads FAIL. Counting T4a and T4b separately, 7 of 8 targets. T6 (hook latency p95 at most 30 ms) read 38.3 ms over 1,993 hooks; there is no clean, full-length single-runner measurement of this build yet |
 
 **Where each figure may be quoted.**
 
-- **Only for the hook plugin on Codex**, and only with "7 of 8 targets on a sealed run; T6
-  latency missed" beside them, and the context that the agent was Codex with `gpt-6.1-sol` on
+- **Only for the hook plugin on Codex**, and only with the gate verdict beside them: "registered
+  gate FAIL on a sealed run: six of seven gate lines pass, T6 latency missed (7 of 8 targets,
+  counting T4a and T4b separately)", and the context that the agent was Codex with `gpt-6.1-sol` on
   tasks built to tempt failure. Places: the repository README's Evidence section,
   `docs/RESULTS.md`, release notes, and a listing line or PR for the Codex hook plugin.
 - **Never for the skills-only companion, Truthstone Practices.** It was not measured. No figure

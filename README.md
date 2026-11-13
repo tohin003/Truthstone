@@ -3,7 +3,7 @@
 **A local, deterministic reliability layer for AI coding agents.**
 
 Truthstone attaches to the coding agent you already use, Claude Code or Codex, through that
-agent's own hooks, and makes the agent's mistakes hard to carry out. It does not replace
+agent's own hooks, and makes several common agent mistakes harder to carry out. It does not replace
 the agent, and it contains no LLM of its own. Everything runs on your machine.
 
 > The host provides intelligence. Truthstone provides discipline.
@@ -232,13 +232,23 @@ pairs). **Every 0.2.0 number was measured on Codex, with the Codex plugin in its
 configuration (the `minimal` profile).** None of them describes Claude Code, the `full` profile
 or the skills-only companion, which were not benchmarked.
 
+This was not a first attempt. Six earlier sealed runs (five held-out runs and a dress
+rehearsal), on earlier builds, failed their gates or were stopped early
+([every sealed run](docs/RESULTS.md#every-sealed-run)). Three changes to how the benchmark reads
+a run were registered before this one
+([amendments](docs/RESULTS.md#amendments-made-before-this-run)). And this run deviated from its
+registered design: its two halves ran at the same time on two accounts
+([limits](docs/RESULTS.md#limits)).
+
 - **False completions** on the 138 pairs with a trap: 2 guarded (1.4%) vs 25 unguarded (18.1%);
   exact McNemar p = 1.55e-06.
 - **Controls**: 48 of 48 succeeded in both arms, with no false block. **Cost**: tokens 1.01x,
   wall-clock time 1.00x.
-- **7 of 8 registered targets passed on the sealed run. The registered gate reads FAIL** on hook
-  latency (T6: p95 38.3 ms against a 30 ms bar), measured while two benchmark runners shared one
-  machine.
+- **Gate**: the registered gate prints seven verdict lines; six pass and T6 fails, so **the
+  registered gate reads FAIL**. Counting T4's two parts (T4a and T4b) separately, that is 7 of 8
+  targets. T6 is hook latency: p95 38.3 ms against a 30 ms bar, and there is no clean,
+  full-length single-runner measurement of this build yet
+  ([latency](docs/RESULTS.md#latency-t6)).
 - One agent and one model, on tasks built to tempt failure: these are not everyday rates.
 
 ![False completions by task family, guarded vs unguarded](docs/assets/heldout6-false-completions.svg)
@@ -272,9 +282,11 @@ measurements, not evidence of outcomes.
 - **It is an aid, not an authority.** You still review changes, approve irreversible
   commands and keep backups.
 - **Hosts limit what it can do.** Codex has no permission prompt that a hook can raise, so an
-  irreversible action there is denied until you confirm it, rather than asked about.
-  Non-interactive runs (`claude -p`, `codex exec`) cannot ask anyone, so sign-off requests
-  become denials.
+  irreversible action there is denied with a short code. You approve it by starting your next
+  prompt with `approve <code>`, or by running `truthstone approve <code>` in the project; the
+  agent's next attempt at exactly that action then runs, once. In `claude -p` nobody can answer
+  Claude Code's permission prompt, so a sign-off request becomes a denial; in `codex exec` there
+  is no next prompt, so `truthstone approve <code>` is the only way.
 - **The first session waits for the runtime install** (seconds; longer if `uv` must
   download Python). The daemon keeps running after an uninstall until you restart your
   computer or run `truthstone daemon stop`.
@@ -286,9 +298,10 @@ measurements, not evidence of outcomes.
   is reported as a member that does not exist. Under the default `minimal` profile this is only
   recorded in the local log. Under `profile = "full"` the edit is refused once with that wrong
   reason, and a retry goes through.
-- **The start-of-session reminder has a cost.** In the benchmark it sometimes made the agent
-  report "not done" over finished work it could not verify (3 of 36 and 5 of 49 doable guarded
-  sessions in two runs).
+- **The start-of-session reminder has a cost.** It sometimes makes the agent report "not done"
+  over finished work it could not verify. In two earlier benchmark runs that were stopped early,
+  on earlier builds, that happened in 3 of 36 and 5 of 49 doable guarded sessions, against 0 of
+  36 and 1 of 49 unguarded. The final run's report does not count it.
 - **Windows is not supported yet**, and hooks do not run in the hosts listed under
   [Where it runs](#where-it-runs).
 

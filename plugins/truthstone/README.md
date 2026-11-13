@@ -47,8 +47,10 @@ set it, else `truthstone-codex-hook` on your `PATH`, else a private copy in the 
   tests while asking for a failing test to pass, it adds a note saying so.
 - **Before shell commands and patches** (`PreToolUse` on `Bash` and `apply_patch`): checks
   the call against your repository and the task. Usually it says nothing. For an
-  irreversible action it denies the call until you confirm, because Codex has no permission
-  prompt that hooks can use. After a note that the request relies on something the
+  irreversible action it denies the call with a short code, because Codex has no permission
+  prompt that hooks can use: start your next prompt with `approve <code>`, or run
+  `truthstone approve <code>` in the project (the only way in `codex exec`), and the
+  next attempt at exactly that action runs, once. After a note that the request relies on something the
   repository lacks, it holds the first edit once and asks Codex to tell you first.
 - **After those calls** (`PostToolUse`): records what changed and any test results it can
   see.
@@ -151,7 +153,7 @@ your computer, or until you run `truthstone daemon stop`.
 - The Codex CLI, or local threads of the ChatGPT desktop app.
 - `uv` (https://docs.astral.sh/uv/getting-started/installation/) and `git`, unless you
   install the runtime yourself; Python 3.12 or later, which `uv` can provide.
-- macOS or Linux. Windows is untested.
+- macOS or Linux. Windows is not supported yet.
 
 ## Security
 

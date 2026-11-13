@@ -8,8 +8,9 @@ each release is the git tag `v<version>`, which is also where the plugins instal
 
 The first public release. The benchmark in [`docs/RESULTS.md`](docs/RESULTS.md) measured build
 `f64ef60`. This release differs from it only in the version string, the listing texts of the two
-host plugins, documentation, the benchmark registries and fixtures, and tests. Decision code is
-unchanged.
+host plugins (and one sentence of the companion's README), documentation, the benchmark
+registries and fixtures, the benchmark harness code under `src/truthstone/bench/`, tests, the CI
+workflows and one development dependency (`tzdata`). Decision code is unchanged.
 
 ### Added
 
@@ -68,11 +69,16 @@ unchanged.
 ### Benchmark
 
 - **Sealed comparison** on Codex `gpt-6.1-sol`, with the Codex plugin in its default `minimal`
-  profile (31 blind tasks x 3 phrasings x 2 replicates, both arms paired): false completions 2/138 (1.4%) guarded vs 25/138 (18.1%) unguarded; controls
-  48/48 in both arms with no false block; tokens 1.01x. 7 of 8 registered targets passed; the
-  registered gate reads FAIL on hook latency (T6, p95 38.3 ms against 30 ms). Claude Code, the
-  `full` profile and the skills-only companion were not benchmarked. Details, every earlier sealed
-  run and the limits: [`docs/RESULTS.md`](docs/RESULTS.md).
+  profile (31 blind tasks x 3 phrasings x 2 replicates, both arms paired): false completions
+  2/138 (1.4%) guarded vs 25/138 (18.1%) unguarded; controls 48/48 in both arms with no false
+  block; tokens 1.01x. The registered gate prints seven verdict lines: six pass and T6 fails, so
+  it reads FAIL; counting T4's two parts (T4a and T4b) separately, that is 7 of 8 targets. T6 is
+  hook latency (p95 38.3 ms against 30 ms); there is no clean, full-length single-runner
+  measurement of this build yet. Six earlier sealed runs on earlier builds failed their gates or
+  were stopped early; three changes to how the benchmark reads a run (G43, G44, G46) were registered before it; and this run's two
+  halves ran at the same time on two accounts, unlike its registered design. Claude Code, the
+  `full` profile and the skills-only companion were not benchmarked. Details, every earlier
+  sealed run and the limits: [`docs/RESULTS.md`](docs/RESULTS.md).
 - **Benchmark registry** ([`docs/BENCH-golden.md`](docs/BENCH-golden.md)): three new sealed
   held-out splits (G39, G49, G51), a sealed dress-rehearsal split (G38), five small blind probe
   splits (G42, G45, G47, G48, G50) and a development split of keep-the-tests controls (G40);

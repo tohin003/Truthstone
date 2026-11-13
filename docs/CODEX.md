@@ -26,7 +26,7 @@ in an isolated `CODEX_HOME` (model `gpt-6-luna`, reasoning effort `low`,
 
 Codex runs hooks in the **Codex CLI** and in **local threads of the ChatGPT desktop app**.
 Hooks do not run in the Codex IDE extension (it does not support plugins), in ChatGPT web
-or mobile, or in cloud tasks. macOS and Linux are supported. Windows is untested (the
+or mobile, or in cloud tasks. macOS and Linux are supported. Windows is not supported yet (the
 plugin's launcher is POSIX `sh`).
 
 **Only inside git repositories.** The plugin's launcher has a project gate: unless the
@@ -600,7 +600,7 @@ found, "all 6 AgentGuard hooks are trusted in Codex".
 - **`systemMessage` is invisible in `codex exec`.** The "session is unguarded", degraded
   and sign-off notices reach TUI/app users only. `truthstone doctor` remains the reliable
   check.
-- **Windows** is untested, and the plugin's launcher is POSIX `sh`.
+- **Windows** is not supported yet: the plugin's launcher is POSIX `sh`.
 - **The bootstrap source is pinned to this plugin's release tag**
   (`git+https://github.com/tohin003/Truthstone@v<plugin version>`, from `runtime_source()` in
   `adapters/codex/plugin.py`). An unpinned source would install whatever the default branch

@@ -79,7 +79,7 @@ SUPPORT_URL = f"{REPOSITORY_URL}/blob/master/docs/legal/SUPPORT.md"
 SHORT_DESCRIPTION = "Evidence checks for agent work"
 DESCRIPTION = (
     "Deterministic, LLM-free reliability layer for Codex. By default it checks what a request "
-    "takes for granted against the repository, denies irreversible commands until you confirm, "
+    "takes for granted against the repository, denies irreversible commands until you approve them, "
     "and holds a 'done' that the recorded test evidence contradicts. Everything else it checks "
     "is recorded, not shown."
 )
@@ -89,7 +89,8 @@ LONG_DESCRIPTION = (
     "when a request relies on something the repository does not have (it tells Codex at the prompt "
     "and holds the first edit once); when a request that keeps the tests asks for a failing test to "
     "pass (it quotes the documented rule closest to the request); before an irreversible shell "
-    "command (denied until you confirm); and at a 'done' that the recorded evidence contradicts, such "
+    "command (denied until you approve it with the code it gives); and at a 'done' that the "
+    "recorded evidence contradicts, such "
     "as relevant tests that fail while the message does not say so, or tests that were weakened or "
     "skipped (the turn is held once). It also adds a short reminder at the first prompt of each "
     "session. When it speaks, it hands its evidence back to Codex, so the agent's own reasoning can "
@@ -390,8 +391,10 @@ set it, else `{command}` on your `PATH`, else a private copy in the plugin's dat
   tests while asking for a failing test to pass, it adds a note saying so.
 - **Before shell commands and patches** (`PreToolUse` on `Bash` and `apply_patch`): checks
   the call against your repository and the task. Usually it says nothing. For an
-  irreversible action it denies the call until you confirm, because Codex has no permission
-  prompt that hooks can use. After a note that the request relies on something the
+  irreversible action it denies the call with a short code, because Codex has no permission
+  prompt that hooks can use: start your next prompt with `approve <code>`, or run
+  `truthstone approve <code>` in the project (the only way in `codex exec`), and the
+  next attempt at exactly that action runs, once. After a note that the request relies on something the
   repository lacks, it holds the first edit once and asks Codex to tell you first.
 - **After those calls** (`PostToolUse`): records what changed and any test results it can
   see.
@@ -494,7 +497,7 @@ your computer, or until you run `truthstone daemon stop`.
 - The Codex CLI, or local threads of the ChatGPT desktop app.
 - `uv` (https://docs.astral.sh/uv/getting-started/installation/) and `git`, unless you
   install the runtime yourself; Python 3.12 or later, which `uv` can provide.
-- macOS or Linux. Windows is untested.
+- macOS or Linux. Windows is not supported yet.
 
 ## Security
 
