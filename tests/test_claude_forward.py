@@ -240,7 +240,11 @@ class TestFailOpen:
         (isolated_home / "daemon.json").symlink_to(real)
         assert forward.read_handshake(str(isolated_home)) is None
 
-    @pytest.mark.parametrize("payload", [b"", b"   ", b"x" * (forward.MAX_STDIN_BYTES + 1)])
+    # Short ids: the default id of the third payload is the megabyte itself, printed in every report line
+    # that names the test.
+    @pytest.mark.parametrize(
+        "payload", [b"", b"   ", b"x" * (forward.MAX_STDIN_BYTES + 1)], ids=["empty", "blank", "oversized"]
+    )
     def test_empty_or_oversized_input(self, fake_daemon, isolated_home, payload):
         result = run_forward(isolated_home, payload)
         assert (result.returncode, result.stdout) == (0, b"")
