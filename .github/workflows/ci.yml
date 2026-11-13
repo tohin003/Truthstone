@@ -29,7 +29,8 @@ jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python }} / ${{ matrix.extras }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # The suite takes about 10 minutes on Linux and 35 to 45 on macOS runners.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -37,10 +38,10 @@ jobs:
         python: ["3.12", "3.13"]
         extras: [base, all-extras]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv and Python ${{ matrix.python }}
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
@@ -70,12 +71,12 @@ jobs:
     runs-on: windows-latest
     # Windows is unsupported this release (IMPROVEMENTS.md R2): report, never block.
     continue-on-error: true
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv and Python 3.13
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.13"
           enable-cache: true
