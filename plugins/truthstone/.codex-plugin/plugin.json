@@ -1,6 +1,6 @@
 {
   "name": "truthstone",
-  "version": "0.1.0-dev.0",
+  "version": "0.2.0",
   "description": "Deterministic, LLM-free reliability layer for Codex. It grounds the agent's claims in repository evidence, sizes planning to the task, watches scope, and holds an unverified 'done' until tests back it. Silent unless it has evidence.",
   "author": {
     "name": "Tohin Majumder",

@@ -1,8 +1,8 @@
 {
   "name": "truthstone",
   "displayName": "Truthstone",
-  "version": "0.1.0",
-  "description": "Truthstone (previously named AgentGuard) is a local, deterministic reliability layer for Claude Code: its hooks check the agent's claims against your repository, send risky or out-of-scope actions back to you for review, and hold an unverified \"done\" until tests have run. Inside git repositories only, it reads prompts and edit, shell and MCP tool calls on your machine, keeps a local log, never grants permissions and sends no telemetry. The first session downloads its runtime with uv from GitHub (opt out with TRUTHSTONE_NO_BOOTSTRAP=1).",
+  "version": "0.2.0",
+  "description": "Truthstone (previously named AgentGuard) is a local, deterministic reliability layer for Claude Code: its hooks check the request against your repository, send irreversible or destructive commands back to you for review, and hold a \"done\" that the recorded test evidence contradicts. Inside git repositories only, it reads prompts and edit, shell and MCP tool calls on your machine, keeps a local log, never grants permissions and sends no telemetry. The first session downloads its runtime with uv from GitHub (opt out with TRUTHSTONE_NO_BOOTSTRAP=1).",
   "author": {
     "name": "Tohin Majumder",
     "email": "tohin1400@gmail.com",

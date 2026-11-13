@@ -58,7 +58,7 @@ does the same job.
 `TRUTHSTONE_NO_BOOTSTRAP` is not set, the script installs a private copy into the plugin's
 data folder, never onto your `PATH`:
 
-    uv tool install --reinstall git+https://github.com/tohin003/Truthstone@v0.1.0-dev.0
+    uv tool install --reinstall git+https://github.com/tohin003/Truthstone@v0.2.0
 
 That fetches this plugin's own release from GitHub, and the runtime's dependencies from the
 Python Package Index; `uv` downloads a CPython 3.12 or later interpreter only if you have no
@@ -69,7 +69,7 @@ uploaded.
 
 **No download.** Set `TRUTHSTONE_NO_BOOTSTRAP=1` and install the runtime yourself:
 
-    uv tool install git+https://github.com/tohin003/Truthstone@v0.1.0-dev.0
+    uv tool install git+https://github.com/tohin003/Truthstone@v0.2.0
 
 That puts `truthstone-codex-hook` on your `PATH`, which the script uses first.
 

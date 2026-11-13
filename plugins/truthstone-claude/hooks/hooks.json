@@ -1,5 +1,5 @@
 {
-  "description": "Truthstone: evidence checks, risk and scope review, and a completion gate. Every hook runs a shell script in this plugin's scripts/ folder. scripts/session-start.sh installs the Truthstone runtime with uv on first use, the plugin's only download (TRUTHSTONE_NO_BOOTSTRAP=1 makes it use a runtime you installed instead); scripts/hook.sh hands every other event to that runtime and installs nothing. Outside a git work tree both do nothing.",
+  "description": "Truthstone: evidence checks, sign-off for risky commands, and a completion gate. Every hook runs a shell script in this plugin's scripts/ folder. scripts/session-start.sh installs the Truthstone runtime with uv on first use, the plugin's only download (TRUTHSTONE_NO_BOOTSTRAP=1 makes it use a runtime you installed instead); scripts/hook.sh hands every other event to that runtime and installs nothing. Outside a git work tree both do nothing.",
   "hooks": {
     "SessionStart": [
       {

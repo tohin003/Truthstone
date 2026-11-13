@@ -55,7 +55,7 @@ The hooks call the Truthstone runtime (Python 3.12+). Install it once, from the 
 tag that matches the plugin:
 
 ```bash
-uv tool install git+https://github.com/tohin003/Truthstone@v0.1.0   # or: pipx install git+https://…@v0.1.0
+uv tool install git+https://github.com/tohin003/Truthstone@v0.2.0   # or: pipx install git+https://…@v0.2.0
 ```
 
 If `uv` is available and no runtime is installed, the plugin installs a **private copy** on

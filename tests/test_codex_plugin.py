@@ -175,6 +175,9 @@ class TestPackage:
 # rename-tool: re-pinned for Truthstone by scripts/rename_product.py; confirm via Codex hooks/list.
 # Re-pinned 2026-11-12 (day 5, T5) for the skill's description only (SKILL.md frontmatter; body,
 # hooks and launcher unchanged, declarations unchanged): it no longer invites a read at every hold.
+# Re-pinned 2026-11-14 for the 0.2.0 release: the version in plugin.json and the runtime tag
+# (v0.2.0) in the launcher, README.md and SECURITY.md only (declarations unchanged; computed with
+# plugin_content_hash, to confirm via Codex hooks/list before release).
 EXPECTED_DECLARATIONS = {
     "session_start:0:0": "sha256:16dff026e1a8d1e64802603624e8b79a31721cd548267e454c61785e61eb44f1",
     "user_prompt_submit:0:0": "sha256:84136a898ae55a7db4af13318f1a7d1cb886b9887902badeb965c2cee8c56aea",
@@ -183,7 +186,7 @@ EXPECTED_DECLARATIONS = {
     "stop:0:0": "sha256:b2931aa1e2dff91be51fbf1b04d762ea66ae745aeedb8add18bd0b18f61a7a4c",
     "session_end:0:0": "sha256:d4b915624c939d7eb8f1e2514f3108fcef452f9a079dc1f89aa0ecb34a01d681",
 }
-EXPECTED_PLUGIN_FINGERPRINT = "sha256:f8ae973dbad9407acbe0c5367ab082c786834187ddf793f220cdf173de8028ea"
+EXPECTED_PLUGIN_FINGERPRINT = "sha256:ebe3736d54b1276a1a042ec87adae5ebf3b8224b34ec522413c842aae1f7189e"
 
 RETRUST = (
     "This changes what Codex fingerprints, so every user will have to review and trust "
