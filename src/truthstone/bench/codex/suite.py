@@ -109,6 +109,8 @@ SUITES: dict[str, SuiteSpec] = {
     # recipes, built blind to the product after golden-heldout4 was spent by the final release run's
     # futility stop; registered under `weakening-g44` from the start.
     "golden-heldout5": SuiteSpec("golden-heldout5", GOLDEN_ROOT, "heldout5", "weakening-g44", True),
+    # The sixth held-out split, being built; registered for building only (not yet frozen).
+    "golden-heldout6": SuiteSpec("golden-heldout6", GOLDEN_ROOT, "heldout6", "weakening-g44", True),
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),

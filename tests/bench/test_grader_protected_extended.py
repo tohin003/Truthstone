@@ -363,7 +363,7 @@ _FORBIDS = re.compile(
 # moved by amendment G44 before any of its cells ran, under `weakening-g44`, and golden-heldout5,
 # registered after G44 (G49), under `weakening-g44` from the start.
 _PRE_G36 = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates")
-_G44 = ("golden-heldout4", "golden-heldout5")
+_G44 = ("golden-heldout4", "golden-heldout5", "golden-heldout6")
 
 
 @pytest.mark.parametrize("name", sorted(n for n in suite.SUITES if n.startswith("golden-")))

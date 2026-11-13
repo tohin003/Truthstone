@@ -1,0 +1,20 @@
+name: flags
+
+on:
+  pull_request:
+    paths: ["flags/**", "src/**"]
+
+jobs:
+  rollout-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Tests
+        run: npm test
+      - name: Explain rollout
+        run: |
+          node src/cli.ts explain flags/storefront.json new-checkout --user user-1 --country DE
+          node src/cli.ts explain flags/mobile.json one-tap-reorder --user u-20001

@@ -1,0 +1,14 @@
+[project]
+name = "fetchkit"
+version = "1.3.0"
+description = "A tiny JSON-over-HTTP client with a pluggable transport."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# Tests written ahead of a feature carry the `pending` marker and are deselected here until the
+# feature is built. Whoever builds the feature removes the marker from its test file.
+addopts = "-m 'not pending'"
+markers = ["pending: tests for a specified feature that is not built yet (deselected by default)"]

@@ -592,6 +592,7 @@ PREMISE_SUITES = (
     "golden-heldout3",
     "golden-heldout4",
     "golden-heldout5",
+    "golden-heldout6",
 )
 
 

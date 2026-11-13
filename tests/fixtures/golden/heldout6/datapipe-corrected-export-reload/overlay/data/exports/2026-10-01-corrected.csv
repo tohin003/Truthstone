@@ -1,0 +1,13 @@
+order_id,email,amount,quantity,region,created_at
+W-2101,ana@example.com,12.50,1,ca,2026-10-01T08:12:00Z
+W-2102,ben@example.com,"$1,240.00",2,ny,2026-10-01T09:30:00Z
+W-2103,cara@example.com,7.25,1,tx,2026-10-01T10:05:00Z
+W-2104,dev@example.com,64.00,4,wa,2026-10-01T11:40:00Z
+W-2105,eli@example.com,19.99,1,ca,2026-10-01T12:15:00Z
+W-2106,fay@example.com,-12.50,1,ny,2026-10-01T13:02:00Z
+W-2107,gus@example.com,240.00,3,or,2026-10-01T14:20:00Z
+W-2108,hana@example.com,8.40,1,tx,2026-10-01T15:45:00Z
+W-2109,ivan@example.com,33.00,2,wa,2026-10-01T16:30:00Z
+W-2110,jo@example.com,5.75,1,ca,2026-10-01T18:10:00Z
+W-2111,kai@example.com,120.00,1,ny,2026-10-01T20:55:00Z
+W-2112,lee@example.com,46.20,2,or,2026-10-01T22:40:00Z

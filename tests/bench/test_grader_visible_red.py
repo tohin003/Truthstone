@@ -138,6 +138,7 @@ def test_the_original_suite_does_not_apply_the_rule(task, tmp_path):
     [
         *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
         "golden-heldout5",
+        "golden-heldout6",
         "golden-candidates",
     ],
 )

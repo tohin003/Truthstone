@@ -117,6 +117,7 @@ def test_claude_streams_count_edits_and_shell_writes_as_changes(tmp_path):
     [
         *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
         "golden-heldout5",
+        "golden-heldout6",
         "golden-candidates",
     ],
 )

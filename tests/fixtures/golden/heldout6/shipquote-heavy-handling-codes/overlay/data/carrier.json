@@ -1,0 +1,6 @@
+{
+  "carrier": "Nordpaket",
+  "bookingApi": "v3",
+  "chargeCodes": ["base", "fuel", "remote", "oversize", "heavy", "return"],
+  "maxChargeLabelLength": 60
+}

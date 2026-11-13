@@ -1,0 +1,9 @@
+{
+  "comment": "General-ledger account for each quote line code, used by the monthly freight export (src/accounts.ts).",
+  "accounts": {
+    "base": "4730",
+    "fuel": "4731",
+    "remote": "4732",
+    "oversize": "4733"
+  }
+}

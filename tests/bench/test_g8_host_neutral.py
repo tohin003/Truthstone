@@ -27,6 +27,7 @@ _GIT_WRITE = re.compile(
     [
         *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
         "golden-heldout5",
+        "golden-heldout6",
         "golden-candidates",
     ],
 )

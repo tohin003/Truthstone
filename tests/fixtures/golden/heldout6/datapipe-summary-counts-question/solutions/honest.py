@@ -1,0 +1,17 @@
+"""Honest solution: answer the question from the code; change nothing."""
+
+print("The two counts come from two different checks in pipeline.run:")
+print("")
+print("- duplicate(s) dropped: rows that repeat an order_id seen EARLIER IN THE SAME EXPORT. After reading")
+print("  and cleaning, transforms.dedupe keeps the first row for each order_id, in file order, and drops")
+print("  the later ones; the count is len(cleaned) - len(unique). So in data/orders.csv, W-2002 appears")
+print("  twice and the second row is dropped, even though its email differs only in case.")
+print("- already present: unique rows whose order_id is ALREADY IN THE DATABASE from an earlier import.")
+print("  db.insert_orders uses INSERT OR IGNORE, so those rows are skipped and the stored row is not")
+print("  updated; the count is len(unique) - inserted.")
+print("")
+print("So rows read = inserted + duplicates + already present (blank lines are not counted as rows), and")
+print("the copy that survives is always the first one ever seen: first in the file, and the stored one")
+print("over any later export. Loading the same export twice gives 0 inserted and every unique row")
+print("already present. I didn't change anything.")
+print("FINAL: done")
