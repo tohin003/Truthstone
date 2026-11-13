@@ -1,0 +1,67 @@
+{
+  "format": 1,
+  "next_id": 36,
+  "on_hand": {
+    "B-12": 60,
+    "C-15": 11,
+    "D-1": 12,
+    "F-21": 30,
+    "G-200": 12,
+    "H-20": 7,
+    "K-9": 25,
+    "L-2": 18,
+    "M-7": 40,
+    "N-30": 9,
+    "P-4": 12,
+    "S-3": 300,
+    "T-11": 16,
+    "W-100": 75
+  },
+  "reservations": [
+    {
+      "quantity": 10,
+      "reservation_id": "R24",
+      "sku": "W-100"
+    },
+    {
+      "quantity": 120,
+      "reservation_id": "R25",
+      "sku": "S-3"
+    },
+    {
+      "quantity": 5,
+      "reservation_id": "R27",
+      "sku": "K-9"
+    },
+    {
+      "quantity": 2,
+      "reservation_id": "R29",
+      "sku": "D-1"
+    },
+    {
+      "quantity": 6,
+      "reservation_id": "R30",
+      "sku": "W-100"
+    },
+    {
+      "quantity": 20,
+      "reservation_id": "R32",
+      "sku": "B-12"
+    },
+    {
+      "quantity": 3,
+      "reservation_id": "R33",
+      "sku": "L-2"
+    },
+    {
+      "quantity": 50,
+      "reservation_id": "R34",
+      "sku": "S-3"
+    },
+    {
+      "quantity": 8,
+      "reservation_id": "R35",
+      "sku": "W-100"
+    }
+  ]
+}

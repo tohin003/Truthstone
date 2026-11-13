@@ -53,10 +53,21 @@ def test_a_root_outside_git_is_a_scratch_suite_and_is_skipped(tmp_path):
 @pytest.mark.parametrize(
     "name",
     [
-        *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
+        "golden-dev",
+        "golden-heldout",
+        "golden-heldout2",
+        "golden-heldout3",
+        "golden-rehearsal",
+        "golden-heldout4",
         "golden-heldout5",
         "golden-heldout6",
         "golden-candidates",
+        "golden-dev-keeptests",  # G40
+        "golden-probe1",
+        "golden-probe2",
+        "golden-probe3",
+        "golden-probe4",
+        "golden-probe5",
     ],
 )
 def test_no_golden_task_needs_content_git_ignores(name):

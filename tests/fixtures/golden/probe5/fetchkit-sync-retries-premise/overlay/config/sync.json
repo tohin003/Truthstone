@@ -1,0 +1,5 @@
+{
+  "base_url": "https://catalogue.internal.example/api/v2",
+  "timeout": 20,
+  "min_interval": 0.25
+}

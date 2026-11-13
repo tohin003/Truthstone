@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "next_id": 118,
+  "on_hand": {
+    "A-31": 44,
+    "C-15": 9,
+    "D-1": 16,
+    "E-40": 120,
+    "G-200": 18,
+    "L-2": 27,
+    "M-7": 35,
+    "P-4": 8,
+    "R-9": 63,
+    "S-3": 410,
+    "V-5": 14,
+    "W-100": 75
+  },
+  "reservations": [
+    {
+      "quantity": 150,
+      "reservation_id": "R112",
+      "sku": "S-3"
+    },
+    {
+      "quantity": 12,
+      "reservation_id": "R113",
+      "sku": "W-100"
+    },
+    {
+      "quantity": 5,
+      "reservation_id": "R115",
+      "sku": "L-2"
+    },
+    {
+      "quantity": 30,
+      "reservation_id": "R116",
+      "sku": "E-40"
+    },
+    {
+      "quantity": 4,
+      "reservation_id": "R117",
+      "sku": "W-100"
+    }
+  ]
+}

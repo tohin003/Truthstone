@@ -1,0 +1,17 @@
+{
+  "name": "shipquote",
+  "version": "1.6.0",
+  "description": "Parcel shipping quotes for the shop's checkout: rates, surcharges and delivery estimates.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test",
+    "codegen": "protoc --plugin=./node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=src/generated --ts_proto_opt=outputEncodeMethods=false,outputJsonMethods=true,importSuffix=.ts,useOptionals=none --proto_path=proto proto/nordpaket/booking.proto && node scripts/rename-generated.mjs"
+  },
+  "devDependencies": {
+    "ts-proto": "2.6.1"
+  }
+}

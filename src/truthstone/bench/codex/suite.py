@@ -6,11 +6,17 @@ are named (``SUITES``): ``codex_bench`` is the original 32-task suite
 disjoint splits of the golden set (``tests/fixtures/golden/{dev,heldout}``), which share
 that directory's ``bases/`` and ``protocol/``; ``golden-heldout2`` (``heldout2/``) is a second
 sealed held-out split of the same families, built blind after the first was spent (G22),
-``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28),
-``golden-heldout4`` (``heldout4/``) a fourth, built blind after the third was spent (G39),
-``golden-heldout5`` (``heldout5/``) a fifth, built blind after the fourth was spent (G49), and
-``golden-heldout6`` (``heldout6/``) a sixth, built blind after the fifth was spent (G51). A
-plan pins its suite by name and digest.
+``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28);
+``golden-rehearsal`` (``rehearsal/``) is the dress rehearsal before the fourth, built blind the
+same way after the third was spent (G38); ``golden-heldout4`` (``heldout4/``) is a fourth, built
+blind after the third was spent (G39), ``golden-heldout5`` (``heldout5/``) a fifth, built blind
+after the fourth was spent (G49), and ``golden-heldout6`` (``heldout6/``) a sixth, built blind
+after the fifth was spent (G51). ``golden-dev-keeptests`` (``dev-keeptests/``) is a dev split of
+honest keep-the-tests controls (G40), never frozen; ``golden-probe1`` (``probe1/``) is an
+out-of-sample probe split built blind before the fourth held-out split (G42), never frozen;
+``golden-probe2`` (``probe2/``) is a second one, built the same way (G45), ``golden-probe3``
+(``probe3/``) a third (G47), ``golden-probe4`` (``probe4/``) a fourth (G48) and ``golden-probe5``
+(``probe5/``) a fifth (G50). A plan pins its suite by name and digest.
 
 A task is a directory ``<suite>/<tasks dir>/<id>/``:
 
@@ -99,6 +105,11 @@ SUITES: dict[str, SuiteSpec] = {
     # The third sealed held-out split (amendment G28): new instances of the same families and
     # recipes, built blind to the product after golden-heldout2 was spent on the second release run.
     "golden-heldout3": SuiteSpec("golden-heldout3", GOLDEN_ROOT, "heldout3", "weakening", True),
+    # The dress rehearsal (amendment G38): a sealed split composed and built exactly like a held-out
+    # split, blind to the product and its fixes, after golden-heldout3 was spent; run before heldout4.
+    # Registered after G36, so it is graded under `weakening-g36` (the launch branch's switch, round-4
+    # settlement S11; the policy lives here, so the frozen digest is unchanged).
+    "golden-rehearsal": SuiteSpec("golden-rehearsal", GOLDEN_ROOT, "rehearsal", "weakening-g36", True),
     # The fourth sealed held-out split (amendment G39): new instances of the same families and
     # recipes, built blind to the product, its fixes and the dress rehearsal after golden-heldout3
     # was spent on the third release run; the split of the final release run. Registered after G36,
@@ -117,6 +128,29 @@ SUITES: dict[str, SuiteSpec] = {
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
     "golden-candidates": SuiteSpec("golden-candidates", GOLDEN_ROOT, "candidates", "weakening", True),
+    # A dev split (amendment G40): honest controls whose request keeps the tests and asks for a red
+    # test to pass. Never frozen, never sealed, never a release split: any plan may use it.
+    "golden-dev-keeptests": SuiteSpec(
+        "golden-dev-keeptests", GOLDEN_ROOT, "dev-keeptests", "weakening-g36", True
+    ),
+    # An out-of-sample probe split (amendment G42), built blind like a held-out split before golden-heldout4.
+    # Never frozen, spent or held out: any plan may use it, whole or in part. Its digest is in §4.
+    "golden-probe1": SuiteSpec("golden-probe1", GOLDEN_ROOT, "probe1", "weakening-g36", True),
+    # A second out-of-sample probe split (amendment G45), built blind like probe1 before golden-heldout4.
+    # Never frozen, spent or held out: any plan may use it, whole or in part. Its digest is in §4.
+    "golden-probe2": SuiteSpec("golden-probe2", GOLDEN_ROOT, "probe2", "weakening-g36", True),
+    # A third out-of-sample probe split (amendment G47), built blind like probe1 and probe2 before
+    # golden-heldout4, graded under weakening-g44. Never frozen, spent or held out: any plan may use
+    # it, whole or in part. Its digest is in §4.
+    "golden-probe3": SuiteSpec("golden-probe3", GOLDEN_ROOT, "probe3", "weakening-g44", True),
+    # A fourth out-of-sample probe split (amendment G48), built blind like probe1-3 before
+    # golden-heldout4, graded under weakening-g44. Never frozen, spent or held out: any plan may use
+    # it, whole or in part. Its digest is in §4.
+    "golden-probe4": SuiteSpec("golden-probe4", GOLDEN_ROOT, "probe4", "weakening-g44", True),
+    # A fifth out-of-sample probe split (amendment G50), built blind like probe1-4, graded under
+    # weakening-g44. Never frozen, spent or held out: any plan may use it, whole or in part. Its
+    # digest is in §4.
+    "golden-probe5": SuiteSpec("golden-probe5", GOLDEN_ROOT, "probe5", "weakening-g44", True),
 }
 # G36 added the third, G44 the fourth
 PROTECTED_POLICIES = ("byte", "weakening", "weakening-g36", "weakening-g44")
@@ -141,6 +175,9 @@ FROZEN: dict[str, str] = {
     # G28: the third sealed held-out split, frozen on registration (2026-11-06 18:10 IST), built
     # blind after golden-heldout2 was spent; nobody runs or reads it before its release run.
     "golden-heldout3": "58fbcf3b13a4bcba35cd42d50226262ebb7b70cd46cf0c87ea732c6089057d94",
+    # G38: the dress rehearsal, frozen on registration (2026-11-08 05:13 IST), built blind like a
+    # held-out split after golden-heldout3 was spent; nobody runs or reads it before its run.
+    "golden-rehearsal": "853ef6e1f6379e96a1098f2a5da38221777021d491502722f91269dd019ffefa",
     # G39: the fourth sealed held-out split, the final release run's, frozen on registration
     # (2026-11-08 11:51 IST), built blind after golden-heldout3 was spent and blind to the dress
     # rehearsal; nobody runs or reads it before its release run.
@@ -156,11 +193,21 @@ FROZEN: dict[str, str] = {
 # Spent splits (amendment G26): frozen splits whose release run is done. Still read-only, and a
 # main study still needs every task, unchanged; a dev check may register some of their tasks (any
 # stage but main), as long as the whole split still digests to its frozen value. golden-heldout2 is
-# spent too, by the second release run (G28, G30), golden-heldout3 by the third (G35),
-# golden-heldout4 by the final release run, stopped for futility on 2026-11-13 (G49), and
-# golden-heldout5 by its release run, stopped for futility on 2026-11-13 (G51).
+# spent too, by the second release run (G28, G30), golden-heldout3 by the third (G35), the
+# dress rehearsal by its own run, read on Nov 8 (G41), golden-heldout4 by the final release run,
+# stopped for futility on 2026-11-13 (G49), golden-heldout5 by its release run, stopped for
+# futility on 2026-11-13 (G51), and golden-heldout6 by its release run, run to completion and read
+# out on 2026-11-14.
 SPENT: frozenset[str] = frozenset(
-    {"golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4", "golden-heldout5"}
+    {
+        "golden-heldout",
+        "golden-heldout2",
+        "golden-heldout3",
+        "golden-rehearsal",
+        "golden-heldout4",
+        "golden-heldout5",
+        "golden-heldout6",
+    }
 )
 
 # Rework families with no candidate recipe at >= 10% on Sol (amendment G6 rule 3, applied by G11):

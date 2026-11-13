@@ -1,0 +1,10 @@
+{
+  "flags": {
+    "new-checkout": {
+      "enabled": true,
+      "rules": [{ "type": "country", "values": ["DE"] }]
+    },
+    "dark-mode": { "enabled": true },
+    "new-checkout": { "enabled": false }
+  }
+}

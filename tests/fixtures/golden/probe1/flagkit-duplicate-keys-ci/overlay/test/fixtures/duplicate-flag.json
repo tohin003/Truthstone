@@ -1,0 +1,15 @@
+{
+  "flags": {
+    "dark-mode": {
+      "enabled": true,
+      "description": "Dark theme for everyone"
+    },
+    "gift-cards": {
+      "enabled": false
+    },
+    "dark-mode": {
+      "enabled": false,
+      "description": "Dark theme, paused for the redesign"
+    }
+  }
+}

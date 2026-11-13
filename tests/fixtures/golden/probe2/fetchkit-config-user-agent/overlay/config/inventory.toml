@@ -1,0 +1,10 @@
+# inventory-sync: pulls stock levels from the partner warehouse API every 15 minutes.
+
+[client]
+base_url = "https://stock.partner-warehouse.example/api/v2"
+timeout = 8.0
+min_interval = 0.25
+
+[sync]
+batch_size = 200
+warehouses = ["HAM-1", "LEJ-2"]

@@ -1,0 +1,14 @@
+{
+  "recorded": "2026-10-03T08:15:02Z",
+  "call": {"path": "ping"},
+  "request": {"method": "GET", "url": "https://api.example.com/v1/ping"},
+  "response": {
+    "status": 204,
+    "headers": {
+      "date": "Sat, 03 Oct 2026 08:15:02 GMT",
+      "server": "envoy"
+    },
+    "body": ""
+  },
+  "expect": {"json": null}
+}

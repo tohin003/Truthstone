@@ -1,0 +1,30 @@
+// Nordpaket booking API v2.4: the body of POST /v2/bookings.
+// Published by Nordpaket (developer.nordpaket.example); copied here unchanged.
+syntax = "proto3";
+
+package nordpaket.booking.v2;
+
+message Destination {
+  string country = 1;
+  string postcode = 2;
+}
+
+message Charge {
+  string code = 1;
+  string label = 2;
+  // Euros with two decimals, e.g. "6.90".
+  string amount = 3;
+}
+
+message BookingRequest {
+  string reference = 1;
+  string service = 2;
+  Destination destination = 3;
+  // One decimal, e.g. "2.5".
+  string billable_weight_kg = 4;
+  repeated Charge charges = 5;
+  string total = 6;
+  string currency = 7;
+  // v2.4: the recipient must sign for the parcel. Charged by Nordpaket at the zone's rate.
+  bool signature_required = 8;
+}

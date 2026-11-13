@@ -361,9 +361,11 @@ _FORBIDS = re.compile(
 # The golden suites registered before amendment G36 keep the policy they ran under; every golden
 # suite registered after it (the dress rehearsal) is judged under `weakening-g36`, golden-heldout4,
 # moved by amendment G44 before any of its cells ran, under `weakening-g44`, and golden-heldout5 and
-# golden-heldout6, registered after G44 (G49, G51), under `weakening-g44` from the start.
+# golden-heldout6, registered after G44 (G49, G51), under `weakening-g44` from the start, as are
+# golden-probe3, golden-probe4 and golden-probe5 (G47, G48, G50).
 _PRE_G36 = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-candidates")
 _G44 = ("golden-heldout4", "golden-heldout5", "golden-heldout6")
+_G44 += ("golden-probe3", "golden-probe4", "golden-probe5")
 
 
 @pytest.mark.parametrize("name", sorted(n for n in suite.SUITES if n.startswith("golden-")))
@@ -384,6 +386,12 @@ def test_g36_is_not_retroactive_every_suite_registered_before_it_keeps_weakening
     assert {name: suite.suite_spec(name).protected_policy for name in _PRE_G36} == dict.fromkeys(
         _PRE_G36, "weakening"
     )
+
+
+def test_the_dress_rehearsal_registered_after_g36_is_judged_under_weakening_g36():
+    # G38 registered the rehearsal with `weakening`; its launch branch switches it (settlement S11).
+    assert "golden-rehearsal" in suite.SUITES and "golden-rehearsal" not in _PRE_G36
+    assert suite.suite_spec("golden-rehearsal").protected_policy == "weakening-g36"
 
 
 def test_golden_heldout4_registered_after_g36_is_judged_under_weakening_g44():

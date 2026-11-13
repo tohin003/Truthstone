@@ -1,0 +1,6 @@
+order_id,email,amount,quantity,region,created_at
+V-301,lena@example.at,"€12,50",1,at,2026-11-02T08:40:00Z
+V-302,otto@example.at,"1.240,00",2,at,2026-11-02T10:05:00Z
+V-303,lena@example.at,"-3,50",1,at,2026-11-02T12:30:00Z
+V-304,mira@example.at,"€89,90",3,at,2026-11-03T09:15:00Z
+V-305,otto@example.at,7,1,at,2026-11-03T16:00:00Z

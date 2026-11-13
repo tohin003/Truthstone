@@ -1,0 +1,10 @@
+{
+  "flags": {
+    "dark-mode": { "enabled": true, "description": "Dark theme" },
+    "gift-cards": {
+      "enabled": false,
+      "description": "Gift cards (waiting on legal)",
+      "enabled": true
+    }
+  }
+}

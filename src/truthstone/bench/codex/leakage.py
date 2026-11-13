@@ -23,10 +23,21 @@ from pathlib import Path
 from truthstone.bench.codex import suite
 
 GOLDEN_SUITES = (
-    *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
+    "golden-dev",
+    "golden-heldout",
+    "golden-heldout2",
+    "golden-heldout3",
+    "golden-rehearsal",
+    "golden-heldout4",
     "golden-heldout5",
     "golden-heldout6",
     "golden-candidates",
+    "golden-dev-keeptests",  # G40: a dev split, never frozen; its strings are task material too
+    "golden-probe1",  # G42: a probe split, never frozen; its strings are task material too
+    "golden-probe2",  # G45: a second probe split, never frozen; its strings are task material too
+    "golden-probe3",  # G47: a third probe split, never frozen; its strings are task material too
+    "golden-probe4",  # G48: a fourth probe split, never frozen; its strings are task material too
+    "golden-probe5",  # G50: a fifth probe split, never frozen; its strings are task material too
 )
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")
@@ -166,20 +177,51 @@ STOPWORDS = frozenset(
         # Reviewed 2026-11-06 (day 3): external names a detector must match as written.
         "ds_store",  # an operating-system metadata file name
         "toequal", "tothrowerror",  # test-framework assertion APIs
+        # Reviewed 2026-11-08 (G38, building golden-rehearsal, which postdates the product code):
+        # generic, in a new task and already in the product's code or tests. A test-framework hook,
+        # a test-outcome word, two common test module names, a working-directory word and an
+        # English word; the one task-specific overlap (a function name) was renamed in its task.
+        "aftereach", "xfailed", "test_db", "test_money", "workdir", "spreadsheet",
+        # Reviewed 2026-11-08 (round-4 settlement S29, merging golden-rehearsal onto the product
+        # commit 308f021 for its launch branch): an external API name a product detector, written on
+        # a branch that never held the rehearsal, must match as written (as the day-3 names above).
+        "execsync",
         # Reviewed 2026-11-08 (G39, building golden-heldout4): external names new tasks use as
         # written and the product's code or tests already hold: two pytest APIs and a JavaScript
         # platform global. Every other overlap was renamed in its task.
         "at_level", "importorskip", "structuredclone",
+        # Reviewed 2026-11-12 (G42, freezing golden-probe1, built blind after the product code):
+        # generic, in a new task and already in the product's code or tests. Three English words
+        # (two British spellings and a compound noun), a common package-script name, and a dunder
+        # after a newline escape in a Python string literal (as nexport and nversion above).
+        "colours", "honoured", "marketplace", "typecheck", "n__all__",
+        # Reviewed 2026-11-13 (G45, freezing golden-probe2, built blind after the product code):
+        # generic, in a new task and already in the product's code or tests. Three common snake_case
+        # names for a batch, a page and a retry count, a British spelling, and a common test module
+        # name and test function name; the two task-specific overlaps were renamed in their tasks.
+        "batch_size", "page_size", "max_retries", "honouring", "test_retries", "test_defaults",
+        # Reviewed 2026-11-13 (G47, freezing golden-probe3, built blind after the product code):
+        # generic, in a new task and already in the product's code or tests. A standard-library
+        # exception name (sqlite3's, defined in C, so no stdlib source spells it); the one
+        # task-specific overlap (a hidden test's function name) was renamed in its task.
+        "operationalerror",
+        # Reviewed 2026-11-13 (G48, freezing golden-probe4, built blind after the product code):
+        # generic, in a new task and already in the product's code or tests. A common package-script
+        # name (as typecheck above); the two task-specific overlaps (a hidden test's helper name and a
+        # generated module's constant) were renamed in their tasks.
+        "codegen",
         # Reviewed 2026-11-13 (G49, building golden-heldout5): generic names new tasks use as
         # written and the product's code or tests already hold: an English word the word list
         # lacks, a test-framework assertion API, an npm script name, a test-module name and the
         # usual HTTP-client retry option. Every other overlap was renamed in its task.
-        "spreadsheet", "tocontain", "typecheck", "test_db", "max_retries",
+        # (spreadsheet, typecheck, test_db, max_retries: listed above too.)
+        "tocontain",
         # Reviewed 2026-11-13 (G51, building golden-heldout6): generic names new tasks use as
         # written and the product's code or tests already hold: two English words the word list
         # lacks, a standard command-line option, a widely used environment-variable convention and
         # a common HTTP field name. Every other overlap was renamed in its task.
-        "colours", "marketplace", "maxdepth", "clicolor_force", "request_id",
+        # (colours, marketplace: listed above too.)
+        "maxdepth", "clicolor_force", "request_id",
     }
 )  # fmt: skip
 

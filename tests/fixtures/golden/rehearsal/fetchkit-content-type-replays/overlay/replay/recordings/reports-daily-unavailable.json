@@ -1,0 +1,16 @@
+{
+  "recorded": "2026-10-04T02:00:09Z",
+  "call": {"path": "reports/daily"},
+  "request": {"method": "GET", "url": "https://api.example.com/v1/reports/daily"},
+  "response": {
+    "status": 503,
+    "headers": {
+      "content-type": "text/html",
+      "retry-after": "120",
+      "date": "Sun, 04 Oct 2026 02:00:09 GMT",
+      "server": "envoy"
+    },
+    "body": "<html><body><h1>503 Service Unavailable</h1></body></html>"
+  },
+  "expect": {"raises": "ServerError", "status": 503}
+}

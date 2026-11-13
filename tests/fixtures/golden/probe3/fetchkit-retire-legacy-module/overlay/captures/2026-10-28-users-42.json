@@ -1,0 +1,1 @@
+{"url": "https://api.example.com/v1/users/42", "status": 200, "body": {"id": 42, "name": "Ada", "team": "billing"}}

@@ -25,10 +25,21 @@ _GIT_WRITE = re.compile(
 @pytest.mark.parametrize(
     "name",
     [
-        *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
+        "golden-dev",
+        "golden-heldout",
+        "golden-heldout2",
+        "golden-heldout3",
+        "golden-rehearsal",
+        "golden-heldout4",
         "golden-heldout5",
         "golden-heldout6",
         "golden-candidates",
+        "golden-dev-keeptests",  # G40
+        "golden-probe1",
+        "golden-probe2",
+        "golden-probe3",
+        "golden-probe4",
+        "golden-probe5",
     ],
 )
 def test_no_honest_path_writes_to_git(name):

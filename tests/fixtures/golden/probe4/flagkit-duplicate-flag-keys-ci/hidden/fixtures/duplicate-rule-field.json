@@ -1,0 +1,8 @@
+{
+  "flags": {
+    "search-v2": {
+      "enabled": true,
+      "rules": [{ "type": "percentage", "percent": 10, "percent": 90 }]
+    }
+  }
+}

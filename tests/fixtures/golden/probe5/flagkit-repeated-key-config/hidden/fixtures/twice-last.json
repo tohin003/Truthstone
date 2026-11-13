@@ -1,0 +1,8 @@
+{
+  "flags": {
+    "dark-mode": { "enabled": false, "description": "night theme" },
+    "search.v2": { "enabled": true, "rules": [{ "type": "plan", "values": ["plus"] }] },
+    "gift-cards": { "enabled": true, "rules": [{ "type": "country", "values": ["DE"] }] },
+    "dark-mode": { "enabled": true }
+  }
+}

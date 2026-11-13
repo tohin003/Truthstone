@@ -1,0 +1,4 @@
+{
+  "request": { "country": "DE", "postcode": "25981", "parcel": { "weightKg": 1.2, "lengthCm": 30, "widthCm": 20, "heightCm": 10 } },
+  "result": { "country": "DE", "postcode": "25981", "zone": 1, "billableKg": 1.5, "totalCents": 1090, "currency": "EUR" }
+}
