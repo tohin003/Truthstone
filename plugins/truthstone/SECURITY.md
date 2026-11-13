@@ -5,7 +5,7 @@
 This plugin runs code on your machine. Every hook runs `hooks/truthstone-hook.sh`, a POSIX script that
 does nothing outside a git work tree. Otherwise it hands the event to the Truthstone runtime:
 an installed `truthstone-codex-hook`, or a private copy that the session-start hook installs once with
-`uv` into Codex's data folder for this plugin, from `git+https://github.com/tohin003/Truthstone@v0.1.0-dev.0`. With
+`uv` into Codex's data folder for this plugin, from `git+https://github.com/tohin003/Truthstone@v0.2.0`. With
 `TRUTHSTONE_NO_BOOTSTRAP=1` nothing is installed. At session start the runtime also compiles
 its native forwarder, a C file it ships, with the system's `cc` into that data folder, and the
 script runs it for tool calls, Stop and SessionEnd. The runtime talks only to its own daemon

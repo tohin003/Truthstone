@@ -36,7 +36,7 @@ Codex launcher; `AGENTGUARD_NO_BOOTSTRAP` still works) the plugin downloads and 
 nothing. Install the runtime yourself, then start a new session:
 
 ```bash
-uv tool install git+https://github.com/tohin003/Truthstone@v0.1.0   # or: pipx install …
+uv tool install git+https://github.com/tohin003/Truthstone@v0.2.0   # or: pipx install …
 export TRUTHSTONE_NO_BOOTSTRAP=1
 ```
 

@@ -54,7 +54,7 @@ installs anything. On the first session in a git repository, and after each plug
 it creates a virtual environment in the plugin's data folder with `uv` and installs into
 it:
 
-- the Truthstone runtime, from release tag `v<plugin version>` (for this release `v0.1.0`)
+- the Truthstone runtime, from release tag `v<plugin version>` (for this release `v0.2.0`)
   of https://github.com/tohin003/Truthstone, fetched with `git`. Once Truthstone is
   published on PyPI, the runtime will come from there instead;
 - its dependencies (pydantic, typer, fastapi, uvicorn, pyyaml and what they need), from the
@@ -126,7 +126,7 @@ prompt text; this page will change when it does.
 - **No download:** set `TRUTHSTONE_NO_BOOTSTRAP=1` before starting Claude Code. The plugin
   then downloads and installs nothing. Install the runtime yourself:
 
-      uv tool install git+https://github.com/tohin003/Truthstone@v0.1.0
+      uv tool install git+https://github.com/tohin003/Truthstone@v0.2.0
 
   (or `pipx install` with the same source). At session start the plugin finds `truthstone`
   on your `PATH` or in `~/.local/bin` and uses that runtime, without writing into it. If it

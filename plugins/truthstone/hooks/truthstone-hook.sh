@@ -64,7 +64,7 @@ if [ -z "${TRUTHSTONE_CODEX_HOOK:-}" ] && [ -n "${PLUGIN_DATA:-}" ]; then
   esac
 fi
 
-runtime_source="${TRUTHSTONE_SOURCE:-git+https://github.com/tohin003/Truthstone@v0.1.0-dev.0}"
+runtime_source="${TRUTHSTONE_SOURCE:-git+https://github.com/tohin003/Truthstone@v0.2.0}"
 private="${PLUGIN_DATA:-}/runtime"
 runner=""
 if [ -n "${TRUTHSTONE_CODEX_HOOK:-}" ] && [ -x "$TRUTHSTONE_CODEX_HOOK" ]; then
@@ -90,7 +90,7 @@ fi
 
 if [ -z "$runner" ]; then
   if [ "$event" = "session-start" ]; then
-    printf '%s\n' '{"systemMessage": "Truthstone is installed as a Codex plugin, but its runtime was not found, so this session is UNGUARDED. Install it with: uv tool install git+https://github.com/tohin003/Truthstone@v0.1.0-dev.0  (or put truthstone-codex-hook on PATH), then start a new session."}'
+    printf '%s\n' '{"systemMessage": "Truthstone is installed as a Codex plugin, but its runtime was not found, so this session is UNGUARDED. Install it with: uv tool install git+https://github.com/tohin003/Truthstone@v0.2.0  (or put truthstone-codex-hook on PATH), then start a new session."}'
   fi
   exit 0
 fi

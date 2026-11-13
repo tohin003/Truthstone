@@ -4,4 +4,4 @@ Deliberately empty of imports: `truthstone.adapters.claude_code.shim` runs on th
 path and must not pay for loading pydantic/fastapi transitively.
 """
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.2.0"
