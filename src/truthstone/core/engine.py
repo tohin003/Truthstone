@@ -878,8 +878,12 @@ class Guard:
                 ws.feasibility_noted.add(session)
                 # A session the store already has a task for (a daemon restarted mid-session) has had it.
                 if not (session and ws.resolve_task_id(session)):
-                    notes.append(feasibility_note.TEXT)
-                    findings.append(feasibility_note.finding())
+                    # Day 10: after a premise note, which already names the missing thing and the two
+                    # finishes, without the reminder's own clause about it (no second instruction).
+                    premised = any(f.subject == premise.SUBJECT for f in findings)
+                    text = feasibility_note.SHORT if premised else feasibility_note.TEXT
+                    notes.append(text)
+                    findings.append(feasibility_note.finding(text))
         return notes, findings, hold
 
     @classmethod
