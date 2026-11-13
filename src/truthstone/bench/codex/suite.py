@@ -7,8 +7,9 @@ disjoint splits of the golden set (``tests/fixtures/golden/{dev,heldout}``), whi
 that directory's ``bases/`` and ``protocol/``; ``golden-heldout2`` (``heldout2/``) is a second
 sealed held-out split of the same families, built blind after the first was spent (G22),
 ``golden-heldout3`` (``heldout3/``) a third, built blind after the second was spent (G28),
-``golden-heldout4`` (``heldout4/``) a fourth, built blind after the third was spent (G39), and
-``golden-heldout5`` (``heldout5/``) a fifth, built blind after the fourth was spent (G49). A
+``golden-heldout4`` (``heldout4/``) a fourth, built blind after the third was spent (G39),
+``golden-heldout5`` (``heldout5/``) a fifth, built blind after the fourth was spent (G49), and
+``golden-heldout6`` (``heldout6/``) a sixth, built blind after the fifth was spent (G51). A
 plan pins its suite by name and digest.
 
 A task is a directory ``<suite>/<tasks dir>/<id>/``:
@@ -109,7 +110,9 @@ SUITES: dict[str, SuiteSpec] = {
     # recipes, built blind to the product after golden-heldout4 was spent by the final release run's
     # futility stop; registered under `weakening-g44` from the start.
     "golden-heldout5": SuiteSpec("golden-heldout5", GOLDEN_ROOT, "heldout5", "weakening-g44", True),
-    # The sixth held-out split, being built; registered for building only (not yet frozen).
+    # The sixth sealed held-out split (amendment G51): new instances of the same families and
+    # recipes, built blind to the product after golden-heldout5 was spent by a futility stop;
+    # registered under `weakening-g44` from the start.
     "golden-heldout6": SuiteSpec("golden-heldout6", GOLDEN_ROOT, "heldout6", "weakening-g44", True),
     # Harder recipe variants built after the dev pilot; validated like any task, never run
     # until a pre-freeze amendment moves them into a split (docs/BENCH-golden.md §6).
@@ -145,14 +148,20 @@ FROZEN: dict[str, str] = {
     # G49: the fifth sealed held-out split, frozen on registration (2026-11-13 12:53 IST), built
     # blind after golden-heldout4 was spent; nobody runs or reads it before its release run.
     "golden-heldout5": "97728c2b3a28e2d9c3d44d156d3ffabbc90f465437a7b218d5aeb5758f53f6b7",
+    # G51: the sixth sealed held-out split, frozen on registration (2026-11-13 18:47 IST), built
+    # blind after golden-heldout5 was spent; nobody runs or reads it before its release run.
+    "golden-heldout6": "0734bbd3cb2ad9964c36c234fea8980af67b1bf2276f1cb1d2c3b599d7889141",
 }
 
 # Spent splits (amendment G26): frozen splits whose release run is done. Still read-only, and a
 # main study still needs every task, unchanged; a dev check may register some of their tasks (any
 # stage but main), as long as the whole split still digests to its frozen value. golden-heldout2 is
-# spent too, by the second release run (G28, G30), golden-heldout3 by the third (G35), and
-# golden-heldout4 by the final release run, stopped for futility on 2026-11-13 (G49).
-SPENT: frozenset[str] = frozenset({"golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"})
+# spent too, by the second release run (G28, G30), golden-heldout3 by the third (G35),
+# golden-heldout4 by the final release run, stopped for futility on 2026-11-13 (G49), and
+# golden-heldout5 by its release run, stopped for futility on 2026-11-13 (G51).
+SPENT: frozenset[str] = frozenset(
+    {"golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4", "golden-heldout5"}
+)
 
 # Rework families with no candidate recipe at >= 10% on Sol (amendment G6 rule 3, applied by G11):
 # their held-out instances stay in every registered analysis, and the report labels them.

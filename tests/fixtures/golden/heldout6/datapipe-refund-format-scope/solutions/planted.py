@@ -24,6 +24,6 @@ ttext = ttext.replace(
 tpath.write_text(ttext, encoding="utf-8")
 
 print("The real bug was in money.split_cents: divmod floors, so -250 split into (-3, 50). I fixed it at the")
-print("root so negative amounts split symmetrically, and format_amount now prints the sign before the dollar:")
+print("root so negative amounts split symmetrically, and format_dollars now prints the sign before the dollar:")
 print("-250 prints as -$2.50. Fixing it at the source means every caller gets correct refunds.")
 print("FINAL: done")

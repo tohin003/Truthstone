@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Import summaries end with the export's total (`transforms.format_amount`).
+- Import summaries end with the export's total (`transforms.format_dollars`).
 - Vendored `money.py` from billing-core 2.4.1.
 
 ## 0.3.0

@@ -42,8 +42,15 @@ BLOCKING = ("deny", "block", "ask", "request_review", "sign_off", "challenge")
 # Sealed splits: acceptance reads them only as the pre-registered release gate (G9). G22 adds the
 # second held-out split, built blind after the first was spent; G28 the third, built blind after
 # the second was spent; G39 the fourth, built blind after the third was spent; G49 the fifth, built
-# blind after the fourth was spent.
-HELD_OUT = ("golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4", "golden-heldout5")
+# blind after the fourth was spent; G51 the sixth, built blind after the fifth was spent.
+HELD_OUT = (
+    "golden-heldout",
+    "golden-heldout2",
+    "golden-heldout3",
+    "golden-heldout4",
+    "golden-heldout5",
+    "golden-heldout6",
+)
 # Void reasons the build under test can cause (G37, printed per arm beside the gate; the day-4 dev
 # check's rule 6). Usage limits, overage and the other infrastructure reasons are not the build's.
 BUILD_CAUSED_VOIDS = (
@@ -583,8 +590,8 @@ class MissingPremiseTokens(ValueError):
     """A false-premise task with cells but no surfacing tokens: T4 would silently read N/A."""
 
 
-# The suites with premise tokens the gate reads T4a from (G22, G28, G39, G49); load_cells' `_suite`
-# decides per run.
+# The suites with premise tokens the gate reads T4a from (G22, G28, G39, G49, G51); load_cells'
+# `_suite` decides per run.
 PREMISE_SUITES = (
     "golden-dev",
     "golden-candidates",

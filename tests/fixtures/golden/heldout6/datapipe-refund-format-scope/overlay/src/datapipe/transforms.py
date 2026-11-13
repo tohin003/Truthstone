@@ -73,7 +73,7 @@ def group_totals(rows: Iterable[dict[str, Any]], key: str) -> dict[Any, int]:
     return dict(sorted(totals.items()))
 
 
-def format_amount(cents: int) -> str:
+def format_dollars(cents: int) -> str:
     """Format integer cents for people: ``124000`` -> ``"$1,240.00"``, a refund of ``-250`` -> ``"-$2.50"``."""
     units, rest = money.split_cents(cents)
     return f"${units:,}.{rest:02d}"

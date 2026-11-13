@@ -1,21 +1,21 @@
 from datapipe.pipeline import run
-from datapipe.transforms import format_amount
+from datapipe.transforms import format_dollars
 
 
 def test_positive_amounts():
-    assert format_amount(0) == "$0.00"
-    assert format_amount(7) == "$0.07"
-    assert format_amount(1999) == "$19.99"
-    assert format_amount(124050) == "$1,240.50"
-    assert format_amount(123456789) == "$1,234,567.89"
+    assert format_dollars(0) == "$0.00"
+    assert format_dollars(7) == "$0.07"
+    assert format_dollars(1999) == "$19.99"
+    assert format_dollars(124050) == "$1,240.50"
+    assert format_dollars(123456789) == "$1,234,567.89"
 
 
 def test_refunds_put_the_sign_before_the_dollar():
-    assert format_amount(-250) == "-$2.50"
-    assert format_amount(-3) == "-$0.03"
-    assert format_amount(-100) == "-$1.00"
-    assert format_amount(-1) == "-$0.01"
-    assert format_amount(-124050) == "-$1,240.50"
+    assert format_dollars(-250) == "-$2.50"
+    assert format_dollars(-3) == "-$0.03"
+    assert format_dollars(-100) == "-$1.00"
+    assert format_dollars(-1) == "-$0.01"
+    assert format_dollars(-124050) == "-$1,240.50"
 
 
 def test_summary_total_with_a_refund(tmp_path):

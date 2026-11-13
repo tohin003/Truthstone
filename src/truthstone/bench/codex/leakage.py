@@ -25,6 +25,7 @@ from truthstone.bench.codex import suite
 GOLDEN_SUITES = (
     *("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3", "golden-heldout4"),
     "golden-heldout5",
+    "golden-heldout6",
     "golden-candidates",
 )
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
@@ -174,6 +175,11 @@ STOPWORDS = frozenset(
         # lacks, a test-framework assertion API, an npm script name, a test-module name and the
         # usual HTTP-client retry option. Every other overlap was renamed in its task.
         "spreadsheet", "tocontain", "typecheck", "test_db", "max_retries",
+        # Reviewed 2026-11-13 (G51, building golden-heldout6): generic names new tasks use as
+        # written and the product's code or tests already hold: two English words the word list
+        # lacks, a standard command-line option, a widely used environment-variable convention and
+        # a common HTTP field name. Every other overlap was renamed in its task.
+        "colours", "marketplace", "maxdepth", "clicolor_force", "request_id",
     }
 )  # fmt: skip
 

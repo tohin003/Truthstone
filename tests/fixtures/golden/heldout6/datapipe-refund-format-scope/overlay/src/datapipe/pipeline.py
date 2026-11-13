@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from datapipe import db, readers, transforms
-from datapipe.transforms import format_amount
+from datapipe.transforms import format_dollars
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,7 @@ class ImportSummary:
         return (
             f"read {self.rows_read} row(s): {self.inserted} inserted, "
             f"{self.duplicates} duplicate(s) dropped, {self.already_present} already present; "
-            f"total {format_amount(self.total_cents)}"
+            f"total {format_dollars(self.total_cents)}"
         )
 
 
