@@ -16,6 +16,7 @@ whole layer — and SPEC §39 is explicit that Truthstone must be invisible unti
 from __future__ import annotations
 
 import shutil
+import subprocess
 import textwrap
 import typing
 from pathlib import Path
@@ -23,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from truthstone import challenge, evidence
+from truthstone.core.config import IndexSettings
 from truthstone.core.enums import EventType, Severity, Verdict
 from truthstone.core.events import AgentEvent
 from truthstone.repo import RepoIndex
@@ -470,6 +472,39 @@ class TestNoFalseChallenges:
         # The new content parses, but the baseline did not, so nothing is attributable.
         assert findings == []
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="known limit: a class is looked up by its bare name, wherever the edited file imports it "
+        "from, so the repository's own `Counter` stands in for `collections.Counter`",
+    )
+    def test_an_imported_class_is_not_a_same_named_class_of_the_repository(self, repo):
+        """`from collections import Counter` means the standard library's Counter, even when
+        the repository defines an unrelated `class Counter` somewhere. Today the resolver
+        does not look at where a name was imported from: under ``full`` the edit is denied
+        once ("Counter.update does not exist"); under ``minimal`` it is recorded, never shown.
+        The same holds for any name imported from outside the repository (`Queue`,
+        `Request`...) used as `Name(...)` or through a variable or parameter typed `Name`."""
+        (repo / "src" / "shop" / "widgets.py").write_text(
+            "class Counter:\n    def increment(self):\n        return 1\n"
+        )
+        fresh = RepoIndex(repo).build()
+        findings = evidence.check(
+            write_event(
+                fresh,
+                "src/shop/api/stats.py",
+                """
+                from collections import Counter
+
+                def tally(words):
+                    counts = Counter()
+                    counts.update(words)
+                    return Counter(words).most_common(3)
+                """,
+            ),
+            fresh,
+        )
+        assert findings == [], [f.summary for f in findings]
+
     def test_nothing_is_said_before_the_index_is_ready(self, repo):
         unbuilt = RepoIndex(repo)
         assert not unbuilt.is_built
@@ -708,7 +743,14 @@ class TestFalsePositiveRateOnRealCode:
     @pytest.fixture(scope="class")
     @classmethod
     def own_source_index(cls) -> RepoIndex:
-        return RepoIndex(Path(__file__).resolve().parents[2]).build()
+        # The trees under tests/fixtures/ are separate miniature projects (a benchmark task
+        # runs as its own repository), not part of this one: out of the corpus below, and
+        # out of the index as well. Indexed, heldout6's fixture `class Counter` stood in for
+        # the `collections.Counter` this repository's own code imports, a known limit pinned
+        # by test_an_imported_class_is_not_a_same_named_class_of_the_repository.
+        root = Path(__file__).resolve().parents[2]
+        settings = IndexSettings(exclude_dirs=[*IndexSettings().exclude_dirs, "fixtures"])
+        return RepoIndex(root, settings).build()
 
     def test_no_challenge_level_false_positives(self, own_source_index):
         from truthstone.evidence import extractors, resolvers
@@ -720,6 +762,18 @@ class TestFalsePositiveRateOnRealCode:
             p for p, r in index.files.items() if r.lang == "python" and not p.startswith("tests/fixtures/")
         ]
         assert len(python_files) > 40, "the corpus should be substantial"
+        # `exclude_dirs` matches a directory name anywhere: it must leave out tests/fixtures/
+        # and nothing else, or this corpus would shrink without anyone noticing.
+        assert not [p for p in index.files if p.startswith("tests/fixtures/")]
+        listed = subprocess.run(
+            ["git", "-C", str(index.root), "ls-files"], capture_output=True, text=True, check=False
+        )
+        elsewhere = [
+            p
+            for p in listed.stdout.splitlines()
+            if "fixtures" in p.split("/")[:-1] and not p.startswith("tests/fixtures/")
+        ]
+        assert not elsewhere, f"also excluded from the index: {elsewhere[:5]}"
 
         claims_checked = 0
         false_positives: list[str] = []
