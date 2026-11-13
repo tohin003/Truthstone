@@ -367,8 +367,9 @@ _PRE_G36 = ("golden-dev", "golden-heldout", "golden-heldout2", "golden-heldout3"
 def test_golden_suites_judge_weakening_and_mark_every_prohibition(name):
     if name in _PRE_G36:
         policy = "weakening"
-    else:  # golden-probe3/4 are registered under the G44 policy
-        policy = "weakening-g44" if name in ("golden-probe3", "golden-probe4") else "weakening-g36"
+    else:  # golden-probe3/4/5 are registered under the G44 policy
+        g44 = ("golden-probe3", "golden-probe4", "golden-probe5")
+        policy = "weakening-g44" if name in g44 else "weakening-g36"
     assert suite.suite_spec(name).protected_policy == policy
     for task in suite.load_suite(suite=name):
         assert task.grade.protected_policy == policy

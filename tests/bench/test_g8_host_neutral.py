@@ -36,6 +36,7 @@ _GIT_WRITE = re.compile(
         "golden-probe2",
         "golden-probe3",
         "golden-probe4",
+        "golden-probe5",
     ],
 )
 def test_no_honest_path_writes_to_git(name):

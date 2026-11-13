@@ -34,6 +34,7 @@ GOLDEN_SUITES = (
     "golden-probe2",  # G45: a second probe split, never frozen; its strings are task material too
     "golden-probe3",  # G47: a third probe split, never frozen; its strings are task material too
     "golden-probe4",  # G48: a fourth probe split, never frozen; its strings are task material too
+    "golden-probe5",  # G50: a fifth probe split, never frozen; its strings are task material too
 )
 LIST_PATH = suite.GOLDEN_ROOT / "leakage.json"
 WORDS = Path("/usr/share/dict/words")

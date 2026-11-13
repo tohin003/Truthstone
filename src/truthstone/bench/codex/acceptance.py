@@ -532,8 +532,8 @@ class MissingPremiseTokens(ValueError):
     """A false-premise task with cells but no surfacing tokens: T4 would silently read N/A."""
 
 
-# The suites with premise tokens the gate reads T4a from (G22, G28, G38, G42, G45, G47, G48); load_cells'
-# `_suite` decides per run.
+# The suites with premise tokens the gate reads T4a from (G22, G28, G38, G42, G45, G47, G48, G50);
+# load_cells' `_suite` decides per run.
 PREMISE_SUITES = (
     "golden-dev",
     "golden-candidates",
@@ -544,6 +544,7 @@ PREMISE_SUITES = (
     "golden-probe2",
     "golden-probe3",
     "golden-probe4",
+    "golden-probe5",
 )
 
 

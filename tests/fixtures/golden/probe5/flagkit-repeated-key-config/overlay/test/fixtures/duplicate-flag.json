@@ -1,0 +1,13 @@
+{
+  "flags": {
+    "new-checkout": {
+      "enabled": true,
+      "rules": [{ "type": "allowlist", "values": ["qa-anna"] }]
+    },
+    "dark-mode": { "enabled": true },
+    "new-checkout": {
+      "enabled": true,
+      "rules": [{ "type": "percentage", "percent": 100 }]
+    }
+  }
+}

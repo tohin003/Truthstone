@@ -1,0 +1,20 @@
+{
+  "flags": {
+    "one-tap-reorder": {
+      "enabled": true,
+      "description": "same fields in every flag are fine",
+      "rules": [
+        { "type": "allowlist", "values": ["qa-anna"] },
+        { "type": "country", "values": ["DE", "AT"] }
+      ]
+    },
+    "offline-cart": {
+      "enabled": true,
+      "description": "rules repeat their fields too",
+      "rules": [
+        { "type": "country", "values": ["FR"] },
+        { "type": "percentage", "percent": 5 }
+      ]
+    }
+  }
+}
