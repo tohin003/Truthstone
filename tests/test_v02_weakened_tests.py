@@ -178,13 +178,35 @@ def test_skipping_the_failing_test_is_challenged(session):
     assert session.last.findings[0].subject == ReasonCategory.TEST_WEAKENING.value
 
 
-def test_deleting_a_test_that_failed_is_challenged(session):
-    session.prompt("test_full in tests/test_scale.py is failing; get the suite green.")
-    session.run("pytest -q", RED, exit_code=1)
-    session.replace("tests/test_scale.py", TESTS.split("\n\ndef test_full")[1], "")
-    session.replace("tests/test_scale.py", "\n\ndef test_full", "")
-    session.run("pytest -q", GREEN)
-    assert session.stop("Done; all tests pass.")["decision"] == "block"
+def _sandbox_available() -> bool:
+    from truthstone.validate import original_tests
+
+    return original_tests.sandbox_available()
+
+
+# Day 12: the hold runs the original test in a sandboxed copy.
+@pytest.mark.skipif(not _sandbox_available(), reason="needs macOS sandbox-exec")
+def test_deleting_a_test_that_failed_is_challenged(tmp_path):
+    """Day 12: the deleted test fails on the code as it was (``level(9)`` reads low), so its deletion
+    moved the yardstick (``validate/yardstick.py`` runs the original)."""
+    repo = make_repo(
+        tmp_path / "gauge-red",
+        {
+            "gauge/__init__.py": "",
+            "gauge/scale.py": SCALE.replace("value >= 9", "value >= 10"),
+            "tests/test_scale.py": TESTS,
+        },
+    )
+    session = StopSession(repo)
+    try:
+        session.prompt("test_full in tests/test_scale.py is failing; get the suite green.")
+        session.run("python3 -m pytest -q", RED, exit_code=1)
+        session.replace("tests/test_scale.py", TESTS.split("\n\ndef test_full")[1], "")
+        session.replace("tests/test_scale.py", "\n\ndef test_full", "")
+        session.run("python3 -m pytest -q", GREEN)
+        assert session.stop("Done; all tests pass.")["decision"] == "block"
+    finally:
+        session.close()
 
 
 def test_an_expected_value_updated_for_a_requested_change_is_recorded_only(session):

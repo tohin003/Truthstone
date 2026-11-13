@@ -132,6 +132,12 @@ _QUALIFIER = re.compile(
     r"if|when|whenever|where)\b",
     re.IGNORECASE,
 )
+# Day 12: a rule whose subject the change narrowed to "the others" ("Error responses are never cached"
+# -> "Other error responses are never cached"): the sentence opens on "other" / "remaining" (after
+# "all", "any", "every", "each" or "the"), which the rule did not. Not "other than" (a qualifier above).
+_RESTRICTED_SUBJECT = re.compile(
+    r"^\W*(?:(?:all|any|every|each|the)\s+)?(?:other|remaining)\b(?!\s+than\b)", re.IGNORECASE
+)
 
 _WORD = re.compile(r"[a-z0-9_]+(?:['.][a-z0-9_]+)*", re.IGNORECASE)
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:[.,]\d+)?%?")
@@ -583,6 +589,23 @@ def _code_tokens(sentence: str) -> set[str]:
     return {token for token in tokens if len(token) >= 2}
 
 
+_DOUBLE_TICKS = re.compile(r"``([^`]{1,200})``")
+
+
+def _rule_code_tokens(sentence: str) -> set[str]:
+    """``_code_tokens`` of a documented rule, reStructuredText's ````literal```` read as one span (day 12):
+    read as single backticks, the prose between two literals ("``a``, here and so from ``b``") was taken
+    for code, and its words "vanishing" from the docs exempted the rule as gone with its code."""
+    tokens: set[str] = set()
+    for span in _DOUBLE_TICKS.findall(sentence):
+        tokens.update(_IDENT.findall(span))
+    rest = _DOUBLE_TICKS.sub(" ", sentence)
+    for span in re.findall(r"`([^`]{1,200})`", rest):
+        tokens.update(_IDENT.findall(span))
+    tokens.update(re.findall(r"\b([A-Za-z_][\w]*)\(\)", sentence))
+    return {token for token in tokens if len(token) >= 2}
+
+
 def _mentions(text: str, token: str) -> bool:
     return re.search(rf"(?<![\w$]){re.escape(token)}(?![\w$])", text) is not None
 
@@ -703,7 +726,7 @@ def _eroded(
                 continue  # "not supported yet", a known issue: a gap the change may close
             if owners_after is not None and sentence.owner not in owners_after:
                 continue  # the function or class it documented is gone: it went with its code
-            tokens = _code_tokens(sentence.text)
+            tokens = _rule_code_tokens(sentence.text)
             # A target the request renames or removes, named in the rule as code or as prose
             # ("The max_items setting must be …"): the rule went with its name (audit M4).
             if tokens & targets or any(_mentions(sentence.text, target) for target in targets):
@@ -711,6 +734,9 @@ def _eroded(
             vanished = [
                 t for t in tokens if _mentions(before_text_all, t) and not _mentions(after_text_all, t)
             ]
+            if code is not None:
+                # Day 12: a name still in the session's changed code went nowhere, whatever the docs now say.
+                vanished = [t for t in vanished if not _mentions(code[1], t)]
             if normative or not prose:
                 verdict, counterpart = _counterpart(sentence, markers, pool)
                 if verdict == "kept" or (not normative and verdict != "qualified"):
@@ -804,6 +830,9 @@ def _counterpart(sentence: Sentence, markers: frozenset[str], pool: _Pool) -> tu
     if best is None or best_score < KEEP_OVERLAP:
         return "removed", ""
     added_qualifier = bool(_QUALIFIER.search(best.text)) and not _QUALIFIER.search(sentence.text)
+    added_qualifier = added_qualifier or (
+        bool(_RESTRICTED_SUBJECT.search(best.text)) and not _RESTRICTED_SUBJECT.search(sentence.text)
+    )
     # A bound that moved ("at most 50%" -> "at most 60%") changes the rule; the same bound in
     # other units ("2.5 seconds" -> "2500 milliseconds") does not, so only a number change
     # with every other content word kept counts.

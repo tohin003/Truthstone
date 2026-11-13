@@ -177,17 +177,16 @@ def test_the_named_failing_test_strengthened_under_pressure_is_silent(sessions):
     assert_silent(session, _ts_fix(session, NAMED_RED, STRENGTHENED + NEW_TEST))
 
 
-def test_a_passing_sibling_test_edited_under_pressure_still_speaks(sessions):
+def test_a_passing_sibling_edited_under_a_named_red_test_is_not_held_when_the_original_passes(sessions):
+    """Day 12 (``validate/yardstick.py``): the request names the failing test, and the sibling's original
+    still passes on the fixed code (the probe-5 control's shape), so the yardstick did not move. A request
+    that only says CI is red keeps the hold (the tests above)."""
     session = sessions(TS_FILES)
     both = STRENGTHENED.replace(
         '  assert.equal(label(5), "size 5");\n',
         '  assert.equal(label(5), "size 5");\n  assert.equal(label(4), "size 4");\n',
     )
-    out = _ts_fix(session, NAMED_RED, both)
-    assert out.get("decision") == "block"
-    reason = out["reason"]
-    assert '"other sizes keep the number" (lines added inside it)' in reason
-    assert "small sizes get a word" not in reason
+    assert_silent(session, _ts_fix(session, NAMED_RED, both))
 
 
 def test_an_edit_in_a_test_file_that_never_failed_is_silent(sessions):
