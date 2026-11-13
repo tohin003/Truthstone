@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 
 from tests.test_audit_stop_kit import CodexSession, assert_silent, make_repo, pytest_output
+from truthstone.validate import original_tests
 
 EXPORT = '''"""CSV export."""
 
@@ -276,12 +277,28 @@ def test_a_baseline_that_ran_the_tests_outweighs_a_claim_they_were_already_faili
     assert session.stop(ALREADY).get("decision") == "block"
 
 
-def test_without_a_baseline_a_claim_they_were_already_failing_is_taken_at_its_word(shop):
+def test_without_a_baseline_a_claim_they_were_already_failing_is_taken_at_its_word(shop, monkeypatch):
+    """No evidence at all: no baseline run, and no sandbox to rerun the tests on the task-start tree
+    (day 9, ``validate/regressions.py``; with one, the next test)."""
+    monkeypatch.setattr(original_tests, "sandbox_available", lambda: False)
     session = shop()
     session.prompt(PROMPT)
     session.write("src/shop/export.py", EXPORT_ISO)
     session.run("python -m pytest -q", EXPORT_RED)
     assert_silent(session, session.stop(ALREADY))
+
+
+@pytest.mark.skipif(not original_tests.sandbox_available(), reason="needs macOS sandbox-exec")
+def test_without_a_baseline_the_sandbox_rerun_outweighs_a_claim_they_were_already_failing(shop):
+    """Day 9: the two tests pass on the task-start tree in the sandbox, so the change broke them and
+    the "done" is held, whatever the message says (``tests/test_day9_baseline.py``)."""
+    session = shop()
+    session.prompt(PROMPT)
+    session.write("src/shop/export.py", EXPORT_ISO)
+    session.run("python -m pytest -q", EXPORT_RED)
+    out = session.stop(ALREADY)
+    assert out.get("decision") == "block", out
+    assert "tests/test_export.py::test_to_row" in out["reason"]
 
 
 TOTALS_RED = pytest_output(["tests/test_export.py::test_export_totals"], 35)
