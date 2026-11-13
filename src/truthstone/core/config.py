@@ -358,6 +358,15 @@ class ChallengeSettings(BaseModel):
     # copy with the changed files restored); a failure the change caused holds the "done". It runs
     # only on that rare shape, within the same time budget; false turns it off.
     gated_skips: bool = True
+    # The regression check at Stop (``validate/regressions.py``, day 9): a "done" over a failing run the
+    # final message discloses, with no evidence the change caused it. The guard runs those test files on a
+    # sandboxed copy, and on a copy with the changed files restored; failing on the first and passing on the
+    # second, they hold the "done". Runs only on that rare shape, within its own time budget.
+    regressions: bool = True
+    # Test weakening (``validate/weakened_tests.py``, day 9): under a request about failing tests, an existing
+    # test removed, renamed away or given another expectation in a test file that failed in the task, the
+    # test itself not failing, speaks as an edit inside an existing test under the same pressure does.
+    removed_under_pressure: bool = True
 
     @field_validator("min_severity")
     @classmethod

@@ -169,6 +169,8 @@ class Concern:
     can_speak: bool = True
     # The accepted finishes, when this concern's own evidence narrows its category's default.
     finish: str = ""
+    # Why its own check accepted it (recorded only): the gate's reason for a failing run it let pass.
+    accepted: str = ""
 
 
 @dataclass(slots=True)
@@ -214,6 +216,8 @@ _TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("truthstone
 # The final message of the Stop being decided, for a check whose finding the message can settle
 # (``final_message``): naming a file is enough for the untracked-state check.
 _MESSAGE: contextvars.ContextVar[str | None] = contextvars.ContextVar("truthstone_stop_message", default=None)
+# ``[challenge] removed_under_pressure`` for the Stop being arbitrated (``validate/weakened_tests.py``).
+_REMOVED: contextvars.ContextVar[bool] = contextvars.ContextVar("truthstone_removed_tests", default=True)
 # At most this many changed files are compared at Stop (each read up to 512 KB): beyond it the
 # integrity checks see nothing more, which can only make them quieter.
 MAX_COMPARED_FILES = 400
@@ -260,6 +264,11 @@ def _integrity_checks(original_tests: bool = False, gated_skips: bool = True) ->
 def final_message() -> str:
     """The final message of the Stop being arbitrated ("" outside one)."""
     return _MESSAGE.get() or ""
+
+
+def removed_under_pressure() -> bool:
+    """Whether ``[challenge] removed_under_pressure`` is on for the Stop being arbitrated (on outside one)."""
+    return _REMOVED.get()
 
 
 def _yardstick_spoke(found_all: list[list[Concern]]) -> bool:
@@ -318,6 +327,8 @@ def arbitrate(
     checks: Iterable[IntegrityCheck] | None = None,
     original_tests: bool = False,
     gated_skips: bool = True,
+    regressions: bool = True,
+    removed_under_pressure: bool = True,
 ) -> Arbitration:
     """Decide this Stop. Never raises."""
     if state is None:
@@ -335,10 +346,20 @@ def arbitrate(
     else:
         findings = list(gate.findings)
         gate_concern = _gate_concern(gate, state, index, said, message, profile)
+        if regressions and done and gate_concern is not None and gate_concern.accepted == _DISCLOSED:
+            # A disclosed failure with no evidence that the change caused it (day 9): the sandbox can
+            # show it (``validate/regressions.py``), and then it speaks whatever the message says.
+            from truthstone.validate import regressions as regressions_check
+
+            proven = regressions_check.concern(gate.failure, state, index, message)
+            if proven is not None:
+                findings.append(proven.finding)
+                gate_concern = proven
         if gate_concern is not None:
             concerns.append(gate_concern)
 
     token, said_token = _TEXTS.set({}), _MESSAGE.set(message)
+    removed_token = _REMOVED.set(removed_under_pressure)
     try:
         found_all = []
         for check in checks if checks is not None else _integrity_checks(original_tests, gated_skips):
@@ -349,6 +370,7 @@ def arbitrate(
             except Exception:
                 log.exception("truthstone: a completion integrity check failed; skipped")
     finally:
+        _REMOVED.reset(removed_token)
         _MESSAGE.reset(said_token)
         _TEXTS.reset(token)
     for found in _without_repeats(found_all):
@@ -654,7 +676,7 @@ def _gate_concern(
         log.info("truthstone: arbiter accepted a finish with failing tests (%s)", quiet)
         note = lead.model_copy(update={"severity": Severity.LOW, "summary": f"{lead.summary} ({quiet})"})
         category = ReasonCategory.UNVERIFIED if quiet == _STALE_FAILURE else ReasonCategory.FAILING_TESTS
-        return Concern(category, gate.reason, note, can_speak=False)
+        return Concern(category, gate.reason, note, can_speak=False, accepted=quiet)
     return Concern(ReasonCategory.FAILING_TESTS, _failing_text(failure, contradicted), lead)
 
 
@@ -677,6 +699,7 @@ def _failing_text(failure: runners.TestOutcome, contradicted: bool) -> str:
 
 _STALE_FAILURE = "the code changed after the failing run"
 _CAUSED = "disclosed, but the change made them fail"
+_DISCLOSED = "disclosed"
 
 # -- (b) with a disclosure: "done" while the change's own tests fail (Stage 4, rule 1) -----------------
 #
@@ -906,7 +929,7 @@ def _failure_accepted(
     if failure.seq is not None and any(seq > failure.seq for seq in state.last_change_seq.values()):
         return _STALE_FAILURE, False
     if disclosed_failure(message, failure):
-        return (_CAUSED if _caused_by_the_change(failure, state, index, message) else "disclosed"), False
+        return (_CAUSED if _caused_by_the_change(failure, state, index, message) else _DISCLOSED), False
     # A link to the change is required in every case: a true challenge about a failure the
     # change did not cause still costs an honest agent a turn.
     failing = _failing_paths(failure, index)

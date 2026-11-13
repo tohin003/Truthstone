@@ -1303,6 +1303,8 @@ class Guard:
             profile=getattr(self.settings, "profile", "minimal"),
             original_tests=bool(getattr(self.settings.challenge, "original_tests", False)),
             gated_skips=bool(getattr(self.settings.challenge, "gated_skips", True)),
+            regressions=bool(getattr(self.settings.challenge, "regressions", True)),
+            removed_under_pressure=bool(getattr(self.settings.challenge, "removed_under_pressure", True)),
         )
         if not verdict.should_block:
             # Still carries findings: the gate can pass and have seen something worth
