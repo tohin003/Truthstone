@@ -17,6 +17,10 @@ In Claude Code (CLI, or the desktop app's Code tab in a local session):
 /plugin install truthstone@truthstone
 ```
 
+Claude Code records the marketplace in your user settings (`extraKnownMarketplaces`). From a
+shell, `claude plugin marketplace add tohin003/Truthstone --scope local` keeps it to the
+project you are in.
+
 On Claude Code 2.1.275 or later, one step also works:
 `/plugin install truthstone --marketplace tohin003/Truthstone`. In the desktop app, use
 **+** next to the prompt box, then **Add plugins**; the app reads the same settings and

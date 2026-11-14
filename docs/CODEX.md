@@ -38,7 +38,7 @@ installed, and the "unguarded" notice is not shown. The plain hooks written by
 ### As a Codex plugin (recommended)
 
 ```bash
-codex plugin marketplace add tohin003/Truthstone --ref <release-tag>
+codex plugin marketplace add tohin003/Truthstone --ref v0.2.0
 codex plugin add truthstone@truthstone
 ```
 
@@ -51,18 +51,20 @@ them. In the CLI, open `/hooks` and trust the six Truthstone hooks. In the deskt
 every plugin update asks for review again (see
 [the trust model](#hook-trust-the-step-users-must-not-miss)).
 
-The hooks call the Truthstone runtime (Python 3.12+). Install it once, from the release
-tag that matches the plugin:
-
-```bash
-uv tool install git+https://github.com/tohin003/Truthstone@v0.2.0   # or: pipx install git+https://…@v0.2.0
-```
-
-If `uv` is available and no runtime is installed, the plugin installs a **private copy** on
+The hooks call the Truthstone runtime (Python 3.12+). **You do not have to install it:** if
+`uv` is available and no runtime is installed, the plugin installs a **private copy** on
 the first session. It goes into Codex's per-plugin data directory, never onto `PATH`, and
 the measured cost is 2.5 s once and 0.04 s per session afterwards. To prevent that, set
 `TRUTHSTONE_NO_BOOTSTRAP=1`. If neither a runtime nor `uv` is found, the session starts
 **unguarded**, and the plugin says so once, at session start, with the install command.
+
+To install the runtime yourself instead, which also puts the `truthstone` command on `PATH`,
+take the release that matches the plugin:
+
+```bash
+uv tool install git+https://github.com/tohin003/Truthstone@v0.2.0   # or: pipx install git+https://…@v0.2.0
+uv tool install truthstone==0.2.0                                  # the same release, from PyPI
+```
 
 Check the setup with:
 
@@ -115,6 +117,10 @@ user's `config.toml`:
 trusted_hash = "sha256:13b0c7f1…"          # hash of this hook's declaration
 trusted_content_hash = "sha256:181158bf…"  # hash of every file in the plugin directory
 ```
+
+Codex's `hooks/list` shows the two as one value, `sha256:<declaration>/sha256:<content>`. The
+content half is the same on all six hooks. For release 0.2.0, installed with `--ref v0.2.0`,
+it is `sha256:f3dcda944e42cf695a0971eab9c7e976558df773e724ec4142de82418ce6c1e7`.
 
 A plugin hook's trust is re-checked on **every hook run**, against a hash of every file in
 the plugin root (`codex-rs/hooks/src/engine/plugin_fingerprint.rs`). Appending one newline

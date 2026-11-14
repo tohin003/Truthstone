@@ -65,8 +65,8 @@ it creates a virtual environment in the plugin's data folder with `uv` and insta
 it:
 
 - the Truthstone runtime, from release tag `v<plugin version>` (for this release `v0.2.0`)
-  of https://github.com/tohin003/Truthstone, fetched with `git`. Once Truthstone is
-  published on PyPI, the runtime will come from there instead;
+  of https://github.com/tohin003/Truthstone, fetched with `git`. Truthstone is on
+  PyPI as well, but this release installs from the tag;
 - its dependencies (pydantic, typer, fastapi, uvicorn, pyyaml and what they need), from the
   Python Package Index;
 - a CPython 3.12 or later interpreter, which `uv` downloads only if you have no usable

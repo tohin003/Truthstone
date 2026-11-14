@@ -79,9 +79,12 @@ not yet.
 ### Codex
 
 ```bash
-codex plugin marketplace add tohin003/Truthstone
+codex plugin marketplace add tohin003/Truthstone --ref v0.2.0
 codex plugin add truthstone@truthstone
 ```
+
+`--ref v0.2.0` pins the release. Codex ties its trust in the hooks to the plugin's exact files,
+so a pinned plugin does not ask for review again until you move to a newer release.
 
 Then trust the hooks: open `/hooks` in the Codex CLI, or use **Review hooks** in the
 ChatGPT desktop app. Codex runs a plugin's hooks only after you trust them, and asks again
@@ -118,7 +121,8 @@ See [`plugins/truthstone-practices/README.md`](https://github.com/tohin003/Truth
 - `uv` and `git`: on the first session the plugins install the Truthstone runtime with `uv`
   from the release tag that matches the plugin version, `v<version>` of
   https://github.com/tohin003/Truthstone, with its dependencies from the Python Package
-  Index. Once Truthstone is published on PyPI, the runtime will come from there.
+  Index. Truthstone is on PyPI as well (`truthstone`), but the plugins of this release
+  install the runtime from the tag.
 - Python 3.12 or later. `uv` uses one you already have, or downloads one.
 
 **To skip the download**, set `TRUTHSTONE_NO_BOOTSTRAP=1` and install the runtime yourself:
