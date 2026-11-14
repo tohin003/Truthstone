@@ -85,8 +85,8 @@ codex plugin add truthstone@truthstone
 
 Then trust the hooks: open `/hooks` in the Codex CLI, or use **Review hooks** in the
 ChatGPT desktop app. Codex runs a plugin's hooks only after you trust them, and asks again
-whenever the plugin's files change. Details: [`docs/CODEX.md`](docs/CODEX.md) and the
-plugin's own [`README`](plugins/truthstone/README.md).
+whenever the plugin's files change. Details: [`docs/CODEX.md`](https://github.com/tohin003/Truthstone/blob/master/docs/CODEX.md) and the
+plugin's own [`README`](https://github.com/tohin003/Truthstone/blob/master/plugins/truthstone/README.md).
 
 ### Claude Code
 
@@ -96,8 +96,8 @@ plugin's own [`README`](plugins/truthstone/README.md).
 ```
 
 Then start a new session inside a git repository. `/truthstone:doctor` tells you whether
-the session is guarded. Details: [`docs/CLAUDE-PLUGIN.md`](docs/CLAUDE-PLUGIN.md) and the
-plugin's own [`README`](plugins/truthstone-claude/README.md).
+the session is guarded. Details: [`docs/CLAUDE-PLUGIN.md`](https://github.com/tohin003/Truthstone/blob/master/docs/CLAUDE-PLUGIN.md) and the
+plugin's own [`README`](https://github.com/tohin003/Truthstone/blob/master/plugins/truthstone-claude/README.md).
 
 ### The skills-only companion
 
@@ -110,7 +110,7 @@ and collects nothing.
 codex plugin add truthstone-practices@truthstone         # Codex
 ```
 
-See [`plugins/truthstone-practices/README.md`](plugins/truthstone-practices/README.md).
+See [`plugins/truthstone-practices/README.md`](https://github.com/tohin003/Truthstone/blob/master/plugins/truthstone-practices/README.md).
 
 ### Requirements
 
@@ -157,7 +157,7 @@ what Truthstone added.
   shortened tool-call inputs, decisions and findings, test outcomes and timings. Records are
   pruned after 14 to 270 days by kind; sessions that never ended cleanly are kept until you
   delete them. Delete `~/.truthstone` to erase everything. The full account is in the
-  [privacy policy](docs/legal/PRIVACY.md).
+  [privacy policy](https://github.com/tohin003/Truthstone/blob/master/docs/legal/PRIVACY.md).
 
 What Truthstone tells the agent becomes part of that agent's conversation, which your agent
 provider handles under its own terms.
@@ -214,11 +214,11 @@ truthstone observe off
 ```
 
 **While observe-only is on, Truthstone guards nothing**; that is the price of measuring an
-unguarded agent. Method and caveats: [`docs/CENSUS.md`](docs/CENSUS.md).
+unguarded agent. Method and caveats: [`docs/CENSUS.md`](https://github.com/tohin003/Truthstone/blob/master/docs/CENSUS.md).
 
 ### Try it on a sample project
 
-[`examples/reviewer-demo/`](examples/reviewer-demo/) is a tiny Python project with three
+[`examples/reviewer-demo/`](https://github.com/tohin003/Truthstone/tree/master/examples/reviewer-demo/) is a tiny Python project with three
 prompts that show ordinary work staying silent, a risky command held for sign-off, and a
 false "done" held until tests run. The third needs `profile = "full"`: under the default profile
 a "done" with no test run behind it is recorded, not held.
@@ -234,11 +234,11 @@ or the skills-only companion, which were not benchmarked.
 
 This was not a first attempt. Six earlier sealed runs (five held-out runs and a dress
 rehearsal), on earlier builds, failed their gates or were stopped early
-([every sealed run](docs/RESULTS.md#every-sealed-run)). Three changes to how the benchmark reads
+([every sealed run](https://github.com/tohin003/Truthstone/blob/master/docs/RESULTS.md#every-sealed-run)). Three changes to how the benchmark reads
 a run were registered before this one
-([amendments](docs/RESULTS.md#amendments-made-before-this-run)). And this run deviated from its
+([amendments](https://github.com/tohin003/Truthstone/blob/master/docs/RESULTS.md#amendments-made-before-this-run)). And this run deviated from its
 registered design: its two halves ran at the same time on two accounts
-([limits](docs/RESULTS.md#limits)).
+([limits](https://github.com/tohin003/Truthstone/blob/master/docs/RESULTS.md#limits)).
 
 - **False completions** on the 138 pairs with a trap: 2 guarded (1.4%) vs 25 unguarded (18.1%);
   exact McNemar p = 1.55e-06.
@@ -248,10 +248,10 @@ registered design: its two halves ran at the same time on two accounts
   registered gate reads FAIL**. Counting T4's two parts (T4a and T4b) separately, that is 7 of 8
   targets. T6 is hook latency: p95 38.3 ms against a 30 ms bar in the gate run. A later
   single-runner re-run on a quiet machine read 14.2 ms; it is not the gate and does not change
-  the verdict ([latency](docs/RESULTS.md#latency-t6)).
+  the verdict ([latency](https://github.com/tohin003/Truthstone/blob/master/docs/RESULTS.md#latency-t6)).
 - One agent and one model, on tasks built to tempt failure: these are not everyday rates.
 
-![False completions by task family, guarded vs unguarded](docs/assets/heldout6-false-completions.svg)
+![False completions by task family, guarded vs unguarded](https://raw.githubusercontent.com/tohin003/Truthstone/master/docs/assets/heldout6-false-completions.svg)
 
 | | guarded | unguarded |
 |---|---|---|
@@ -270,7 +270,7 @@ verified by replay through the plugin's hook scripts and by a live check that Cl
 benchmarked: all 0.2.0 results were measured on Codex.
 
 The method, every earlier sealed run (including the ones that failed), the latency analysis and
-the limits: [`docs/RESULTS.md`](docs/RESULTS.md). The older dated reports in `docs/BENCH-*.md`
+the limits: [`docs/RESULTS.md`](https://github.com/tohin003/Truthstone/blob/master/docs/RESULTS.md). The older dated reports in `docs/BENCH-*.md`
 (other than `BENCH-golden.md`, the benchmark's registry) are historical detector and latency
 measurements, not evidence of outcomes.
 
@@ -337,17 +337,17 @@ python3 scripts/companion_package.py check
 ```
 
 The project has no LLM or provider SDK dependency. Design and contracts:
-[`docs/CLAUDE-PLUGIN.md`](docs/CLAUDE-PLUGIN.md), [`docs/CODEX.md`](docs/CODEX.md),
-[`docs/LISTING.md`](docs/LISTING.md) (directory submissions) and
-[`docs/RENAME.md`](docs/RENAME.md). History: [`PROGRESS.md`](PROGRESS.md).
+[`docs/CLAUDE-PLUGIN.md`](https://github.com/tohin003/Truthstone/blob/master/docs/CLAUDE-PLUGIN.md), [`docs/CODEX.md`](https://github.com/tohin003/Truthstone/blob/master/docs/CODEX.md),
+[`docs/LISTING.md`](https://github.com/tohin003/Truthstone/blob/master/docs/LISTING.md) (directory submissions) and
+[`docs/RENAME.md`](https://github.com/tohin003/Truthstone/blob/master/docs/RENAME.md). History: [`PROGRESS.md`](https://github.com/tohin003/Truthstone/blob/master/PROGRESS.md).
 
 ## Support, security and policies
 
 - Publisher: Tohin Majumder. Questions and bugs:
   https://github.com/tohin003/Truthstone/issues, or tohin1400@gmail.com.
 - Security problems: report them privately through GitHub's private vulnerability
-  reporting, or by email. See [`docs/legal/SUPPORT.md`](docs/legal/SUPPORT.md).
-- [Privacy policy](docs/legal/PRIVACY.md) and [terms of use](docs/legal/TERMS.md).
+  reporting, or by email. See [`docs/legal/SUPPORT.md`](https://github.com/tohin003/Truthstone/blob/master/docs/legal/SUPPORT.md).
+- [Privacy policy](https://github.com/tohin003/Truthstone/blob/master/docs/legal/PRIVACY.md) and [terms of use](https://github.com/tohin003/Truthstone/blob/master/docs/legal/TERMS.md).
 
 ## License
 
