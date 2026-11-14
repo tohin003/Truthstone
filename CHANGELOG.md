@@ -73,8 +73,8 @@ workflows and one development dependency (`tzdata`). Decision code is unchanged.
   2/138 (1.4%) guarded vs 25/138 (18.1%) unguarded; controls 48/48 in both arms with no false
   block; tokens 1.01x. The registered gate prints seven verdict lines: six pass and T6 fails, so
   it reads FAIL; counting T4's two parts (T4a and T4b) separately, that is 7 of 8 targets. T6 is
-  hook latency (p95 38.3 ms against 30 ms); there is no clean, full-length single-runner
-  measurement of this build yet. Six earlier sealed runs on earlier builds failed their gates or
+  hook latency (p95 38.3 ms against 30 ms); a later single-runner re-run on a quiet machine,
+  which is not the gate, read 14.2 ms. Six earlier sealed runs on earlier builds failed their gates or
   were stopped early; three changes to how the benchmark reads a run (G43, G44, G46) were registered before it; and this run's two
   halves ran at the same time on two accounts, unlike its registered design. Claude Code, the
   `full` profile and the skills-only companion were not benchmarked. Details, every earlier

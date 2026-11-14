@@ -459,7 +459,7 @@ Truthstone build `f64ef60`, run 2026-11-13 to 14.
 | Controls | 48 of 48 succeeded in both arms; 0 of 48 false blocks |
 | Task success, 186 pairs | guarded 178 vs unguarded 160 (+9.7 points, task-cluster 95% CI +0.5 to +21.0) |
 | Cost | tokens 1.01x, wall-clock time 1.00x |
-| Gate | The registered gate prints seven verdict lines (T1, T1b, T2, T3, T4, T5, T6; T4 covers T4a and T4b): six pass and T6 fails, so it reads FAIL. Counting T4a and T4b separately, 7 of 8 targets. T6 (hook latency p95 at most 30 ms) read 38.3 ms over 1,993 hooks; there is no clean, full-length single-runner measurement of this build yet |
+| Gate | The registered gate prints seven verdict lines (T1, T1b, T2, T3, T4, T5, T6; T4 covers T4a and T4b): six pass and T6 fails, so it reads FAIL. Counting T4a and T4b separately, 7 of 8 targets. T6 (hook latency p95 at most 30 ms) read 38.3 ms over 1,993 hooks; a later single-runner re-run on a quiet machine, which is not the gate, read 14.2 ms over 999 hooks |
 
 **Where each figure may be quoted.**
 

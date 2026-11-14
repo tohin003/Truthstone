@@ -266,19 +266,22 @@ the same build, guarded arm only, one replicate (93 sessions), with one runner.
   an unrelated software build). The quiet part (20 sessions, 204 hooks) read p95 21.9 ms (median
   5.5 ms); the busy part (73 sessions, 810 hooks) read 68.7 ms; the whole run read 56.1 ms over
   1,014 hooks, median 7.6 ms. It is reported here and not used as the single-runner number.
-- A second re-run was registered before starting, to run only on an idle machine (no other heavy
-  process, load average below 3) with the load recorded throughout. When this page was written
-  it had not been run, because the machine was in use by unrelated work. Its reading will be
-  added here whatever it is.
+- The second re-run was registered before it started, to begin only on an idle machine (no device
+  emulator running, and a 1-minute load average below 3 on three checks a minute apart), with
+  the load recorded every minute. It ran on 2026-11-14 from 06:00 to 07:03 IST: 93 of 93
+  sessions valid, 999 hooks, **p95 14.2 ms** (median 4.5 ms, maximum 42.4 ms; pre-tool-use
+  24.5 ms, post-tool-use 6.0 ms). During the run the 1-minute load average had a median of 3.5
+  and a maximum of 6.6, which includes the run's own work; no device emulator was running.
 
 **Context only.** The dress rehearsal of 2026-11-08 read 19.7 ms, on an earlier build (`e708e4b`).
 
-**What may be concluded.** The median hook cost is 5 to 9 ms in every reading (6.7 ms in each
-shard of the run; 5.5 and 7.6 ms in the re-run). The p95 ranged from about 17 to 69 ms across
-periods of the same night and is sensitive to what else the machine is doing. **T6 was not met,
-and there is no clean, full-length single-runner measurement of this build yet**: the second
-re-run is registered for an idle machine and has not been made. The registered verdict for this
-run stays T6 FAIL.
+**What may be concluded.** The median hook cost is between 4.5 and 7.6 ms in every reading (6.7 ms
+in each shard of the run; 5.5 and 7.6 ms in the first re-run; 4.5 ms in the second). The p95
+ranged from about 14 to 69 ms across periods of the same night and is sensitive to what else
+the machine is doing: 14.2 ms with one runner on a quiet machine, 38.3 ms in the gate run,
+68.7 ms in the busy part of the first re-run. **T6 was not met in the registered run.** The
+second re-run shows the hooks within the 30 ms bar with one runner on a quiet machine; it is not
+the gate and does not change the verdict. The registered verdict for this run stays T6 FAIL.
 
 ## Every sealed run
 

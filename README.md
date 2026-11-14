@@ -246,9 +246,9 @@ registered design: its two halves ran at the same time on two accounts
   wall-clock time 1.00x.
 - **Gate**: the registered gate prints seven verdict lines; six pass and T6 fails, so **the
   registered gate reads FAIL**. Counting T4's two parts (T4a and T4b) separately, that is 7 of 8
-  targets. T6 is hook latency: p95 38.3 ms against a 30 ms bar, and there is no clean,
-  full-length single-runner measurement of this build yet
-  ([latency](docs/RESULTS.md#latency-t6)).
+  targets. T6 is hook latency: p95 38.3 ms against a 30 ms bar in the gate run. A later
+  single-runner re-run on a quiet machine read 14.2 ms; it is not the gate and does not change
+  the verdict ([latency](docs/RESULTS.md#latency-t6)).
 - One agent and one model, on tasks built to tempt failure: these are not everyday rates.
 
 ![False completions by task family, guarded vs unguarded](docs/assets/heldout6-false-completions.svg)
