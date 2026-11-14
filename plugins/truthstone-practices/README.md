@@ -9,7 +9,7 @@ Truthstone Practices is a set of six instruction-only skills for coding agents. 
 - before running an irreversible shell command
 - before handing over a diff
 
-The plugin contains Markdown instructions with YAML display metadata, icons, manifests, its licence and security policy, and a `.codexignore` file; nothing else. It has no executable code, no hooks and no MCP server. It does not run anything, connect to any service, or collect or send data.
+The plugin contains Markdown instructions with YAML display metadata, icons, manifests, its licence and security policy; nothing else. It has no executable code, no hooks and no MCP server. It does not run anything, connect to any service, or collect or send data.
 
 The agent carries out each protocol with the tools it already has, such as reading files, searching the repository and running your project's own tests. It does this under your usual approval settings.
 

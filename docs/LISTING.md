@@ -35,7 +35,6 @@ The plugin lives in `plugins/truthstone-practices/`. It is the same directory th
 | `assets/logo.svg`, `logo-dark.svg`, `icon.svg`, `icon-dark.svg` | Listing logo and composer icon, light and dark, all 512×512 SVG | yes |
 | `assets/logo.png` | 512×512 PNG export, for places that need a raster image | yes (not referenced by the manifest) |
 | `README.md`, `LICENSE` (Apache-2.0, identical to the repository root), `SECURITY.md` | Required by Anthropic's directory and the HOL list; useful for reviewers | yes |
-| `.codexignore` | Keeps local artefacts out of bundles | no |
 
 **Deliberately absent:**
 - hooks, MCP configuration, `.app.json`/`apps`, scripts or binaries
@@ -57,7 +56,7 @@ python3 scripts/companion_package.py rules            # every rule ID with its s
 python3 scripts/companion_package.py selftest         # 85 cases: each rule shown rejecting a bad package
 ```
 
-The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,352 bytes, sha256 `eb8d2df6652b4c8e4086006ad0a43dfa55e629973fdaf52dcce719e560549612` (rebuilt 2026-11-14 for release 0.2.0). The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
+The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,335 bytes, sha256 `70ffeaed46ebc0a64f175c06c19c3eeddf814053818504df53f43a8074934bb8` (rebuilt 2026-11-14 after release 0.2.0, when the README stopped naming a `.codexignore` file). The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
 
 ---
 
@@ -402,7 +401,7 @@ Notes:
 **Anthropic directory submission** (the user, at claude.ai/directory/manage → **Submit new** → **Plugin bundle**):
 
 - **Source.** Repository `tohin003/Truthstone`, plugin path `plugins/truthstone-practices`, branch `master`, or a release tag.
-- **Pre-checks.** `claude plugin validate --strict ./plugins/truthstone-practices` passes. The README has well over 40 words (577) and serves as the listing description. `LICENSE` is present, there are no `.DS_Store` files, every file is under 256 KiB and the folder holds 23 files (21 of them go into the OpenAI ZIP, §1).
+- **Pre-checks.** `claude plugin validate --strict ./plugins/truthstone-practices` passes. The README has well over 40 words (577) and serves as the listing description. `LICENSE` is present, there are no `.DS_Store` files, every file is under 256 KiB and the folder holds 22 files (21 of them go into the OpenAI ZIP, §1). A `.codexignore` file was removed on 2026-11-14: the directory's automatic policy check refused the first submission for it (`LOCAL_CODE_FILE_TYPE`: of dotfiles, only `.gitignore` is accepted from an organization that is not Verified).
 - **Data handling answers.**
   - Reads or stores personal data: **no**.
   - Sends data to services other than declared connectors: **no**.
@@ -415,7 +414,7 @@ Notes:
 
 | Folder | Result | What a reviewer will likely hold |
 |---|---|---|
-| `plugins/truthstone-practices` | Passes every row: manifest fields, README (577 words), LICENSE, file sizes and count (23 files), file types, no lockfile install, no package-source config, no credentials; instruction-only, so no data destinations | Nothing expected: it should pass clean |
+| `plugins/truthstone-practices` | Passes every row: manifest fields, README (577 words), LICENSE, file sizes and count (22 files), file types, no lockfile install, no package-source config, no credentials; instruction-only, so no data destinations | Nothing expected: it should pass clean |
 | `plugins/truthstone-claude` | Passes `validate --strict` and every blocking row: hook commands use full `${CLAUDE_PLUGIN_ROOT}` paths, `hooks/hooks.json` is valid, no unpinned package launcher, README (about 1,900 words), LICENSE, 16 files, no credentials (the daemon's bearer token is created locally and sent only to 127.0.0.1); its README discloses every data destination (GitHub for the runtime at tag `v0.2.0`, PyPI for its dependencies, uv's Python builds only without a usable Python) | Two holds, not blocks: (1) a package install in a hook script: `session-start.sh` installs the runtime from GitHub tag `v0.2.0`, with dependencies resolved from PyPI at install time within version ranges; (2) scripts the validator cannot follow: `hook.sh` and `session-start.sh` use `CLAUDE_PLUGIN_DATA`, `PWD` and command substitution and run the installed runtime's Python, and the six command skills run `command.sh` with `${CLAUDE_PLUGIN_DATA}`. The README section on what it runs, sends and fetches is the material for that review |
 
 Before either submission: the repository must be public, and tag `v0.2.0` must exist on GitHub. Until the tag exists, every first session of the Claude Code plugin reports that it could not install its runtime and runs unguarded.
