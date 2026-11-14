@@ -291,7 +291,11 @@ measurements, not evidence of outcomes.
   download Python). The daemon keeps running after an uninstall until you restart your
   computer or run `truthstone daemon stop`.
 - **The sandboxed test re-runs need macOS** (`sandbox-exec`). On Linux those checks stay
-  silent; the other checks do not depend on it.
+  silent; the other checks do not depend on it. A re-run finds its programs on your login
+  shell's PATH, as Codex does. If the agent ran a bare `python -m pytest` in a virtual
+  environment that only its own process had activated, and your login shell's `python` is
+  another interpreter or has no pytest, the re-run cannot reproduce the result and the check
+  stays silent: nothing is held wrongly, but that catch is missed.
 - **A class is looked up by its name alone.** If your repository defines a class with the
   same name as one it imports from the standard library or a dependency (your own `Counter`
   somewhere, `from collections import Counter` elsewhere), a call to a member your class lacks
