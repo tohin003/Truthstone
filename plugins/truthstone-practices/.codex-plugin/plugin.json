@@ -1,6 +1,6 @@
 {
   "name": "truthstone-practices",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Six instruction-only skills that guide a coding agent to show evidence before saying a task is done: a requirement ledger, file:line grounding, scope checks, proportional planning, a pre-flight for irreversible shell commands, and a review of the diff against the request.",
   "author": {
     "name": "Tohin Majumder",

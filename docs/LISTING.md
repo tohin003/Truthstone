@@ -56,7 +56,7 @@ python3 scripts/companion_package.py rules            # every rule ID with its s
 python3 scripts/companion_package.py selftest         # 85 cases: each rule shown rejecting a bad package
 ```
 
-The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,335 bytes, sha256 `70ffeaed46ebc0a64f175c06c19c3eeddf814053818504df53f43a8074934bb8` (rebuilt 2026-11-14 after release 0.2.0, when the README stopped naming a `.codexignore` file). The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
+The current build is `dist/companion/truthstone-practices-1.0.1.zip`: 21 files, 47,336 bytes, sha256 `77c3f308caf112856fe629099313a107a2911386f3f5e62609ebc0bd42ee7c50` (version 1.0.1, built 2026-11-14 after release 0.2.0: the README stopped naming a `.codexignore` file, and Anthropic's directory takes a fix only as a new version). The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
 
 ---
 
@@ -67,7 +67,7 @@ The listing copy is final and within every limit. It comes from `.codex-plugin/p
 | Field | Value | Length / limit |
 |---|---|---|
 | `name` | `truthstone-practices` | 20 / 64 |
-| `version` | `1.0.0` | semver |
+| `version` | `1.0.1` | semver |
 | `displayName` | Truthstone Practices | 20 / 30 |
 | `shortDescription` | Verify work before saying done | 30 / 30 |
 | `longDescription` | below | 2,757 / 4,000 |
@@ -186,7 +186,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 | Clause | How we comply | Rule |
 |---|---|---|
 | `name`: "at most 64 characters. Use lowercase letters, numbers, and single hyphens for packages you plan to submit." [S] | `truthstone-practices` | NAME |
-| `version`: semantic version, at most 64 characters [E] | `1.0.0` | VERSION |
+| `version`: semantic version, at most 64 characters [E] | `1.0.1` | VERSION |
 | `description`: "must be 1,024 characters or fewer" [E] (the field table in [S] says 4,000; we use the stricter value) | 272 | DESCRIPTION |
 | `author.name` required; `author.url` HTTPS, no credentials [E] | Present | AUTHOR |
 | `skills`: "must resolve to the root `skills/` directory" [E] | `./skills/` | SKILLS-PATH |
@@ -226,7 +226,7 @@ Each row quotes the clause, says how the package meets it, and names the validat
 | "Do not engage in misleading or copycat designs, impersonation, spam, or static frames with no meaningful interaction." | Original protocols drawn from this repository's own design (Appendix); no imitation of other plugins |
 | "Plugins should not imply that they are made or endorsed by OpenAI." | No such wording; enforced by `LISTING-COPY` |
 | "Plugins must behave predictably and reliably… Errors… must be handled with clear messaging or fallback behaviors." | Each skill defines its fallback. When a check cannot run, the item is reported "not verified" with the exact command, never as passed |
-| "Plugins should be stable, responsive, and complete. Trial or demo plugins will not be accepted." | Version 1.0.0. Every protocol is complete and standalone; nothing is gated or upsold, and nothing needs another install |
+| "Plugins should be stable, responsive, and complete. Trial or demo plugins will not be accepted." | Version 1.0.1. Every protocol is complete and standalone; nothing is gated or upsold, and nothing needs another install |
 | "Avoid overly generic names… Do not append 'MCP,' 'MCP Server,' or 'Plugin'" | A brand plus a descriptor, with no suffix; enforced by `DISPLAY-NAME` |
 | "without comparing it with other products, disparaging alternatives, or making unverifiable claims. Do not advertise pricing, subscriptions, free trials, discounts, or promotions." | No comparisons, numbers, guarantees or pricing words; enforced by `LISTING-COPY` |
 | "Screenshots are no longer shown in the Directory, instead provide example Prompts" | Three starter prompts |
@@ -566,7 +566,7 @@ Skill names are **stable identifiers**: renaming one is a breaking change. The n
   "name": "truthstone-practices",
   "source": "./plugins/truthstone-practices",
   "description": "Six instruction-only skills that guide a coding agent to show evidence before saying a task is done.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "category": "development"
 }
 ```
