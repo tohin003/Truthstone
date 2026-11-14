@@ -30,10 +30,12 @@ your machine.
 
 > **The evidence, in one paragraph.** On a sealed benchmark (Codex, `gpt-6.1-sol`, the default
 > profile, 186 paired sessions on tasks built to tempt a false "done"), false completions were
-> 2 of 138 with Truthstone on and 25 of 138 with it observing only. **The registered gate reads
-> FAIL**: six of seven gate lines pass, and T6, hook latency, was missed (7 of 8 targets,
-> counting T4a and T4b separately). These are not everyday rates, and Claude Code was not
-> benchmarked. [More below](#evidence).
+> 2 of 138 with Truthstone on and 25 of 138 with it observing only. Six of the seven
+> pre-registered gate lines passed; one, hook latency (T6), missed by a small margin: p95 38.3 ms
+> against a 30 ms bar. These are not everyday rates, and Claude Code was not benchmarked.
+> [More below](#evidence).
+
+![False completions: 18.1% without Truthstone, 1.4% with. Sealed benchmark on Codex; 6 of 7 pre-registered gate lines passed](https://raw.githubusercontent.com/tohin003/Truthstone/master/docs/assets/results-headline.png)
 
 ## Contents
 
