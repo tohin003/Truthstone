@@ -13,7 +13,9 @@ from truthstone.bench.codex import leakage, suite
 # The strings depend on two inputs of the machine that builds them, besides the tasks:
 # * Python's own vocabulary, read from the running interpreter's standard library
 #   (`leakage._generic`): under 3.12, 2 of the 2,446 stored strings drop out and 1 comes in
-#   (3.13.15 and 3.13.16 build the same list);
+#   (3.13.15 and 3.13.16 build the same list; so does python.org's 3.13.17 on GitHub's macOS
+#   runner, since the stdlib's own test suites are left out: it ships `idlelib/idle_test`,
+#   whose identifiers took 3 stored strings out of the list while they were read);
 # * the English words that are not "invented words", read from /usr/share/dict/words
 #   (`leakage.WORDS`, macOS's web2): without it, as on Ubuntu's runner image, 252 more come in.
 # The ids depend on neither.

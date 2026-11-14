@@ -16,6 +16,8 @@ unrelated failure, an honest partial count about either, tests the agent couldn'
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from tests.test_audit_stop_kit import CodexSession, assert_silent, make_repo, pytest_output
@@ -291,11 +293,16 @@ def test_without_a_baseline_a_claim_they_were_already_failing_is_taken_at_its_wo
 @pytest.mark.skipif(not original_tests.sandbox_available(), reason="needs macOS sandbox-exec")
 def test_without_a_baseline_the_sandbox_rerun_outweighs_a_claim_they_were_already_failing(shop):
     """Day 9: the two tests pass on the task-start tree in the sandbox, so the change broke them and
-    the "done" is held, whatever the message says (``tests/test_day9_baseline.py``)."""
+    the "done" is held, whatever the message says (``tests/test_day9_baseline.py``).
+
+    The sandbox runs the session's command again, with programs found on the login shell's PATH
+    first: a bare ``python`` there need not be this interpreter, nor have pytest (on GitHub's macOS
+    runner it is python.org's 3.14 without it, and the rerun is silent). So the session runs pytest
+    with this interpreter by path, as ``tests/test_day9_baseline.py`` does."""
     session = shop()
     session.prompt(PROMPT)
     session.write("src/shop/export.py", EXPORT_ISO)
-    session.run("python -m pytest -q", EXPORT_RED)
+    session.run(f"{sys.executable} -m pytest -q", EXPORT_RED)
     out = session.stop(ALREADY)
     assert out.get("decision") == "block", out
     assert "tests/test_export.py::test_to_row" in out["reason"]

@@ -62,6 +62,38 @@ def _finding(subject: str = "UserRepository.get_active_users") -> Finding:
     )
 
 
+def _busy_wait_scale(scratch: Path) -> float:
+    """How much longer than told SQLite's busy wait takes on this machine: 1 where it takes about
+    `HOT_BUSY_TIMEOUT_MS` (Linux, a Mac at the desk: 100 to 140 ms), else the measured factor.
+
+    The busy handler waits in short sleeps (1, 2, 5, 10 ms...). GitHub's virtualised macOS runners
+    oversleep every one of them (a 1 ms sleep takes 5 ms), so a bare 100 ms busy timeout costs
+    200 to 400 ms there before any Truthstone code runs. The latency bounds below scale by this
+    factor, measured beside them on a scratch database; a second busy wait per call, or the
+    3 s maintenance timeout on the hot path, still breaks them on any machine.
+    """
+    path = scratch / "busy-wait-baseline.db"
+    setup = sqlite3.connect(str(path), isolation_level=None)
+    setup.execute("PRAGMA journal_mode=WAL")
+    setup.execute("CREATE TABLE IF NOT EXISTS t(x)")
+    setup.close()
+    samples = []
+    for _ in range(5):
+        holder = sqlite3.connect(str(path), isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")
+        waiter = sqlite3.connect(str(path), isolation_level=None)
+        waiter.execute(f"PRAGMA busy_timeout={HOT_BUSY_TIMEOUT_MS}")
+        started = time.perf_counter()
+        with pytest.raises(sqlite3.OperationalError):
+            waiter.execute("BEGIN IMMEDIATE")
+        samples.append(time.perf_counter() - started)
+        waiter.close()
+        holder.execute("ROLLBACK")
+        holder.close()
+    factor = sorted(samples)[len(samples) // 2] / (HOT_BUSY_TIMEOUT_MS / 1000)
+    return 1.0 if factor < 1.5 else factor
+
+
 def _count(store: ProjectStore, table: str) -> int:
     # A fresh connection: what another process (or the next daemon) would see.
     other = sqlite3.connect(str(store.db.path))
@@ -180,6 +212,7 @@ def test_external_write_lock_does_not_disable_challenges(tmp_path):
             return claude.to_event(payload)
 
         guard.handle(event("SessionStart", source="startup"))
+        limit = 1.0 * _busy_wait_scale(tmp_path)
         writer = ExternalWriter(ws.store.db.path)
         try:
             for i in range(3):
@@ -196,7 +229,7 @@ def test_external_write_lock_does_not_disable_challenges(tmp_path):
                     )
                 )
                 # Two writes per event at <=100 ms each; the old 3 s timeout took 6.3 s.
-                assert time.perf_counter() - started < 1.0
+                assert time.perf_counter() - started < limit
         finally:
             writer.commit()
 
@@ -227,7 +260,7 @@ def test_external_write_lock_does_not_disable_challenges(tmp_path):
         guard.close()
 
 
-def test_locked_db_bounds_write_latency(workspace):
+def test_locked_db_bounds_write_latency(workspace, tmp_path):
     store = ProjectStore.for_workspace(workspace)
     store.open_session("s1", "claude-code")
     event = claude.to_event(pre_tool_use())
@@ -242,6 +275,7 @@ def test_locked_db_bounds_write_latency(workspace):
         "close_session": lambda: store.close_session("s1"),
     }
 
+    limit_ms = 300 * _busy_wait_scale(tmp_path)
     writer = ExternalWriter(store.db.path)
     try:
         timings = {}
@@ -252,8 +286,8 @@ def test_locked_db_bounds_write_latency(workspace):
     finally:
         writer.commit()
 
-    slow = {name: round(ms) for name, ms in timings.items() if ms >= 300}
-    assert not slow, f"write attempts under an external lock must give up quickly: {slow}"
+    slow = {name: round(ms) for name, ms in timings.items() if ms >= limit_ms}
+    assert not slow, f"write attempts under an external lock must give up within {limit_ms:.0f} ms: {slow}"
     # And they really did give up rather than slipping through.
     assert _count(store, "events") == 0
     assert _count(store, "decisions") == 0

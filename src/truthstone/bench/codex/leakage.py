@@ -117,12 +117,14 @@ def _generic() -> set[str]:
 
 
 def _stdlib_identifiers() -> set[str]:
-    """Every identifier in the standard library's own source: general code, never a task's."""
+    """Every identifier in the standard library's own source: general code, never a task's. Not
+    its test suites, which some builds ship and others drop (python.org's installers keep `test`
+    and `idlelib/idle_test`, python-build-standalone has neither)."""
     import sysconfig
 
     found: set[str] = set()
     for path in Path(sysconfig.get_paths()["stdlib"]).rglob("*.py"):
-        if "test" in path.parts or "site-packages" in path.parts:
+        if {"test", "idle_test", "site-packages"} & set(path.parts):
             continue
         found |= {t.lower() for t in _IDENT.findall(_read(path)) if "." not in t}
     return found
