@@ -57,7 +57,7 @@ python3 scripts/companion_package.py rules            # every rule ID with its s
 python3 scripts/companion_package.py selftest         # 85 cases: each rule shown rejecting a bad package
 ```
 
-The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,303 bytes, sha256 `91bcd12cba5abef1416e51dc360a533a0d2173ed29c264f83bf2ee43de58f7c9` (rebuilt 2026-11-04 after the publisher details were filled in). The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
+The current build is `dist/companion/truthstone-practices-1.0.0.zip`: 21 files, 47,352 bytes, sha256 `eb8d2df6652b4c8e4086006ad0a43dfa55e629973fdaf52dcce719e560549612` (rebuilt 2026-11-14 for release 0.2.0). The build is reproducible, with sorted entries, fixed timestamps and `0644` files, so rebuilding unchanged sources gives the same hash. Any edit under the plugin directory changes the hash; `build` prints the new one.
 
 ---
 
