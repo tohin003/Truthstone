@@ -1,3 +1,0 @@
-interface:
-  display_name: "Proportional Planning"
-  short_description: "Size the plan to the task's complexity and risk"

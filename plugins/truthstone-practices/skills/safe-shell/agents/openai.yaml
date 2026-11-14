@@ -1,3 +1,0 @@
-interface:
-  display_name: "Safe Shell"
-  short_description: "Pre-flight irreversible commands before running them"

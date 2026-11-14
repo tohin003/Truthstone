@@ -1,3 +1,0 @@
-interface:
-  display_name: "Evidence Before Done"
-  short_description: "Report each requirement as verified, failed or not verified"
