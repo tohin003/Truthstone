@@ -1,0 +1,3 @@
+interface:
+  display_name: "Diff Review"
+  short_description: "Check the full diff against the request before handing over"
