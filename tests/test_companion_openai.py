@@ -3,11 +3,28 @@ Claude-directory filter that keeps its MCP and review data out of Claude's varia
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
 import zipfile
+from pathlib import Path
 
 import pytest
-from scripts import claude_directory_branch, companion_package
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+
+
+def _load(name: str):
+    """The packaging scripts are standalone files, not a package."""
+    spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # its dataclasses look their module up by name
+    spec.loader.exec_module(module)
+    return module
+
+
+companion_package = _load("companion_package")
+claude_directory_branch = _load("claude_directory_branch")
 
 MCP_URL = "https://checks.truthstone.invalid/mcp"
 DEMO_URL = "https://demo.truthstone.invalid/walkthrough"
