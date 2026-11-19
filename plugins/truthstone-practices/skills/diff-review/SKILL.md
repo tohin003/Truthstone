@@ -34,6 +34,8 @@ Work through this list and record `path:line` for every problem.
    - narrowed test inputs
 
    If the request said not to modify the tests, any change to them is a violation.
+
+   If the Truthstone checks tools are available, call `check_test_edit` for each changed or deleted test file, with its full content before and after, and include what it reports. Without the tools, check the list above by reading the diff.
 6. **Untested changes.** Mention changed code that no test covers, when the project otherwise tests its code and you added no test.
 7. **Dependencies.**
    - Every package added to a manifest has a stated reason.

@@ -43,6 +43,7 @@ Rules for evidence:
 - **Treat incomplete output as proof of nothing.** That covers a run that timed out, was cut off or was interrupted, and output you did not read.
 - **Reread any file you cite if it could have changed since you read it.**
 - **Skip tests that add nothing.** Changes only to documentation or comments, projects without a test runner, and requests that waive tests ("no need to run the tests") don't need a run. Say which case applies.
+- **Check the order of edits and runs.** If the Truthstone checks tools are available, call `check_test_runs` with your edits and the commands you ran since the task began, in order, with their exit codes and output, and with your draft report. Treat "failing" or "unverified" as evidence against "done". Without the tools, compare the order yourself.
 - **Report untested code.** If you changed code that no test covers, in a project that otherwise tests its code, and you added no test, say so.
 
 ## 3. Classify each requirement, then the task

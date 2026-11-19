@@ -23,6 +23,8 @@ Most commands need no ceremony. Building, testing, reading, and deleting a known
 
 Before running the command, answer these four questions in one to three lines.
 
+If the Truthstone checks tools are available, first call `check_shell_command` with the exact command line, and use its matched rules and any safer form in your answers. It reads the text and runs nothing, and a "clean" result is not authorization. Without the tools, answer the questions yourself.
+
 1. **Target.** What exactly will the command touch? Expand variables and globs first: print the resolved path, list the files, or use the tool's dry-run or preview mode. When a variable appears in a destructive path, write it as `${VAR:?}` so the shell stops if the variable is empty.
 2. **Reversibility.** Can the effect be undone, and how?
 3. **Safer path.** Is there a narrower or reversible way to get the same result? For example:

@@ -1,6 +1,6 @@
 # Truthstone Practices
 
-Truthstone Practices is a set of six instruction-only skills for coding agents. Each skill is a step-by-step protocol the agent follows at a specific point in a task:
+Truthstone Practices is a set of six skills for coding agents. Each skill is a step-by-step protocol the agent follows at a specific point in a task:
 
 - before reporting work as done
 - before relying on code it has not seen
@@ -9,9 +9,21 @@ Truthstone Practices is a set of six instruction-only skills for coding agents. 
 - before running an irreversible shell command
 - before handing over a diff
 
-The plugin contains Markdown instructions with YAML display metadata, icons, manifests, its licence and security policy; nothing else. It has no executable code, no hooks and no MCP server. It does not run anything, connect to any service, or collect or send data.
+The plugin contains Markdown instructions with YAML display metadata, icons, manifests, its licence and security policy; nothing else. It has no executable code and no hooks, and it does not run anything or collect data itself.
 
 The agent carries out each protocol with the tools it already has, such as reading files, searching the repository and running your project's own tests. It does this under your usual approval settings.
+
+## Optional: Truthstone checks
+
+The edition in the ChatGPT and Codex plugin directory also connects one remote MCP server, Truthstone checks. Its three read-only tools apply Truthstone's deterministic rules to text the model passes in, and three skills use them when they are available:
+
+| Tool | Used by | What it checks |
+|---|---|---|
+| `check_shell_command` | `safe-shell` | A command line, for destructive or irreversible effects such as recursive deletes, force pushes and hard resets, with a guarded form where one exists |
+| `check_test_edit` | `diff-review` | A test file before and after a change, for added skips, deleted tests, fewer assertions and changed expected values |
+| `check_test_runs` | `evidence-before-done` | The task's edits and commands in order, for a whole-suite test run that passed after the last edit, and a final message that claims more than the runs show |
+
+The tools receive only the text they are given (a command line, a test file's before and after, a list of commands with exit codes and output, optionally a message). They run nothing and store nothing. Without them, for example when the plugin is installed from this repository, every skill works as written. The server's source is in [`services/truthstone-checks`](https://github.com/tohin003/Truthstone/tree/master/services/truthstone-checks).
 
 ## Skills
 
@@ -45,7 +57,7 @@ The six skill names above are stable identifiers. Other tools may refer to a ski
 
 ## Privacy, terms and support
 
-- [Privacy policy](https://github.com/tohin003/Truthstone/blob/master/docs/legal/PRIVACY.md): this plugin collects nothing.
+- [Privacy policy](https://github.com/tohin003/Truthstone/blob/master/docs/legal/PRIVACY.md): the skills collect nothing; the optional checks process the text they are given in memory and keep none of it.
 - [Terms](https://github.com/tohin003/Truthstone/blob/master/docs/legal/TERMS.md)
 - [Support](https://github.com/tohin003/Truthstone/blob/master/docs/legal/SUPPORT.md)
 - [Security policy](SECURITY.md)

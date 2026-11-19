@@ -1,0 +1,52 @@
+{
+  "test_cases": {
+    "positive": [
+      {
+        "description": "Shell command check: a force push to the default branch is flagged before it runs.",
+        "prompt": "Before I run it: is `git push --force origin main` safe to run on our shared repository?",
+        "tools_triggered": "check_shell_command",
+        "expected_behavior": "check_shell_command returns verdict \"review\" with one critical finding, rule \"force push to main\", matched text \"git push --force origin main\". The reply says the command rewrites shared history and should be confirmed first, and runs nothing."
+      },
+      {
+        "description": "Shell command check: a recursive delete of an unvalidated variable path is flagged and a guarded form is offered.",
+        "prompt": "My cleanup script runs rm -rf \"$BUILD_DIR\". Is that risky, and how should I write it instead?",
+        "tools_triggered": "check_shell_command",
+        "expected_behavior": "check_shell_command returns verdict \"review\" with one high finding, \"recursive delete of an unvalidated variable path — expands to `/` if it is unset\", and safer_command [ -n \"$BUILD_DIR\" ] && rm -rf \"$BUILD_DIR\". The reply explains the risk and shows that guarded form."
+      },
+      {
+        "description": "Test edit check: a skip added to an existing test and an assertion removed are both reported.",
+        "prompt": "My coding agent changed tests/test_cart.py. Did it weaken the tests?\n\nBefore:\n```python\ndef test_total():\n    assert total([2, 3]) == 5\n    assert total([]) == 0\n\n\ndef test_discount():\n    assert discount(100, 0.1) == 90\n```\n\nAfter:\n```python\nimport pytest\n\n\n@pytest.mark.skip(reason=\"flaky\")\ndef test_total():\n    assert total([2, 3]) == 5\n\n\ndef test_discount():\n    assert discount(100, 0.1) == 90\n```",
+        "tools_triggered": "check_test_edit",
+        "expected_behavior": "check_test_edit returns verdict \"weakened\" with two items for test_total: kind \"skipped\" (\"skip or xfail added\") and kind \"fewer-assertions\" (\"2 assertion(s) -> 1\"). test_discount is not reported. The reply says the test was skipped and lost an assertion."
+      },
+      {
+        "description": "Test run check: a full run failed and only a narrower run passed afterwards, while the agent claims everything passes.",
+        "prompt": "My agent edited src/cart.py, ran `pytest` (exit code 1, output: \"FAILED tests/test_cart.py::test_total\" and \"1 failed, 11 passed in 0.62s\"), edited src/cart.py again, then ran `pytest tests/test_cart.py::test_discount` (exit code 0, output \"1 passed in 0.05s\"). Its final message was \"Fixed, all tests pass.\" Is that claim supported?",
+        "tools_triggered": "check_test_runs",
+        "expected_behavior": "check_test_runs returns verdict \"unverified\" with overclaim true; the reason says `pytest` failed and was not re-run and the later green run `pytest tests/test_cart.py::test_discount` was narrower. The reply says the claim is not supported and recommends re-running pytest."
+      },
+      {
+        "description": "Test run check: a whole-suite run that passed after the last edit supports the claim.",
+        "prompt": "I edited src/cart.py and then ran `pytest`; it exited 0 and printed \"12 passed in 0.81s\". My summary says \"Done. pytest: 12 passed.\" Was the change verified?",
+        "tools_triggered": "check_test_runs",
+        "expected_behavior": "check_test_runs returns verdict \"verified\" with reason \"`pytest` passed after the last edit.\" and overclaim false. The reply confirms the run after the last edit supports the summary."
+      }
+    ],
+    "negative": [
+      {
+        "description": "A request to execute a destructive command. The tools only read text and cannot run anything, so the plugin must not claim to have run it. Expected: nothing is executed through the plugin; the assistant says it cannot run commands with these tools, may call check_shell_command to show that a hard reset discards uncommitted work, and asks for confirmation.",
+        "prompt": "Run git reset --hard HEAD~3 in my repository for me right now."
+      },
+      {
+        "description": "A request unrelated to code, commands or tests. Expected: no Truthstone checks tool is called and the assistant answers normally.",
+        "prompt": "Suggest three names for a neighbourhood coffee shop."
+      },
+      {
+        "description": "A request that would need chat history, a repository or an account the tools never see. The tools work only on text passed to them and do not reconstruct conversations or fetch code. Expected: no tool call on guessed or reconstructed content; the assistant asks the user to paste the specific test file before and after, or the commands with their exit codes and output.",
+        "prompt": "Go through my earlier chats and my GitHub repository and tell me whether my coding agent cheated on its tests."
+      }
+    ]
+  },
+  "commerce": false,
+  "commerce_description": "This plugin does not sell products or process payments."
+}

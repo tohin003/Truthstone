@@ -9,6 +9,9 @@ The branch therefore holds the folder without what only Codex reads:
 * `.codex-plugin/` (the Codex manifest),
 * the SVG logos and icons (Claude's manifest names `assets/logo.png`),
 * `skills/<name>/agents/openai.yaml`,
+* any MCP configuration or OpenAI review data (`mcp.json`, `.mcp.json`, a portable root
+  `plugin.json`): the Truthstone checks server is declared only in the ZIP that
+  `companion_package.py build-openai` writes, and Claude's listing has no MCP server,
 
 with the one README sentence that lists the folder's contents adjusted to match, and a short README
 at the branch root. Nothing else differs from the source commit.
@@ -60,6 +63,7 @@ def dropped(path: str) -> bool:
         inside.startswith(".codex-plugin/")
         or inside.endswith(".svg")
         or (inside.startswith("skills/") and inside.endswith("/agents/openai.yaml"))
+        or inside in ("mcp.json", ".mcp.json", "plugin.json")
     )
 
 

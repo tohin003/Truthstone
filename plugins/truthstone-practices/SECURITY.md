@@ -2,7 +2,7 @@
 
 ## Scope
 
-This plugin contains only Markdown instructions (skills), YAML display metadata, JSON manifests and image assets. It has no executable code, no hooks, no MCP servers and no network access.
+This plugin contains only Markdown instructions (skills), YAML display metadata, JSON manifests and image assets. It has no executable code and no hooks. The edition in the ChatGPT and Codex plugin directory also declares one remote MCP server, Truthstone checks (source in `services/truthstone-checks` of the repository), whose tools are read-only and run nothing; a security issue in that server is in scope too.
 
 A security issue in this plugin is an instruction that could lead an agent to cause harm, for example by:
 

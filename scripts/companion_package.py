@@ -3,6 +3,7 @@
 
     python3 scripts/companion_package.py check [--final] [--online]
     python3 scripts/companion_package.py build [--out DIR]
+    python3 scripts/companion_package.py build-openai --mcp-url URL --demo-url URL [--out DIR]
     python3 scripts/companion_package.py validate-zip PATH.zip
     python3 scripts/companion_package.py sync
     python3 scripts/companion_package.py rename --slug NEW --display "New Name" [--dry-run]
@@ -10,8 +11,11 @@
     python3 scripts/companion_package.py selftest
 
 `check` validates the plugin directory as it lives in this repository, which is also what
-our own Codex and Claude Code marketplaces serve. `build` writes the ZIP for the OpenAI
-submission portal and then validates the ZIP itself. A ZIP is never trusted because the
+our own Codex and Claude Code marketplaces serve. `build` writes the skills-only ZIP for the
+OpenAI submission portal and then validates the ZIP itself. `build-openai` writes the "With MCP"
+ZIP instead: the same plugin in the portable layout (root `plugin.json` and `mcp.json`), with the
+hosted Truthstone checks server, its review cases (services/truthstone-checks/review.json) and the
+demo recording; it refuses to run without both URLs, so no placeholder reaches a submission. A ZIP is never trusted because the
 tree it came from passed: the archive gets its own checks.
 
 Every rule has an ID and the official page it comes from (`rules` prints them), and
@@ -41,7 +45,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Callable
 from urllib.parse import urlsplit
@@ -207,6 +211,18 @@ RULES: dict[str, tuple[str, str]] = {
     "LEGAL-PLACEHOLDERS": ("(--final) docs/legal has no unfilled placeholders", SRC_HOUSE),
     "LISTING-URLS-ONLINE": ("(--online) every listing URL answers 200 over HTTPS",
                             SRC_SUBMIT + " (public URLs must be accessible)"),
+    # build-openai only: the portable "With MCP" package
+    "MCP-MANIFEST": ("Root plugin.json declares the Agent Plugins schema, keeps OpenAI settings under "
+                     "extensions.com.openai (interface included), and is the only manifest",
+                     SRC_BUILD + " ; " + SRC_SUBMIT),
+    "MCP-CONFIG": ("Root mcp.json declares the MCP schema and exactly one server: type "
+                   "streamable-http, an HTTPS URL, no headers, auth type none",
+                   SRC_BUILD + " ; " + SRC_SUBMIT),
+    "MCP-REVIEW": ("review: exactly five positive cases (description, prompt, tools_triggered, "
+                   "expected_behavior) and three negative (description, prompt), an HTTPS "
+                   "demo_recording_url, and release notes", SRC_SUBMIT + " ; " + SRC_ERRORS),
+    "MCP-LISTING-URLS": ("All four listing URLs are present (required for MCP review)",
+                         SRC_SUBMIT + " ; " + SRC_ERRORS),
 }
 
 CATEGORIES = (
@@ -479,7 +495,7 @@ def load_zip(path: Path, report: Report) -> Package | None:
 
     # Locate the plugin root.
     manifests = [name for name in files if name.endswith(".codex-plugin/plugin.json")]
-    if ".codex-plugin/plugin.json" in files:
+    if ".codex-plugin/plugin.json" in files or "plugin.json" in files:  # Codex or portable layout
         prefix = ""
     else:
         tops = {name.split("/", 1)[0] for name in files}
@@ -856,8 +872,10 @@ def split_front_matter(text: str) -> tuple[dict[str, object], str]:
 # -- the checks --------------------------------------------------------------------------
 
 
-def check_package(package: Package, report: Report, layout: Layout | None = None) -> dict | None:
-    """Every rule that applies to the plugin's own files, whichever form they arrived in."""
+def check_package(package: Package, report: Report, layout: Layout | None = None,
+                  with_mcp: bool = False) -> dict | None:
+    """Every rule that applies to the plugin's own files, whichever form they arrived in.
+    `with_mcp`: the "With MCP" package, whose root mcp.json `check_openai_mcp` judges instead."""
     files = package.files
 
     # Things a public, skills-only package must not contain.
@@ -873,7 +891,7 @@ def check_package(package: Package, report: Report, layout: Layout | None = None
             report.add("NO-HOOKS", path, "lifecycle hook file")
         if name == ".app.json":
             report.add("NO-APPS", path, "app reference file")
-        if name in (".mcp.json", "mcp.json"):
+        if name in (".mcp.json", "mcp.json") and not (with_mcp and path == "mcp.json"):
             report.add("NO-MCP", path, "MCP server configuration")
         if name == "marketplace.json" or parts[0] in CLAUDE_ONLY or name in CLAUDE_ONLY:
             report.add("NO-CLAUDE-ONLY", path, "component OpenAI does not import")
@@ -1462,6 +1480,167 @@ def cmd_build(layout: Layout, out: Path | None) -> int:
     return 0
 
 
+# -- the "With MCP" package (build-openai) -------------------------------------------------
+#
+# OpenAI takes no more skills-only submissions (docs/LISTING.md); a plugin with a remote MCP
+# server is accepted for review, and the server must be in the first ZIP. The package uses the
+# portable layout because only its mcp.json documents a server's transport and `auth.type`.
+# The portal derives a Codex manifest from it (SRC_ERRORS, "MCP manifest errors"), so the
+# existing checks run on that derived manifest, and the MCP rules on the files themselves.
+
+PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+MCP_SERVER = "truthstone-checks"
+REVIEW_FILE = Path("services") / "truthstone-checks" / "review.json"
+PORTABLE_KEYS = ("name", "version", "description", "author", "homepage", "repository", "license", "keywords")
+
+
+def portable_manifest(codex: dict, review: dict) -> dict:
+    openai = {"interface": codex["interface"], **(codex.get("extensions") or {}).get("com.openai", {})}
+    openai["review"] = review
+    portable = {"$schema": PLUGIN_SCHEMA, **{key: codex[key] for key in PORTABLE_KEYS if key in codex}}
+    portable["extensions"] = {"com.openai": openai}
+    return portable
+
+
+def codex_from_portable(portable: dict) -> dict:
+    """What the portal derives: the inverse of `portable_manifest`, minus the review data."""
+    openai = dict((portable.get("extensions") or {}).get("com.openai") or {})
+    codex = {key: value for key, value in portable.items() if key not in ("$schema", "extensions")}
+    codex["skills"] = "./skills/"
+    codex["interface"] = openai.pop("interface", None)
+    openai.pop("review", None)
+    if openai:
+        codex["extensions"] = {"com.openai": openai}
+    return codex
+
+
+def mcp_config(url: str) -> dict:
+    server = {"type": "streamable-http", "url": url, "extensions": {"com.openai": {"auth": {"type": "none"}}}}
+    return {"$schema": MCP_SCHEMA, "mcpServers": {MCP_SERVER: server}}
+
+
+def check_openai_mcp(package: Package, report: Report) -> dict | None:
+    """The MCP rules; returns the derived Codex manifest for the shared checks, or None."""
+    for path in package.files:
+        if path.split("/", 1)[0] in (".codex-plugin", ".claude-plugin"):
+            report.add("MCP-MANIFEST", path, "the With MCP ZIP carries only the portable plugin.json")
+    try:
+        portable = json.loads(package.files["plugin.json"].decode("utf-8"))
+        servers = json.loads(package.files["mcp.json"].decode("utf-8"))
+    except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        report.add("MCP-MANIFEST", "plugin.json, mcp.json", f"missing or not UTF-8 JSON: {exc}")
+        return None
+    if not isinstance(portable, dict) or not isinstance(servers, dict):
+        report.add("MCP-MANIFEST", "plugin.json, mcp.json", "top level is not an object")
+        return None
+
+    if portable.get("$schema") != PLUGIN_SCHEMA:
+        report.add("MCP-MANIFEST", "plugin.json", f"$schema must be {PLUGIN_SCHEMA}")
+    for key in ("skills", "mcpServers", "interface", "apps", "hooks"):
+        if key in portable:
+            report.add("MCP-MANIFEST", f"plugin.json:{key}", "not a root key of the portable manifest")
+    openai = (portable.get("extensions") or {}).get("com.openai")
+    if not isinstance(openai, dict) or not isinstance(openai.get("interface"), dict):
+        report.add("MCP-MANIFEST", "plugin.json", "extensions.com.openai.interface is required")
+        return None
+
+    if servers.get("$schema") != MCP_SCHEMA:
+        report.add("MCP-CONFIG", "mcp.json", f"$schema must be {MCP_SCHEMA}")
+    entries = servers.get("mcpServers")
+    if not isinstance(entries, dict) or len(entries) != 1:
+        report.add("MCP-CONFIG", "mcp.json", "mcpServers must hold exactly one server")
+    else:
+        (name, server), = entries.items()
+        where = f"mcp.json:{name}"
+        if not isinstance(server, dict):
+            report.add("MCP-CONFIG", where, "server must be an object")
+        else:
+            if server.get("type") != "streamable-http":
+                report.add("MCP-CONFIG", where, "type must be streamable-http")
+            for problem in url_problems(server.get("url"), 1024):
+                report.add("MCP-CONFIG", where, f"url {problem}")
+            for key in ("headers", "command", "args", "env"):
+                if key in server:
+                    report.add("MCP-CONFIG", where, f"'{key}' is not allowed for a public remote server")
+            auth = ((server.get("extensions") or {}).get("com.openai") or {}).get("auth")
+            if auth != {"type": "none"}:
+                report.add("MCP-CONFIG", where, "extensions.com.openai.auth must be {\"type\": \"none\"}")
+
+    review = openai.get("review") if isinstance(openai.get("review"), dict) else {}
+    cases = review.get("test_cases") if isinstance(review.get("test_cases"), dict) else {}
+    for kind, count, fields in (
+        ("positive", 5, ("description", "prompt", "tools_triggered", "expected_behavior")),
+        ("negative", 3, ("description", "prompt")),
+    ):
+        listed = cases.get(kind)
+        if not isinstance(listed, list) or len(listed) != count:
+            report.add("MCP-REVIEW", f"review.test_cases.{kind}", f"exactly {count} cases are required")
+            continue
+        for index, case in enumerate(listed):
+            for key in fields:
+                value = case.get(key) if isinstance(case, dict) else None
+                if not isinstance(value, str) or not value.strip() or bad_characters(value, multiline=True):
+                    report.add("MCP-REVIEW", f"review.test_cases.{kind}[{index}].{key}", "required supported text")
+            if kind == "positive" and isinstance(case, dict) and len(str(case.get("description"))) > 4000:
+                report.add("MCP-REVIEW", f"review.test_cases.positive[{index}]", "description over 4,000 characters")
+    demo = review.get("demo_recording_url")
+    for problem in url_problems(demo, 1024) if demo is not None else ["is required"]:
+        report.add("MCP-REVIEW", "review.demo_recording_url", problem)
+    notes = (openai.get("publication") or {}).get("release_notes")
+    if not isinstance(notes, str) or not notes.strip():
+        report.add("MCP-REVIEW", "publication.release_notes", "release notes are required")
+    for key in URL_FIELDS:
+        if key not in openai["interface"]:
+            report.add("MCP-LISTING-URLS", f"interface.{key}", "required for MCP review")
+    return codex_from_portable(portable)
+
+
+def validate_openai_zip(path: Path) -> Report:
+    report = Report(f"ZIP {path.name} (With MCP)")
+    package = load_zip(path, report)
+    if package is not None:
+        codex = check_openai_mcp(package, report)
+        if codex is not None:
+            files = dict(package.files)
+            files[".codex-plugin/plugin.json"] = json.dumps(codex, indent=2, ensure_ascii=False).encode()
+            check_package(replace(package, files=files), report, with_mcp=True)
+    return report
+
+
+def cmd_build_openai(layout: Layout, out: Path | None, mcp_url: str, demo_url: str) -> int:
+    bad = [f"--mcp-url {p}" for p in url_problems(mcp_url, 1024)]
+    bad += [f"--demo-url {p}" for p in url_problems(demo_url, 1024)]
+    if bad:
+        print("Not building: " + "; ".join(bad))
+        return 1
+    source = Report(f"plugin directory {layout.plugin_dir.relative_to(layout.root)}")
+    check_source(layout, source, final=False, online=False)
+    source.print()
+    if not source.ok:
+        print("Not building: fix the plugin directory first.")
+        return 1
+    review = json.loads((layout.root / REVIEW_FILE).read_text(encoding="utf-8"))
+    review["demo_recording_url"] = demo_url
+    members = zip_members(layout)
+    codex = json.loads(members.pop(".codex-plugin/plugin.json").decode("utf-8"))
+    dump = lambda value: (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode()  # noqa: E731
+    members["plugin.json"] = dump(portable_manifest(codex, review))
+    members["mcp.json"] = dump(mcp_config(mcp_url))
+    target = (out or layout.dist) / f"{codex['name']}-{codex['version']}-with-mcp.zip"
+    write_zip(target, members)
+    report = validate_openai_zip(target)
+    report.print()
+    if not report.ok:
+        return 1
+    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    print(f"Built {target} ({target.stat().st_size} bytes, {len(members)} files)")
+    print(f"sha256 {digest}")
+    for name in sorted(members):
+        print(f"  {name}")
+    return 0
+
+
 def cmd_validate_zip(path: Path) -> int:
     report = validate_zip(path)
     report.print()
@@ -1802,6 +1981,10 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--online", action="store_true", help="also fetch every listing URL")
     build = sub.add_parser("build", help="build and validate the submission ZIP")
     build.add_argument("--out", type=Path, help="output directory (default dist/companion)")
+    openai = sub.add_parser("build-openai", help="build and validate the With MCP ZIP for OpenAI's directory")
+    openai.add_argument("--mcp-url", required=True, help="the deployed Truthstone checks endpoint (HTTPS, .../mcp)")
+    openai.add_argument("--demo-url", required=True, help="reviewer-accessible demo recording (HTTPS)")
+    openai.add_argument("--out", type=Path, help="output directory (default dist/companion)")
     validate = sub.add_parser("validate-zip", help="validate an existing ZIP")
     validate.add_argument("zip", type=Path)
     sub.add_parser("sync", help="regenerate .claude-plugin/plugin.json")
@@ -1822,6 +2005,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_check(layout, args.final, args.online)
     if args.command == "build":
         return cmd_build(layout, args.out)
+    if args.command == "build-openai":
+        return cmd_build_openai(layout, args.out, args.mcp_url, args.demo_url)
     if args.command == "validate-zip":
         return cmd_validate_zip(args.zip)
     if args.command == "sync":
