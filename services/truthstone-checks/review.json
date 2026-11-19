@@ -11,7 +11,7 @@
         "description": "Shell command check: a recursive delete of an unvalidated variable path is flagged and a guarded form is offered.",
         "prompt": "My cleanup script runs rm -rf \"$BUILD_DIR\". Is that risky, and how should I write it instead?",
         "tools_triggered": "check_shell_command",
-        "expected_behavior": "check_shell_command returns verdict \"review\" with one high finding, \"recursive delete of an unvalidated variable path — expands to `/` if it is unset\", and safer_command [ -n \"$BUILD_DIR\" ] && rm -rf \"$BUILD_DIR\". The reply explains the risk and shows that guarded form."
+        "expected_behavior": "check_shell_command returns verdict \"review\" with one high finding, \"recursive delete of an unvalidated variable path — expands to `/` if it is unset\", and safer_command [ -n \"$BUILD_DIR\" ] && rm -rf \"$BUILD_DIR\". The reply explains the risk and shows a guarded form that refuses an empty or unset path (the tool's, or an equivalent)."
       },
       {
         "description": "Test edit check: a skip added to an existing test and an assertion removed are both reported.",
@@ -42,8 +42,8 @@
         "prompt": "Suggest three names for a neighbourhood coffee shop."
       },
       {
-        "description": "A request that would need chat history, a repository or an account the tools never see. The tools work only on text passed to them and do not reconstruct conversations or fetch code. Expected: no tool call on guessed or reconstructed content; the assistant asks the user to paste the specific test file before and after, or the commands with their exit codes and output.",
-        "prompt": "Go through my earlier chats and my GitHub repository and tell me whether my coding agent cheated on its tests."
+        "description": "A test file in a language the test-edit check does not cover (Go; it reads Python and JavaScript/TypeScript). check_test_edit answers \"unsupported\", so there is no Truthstone verdict to give. Expected: the assistant says Truthstone checks does not cover Go test files and reports no Truthstone verdict; it may compare the two versions itself, clearly as its own reading and not as a Truthstone result.",
+        "prompt": "Did this edit weaken my Go test in cart/cart_test.go?\n\nBefore:\n```go\npackage cart\n\nimport \"testing\"\n\nfunc TestTotal(t *testing.T) {\n    if Total([]int{2, 3}) != 5 {\n        t.Fatal(\"want 5\")\n    }\n    if Total(nil) != 0 {\n        t.Fatal(\"want 0\")\n    }\n}\n```\n\nAfter:\n```go\npackage cart\n\nimport \"testing\"\n\nfunc TestTotal(t *testing.T) {\n    t.Skip(\"flaky\")\n    if Total([]int{2, 3}) != 5 {\n        t.Fatal(\"want 5\")\n    }\n}\n```"
       }
     ]
   },

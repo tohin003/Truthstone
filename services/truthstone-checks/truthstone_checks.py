@@ -34,7 +34,7 @@ from truthstone.repo import scanner
 from truthstone.validate import checks, modify, weakened_tests
 from truthstone.verify import claims, runners
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 MAX_TEXT = 200_000  # characters per text field, and in total per call
 MAX_STEPS = 200
 CHALLENGE_ENV = "OPENAI_APPS_CHALLENGE"
@@ -44,11 +44,12 @@ CHALLENGE_ENV = "OPENAI_APPS_CHALLENGE"
 logging.getLogger("mcp").setLevel(logging.WARNING)
 
 INSTRUCTIONS = (
-    "Deterministic second opinions from Truthstone's rules; they only read the text you pass and "
-    "never run anything. Before running a shell command that could delete, overwrite, force-push or "
-    "reset, call check_shell_command. When an edit changes an existing test file, call "
-    "check_test_edit with the file before and after. Before saying a code change is done or tested, "
-    "call check_test_runs with the commands run since the change and their results."
+    "Deterministic checks from Truthstone's rules. They only read the text you pass and never run "
+    "anything. Before a shell command that could delete, overwrite, force-push or reset, call "
+    "check_shell_command. When an edit changes an existing test file, call check_test_edit with the "
+    "file before and after. Before saying a code change is done or tested, call check_test_runs with "
+    "the commands run since the change and their results. They cover nothing else: never present "
+    "your own analysis as a Truthstone result, and report 'unsupported' as exactly that."
 )
 
 READ_ONLY = dict(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
