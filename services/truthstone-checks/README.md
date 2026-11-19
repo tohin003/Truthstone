@@ -30,3 +30,11 @@ Inputs are capped at 200,000 characters per call; request bodies at 1 MiB.
 From a checkout of this repository, `uv run uvicorn truthstone_checks:app --app-dir
 services/truthstone-checks` runs it against the local source instead, and
 `uv run pytest tests/test_truthstone_checks.py` tests it.
+
+## The public instance
+
+The instance the directory plugin connects to runs on Vercel at
+`https://truthstone-checks.vercel.app` (MCP endpoint `/mcp`). `app.py` is the entry point
+Vercel's Python runtime loads, and `.python-version` pins the interpreter. Deploy from this
+folder with `vercel deploy --prod`. The endpoint address cannot be changed after the plugin is
+published in OpenAI's directory without contacting their support, so keep it stable.

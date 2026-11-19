@@ -38,7 +38,7 @@ The agent decides what to pass, under your agent product's controls; the tools d
 
 **What it does with it.** It applies Truthstone's rules to that text in memory and returns the result to your agent. It does not run the commands it reads, does not contact any other service, and keeps nothing: there is no database, no file storage and no analytics, and the service does not write request bodies or tool arguments to its logs.
 
-**What the hosting provider sees.** The service runs on a hosting provider, {{HOSTING_PROVIDER}}, which records ordinary request metadata for each request: the time, the IP address the request came from (your agent provider's servers or your own computer, depending on the product), the path, the response status and the request size. It keeps that metadata for {{HOST_LOG_RETENTION}} under its own privacy policy. We use it only to keep the service running and to investigate failures.
+**What the hosting provider sees.** The service runs on Vercel, which records ordinary request metadata for each request: the time, the IP address the request came from (your agent provider's servers or your own computer, depending on the product), the path, the response status and the request size. We can see those request logs for one hour (the limit of the hosting plan we use, as of November 2026); what Vercel itself keeps, and for how long, is set by its own privacy policy (https://vercel.com/legal/privacy-policy). We use it only to keep the service running and to investigate failures.
 
 **Who receives it.** No one else. Your agent provider sends the request and receives the result as part of your conversation, under its own privacy policy.
 
