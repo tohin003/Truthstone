@@ -2,31 +2,31 @@
   "test_cases": {
     "positive": [
       {
-        "description": "Shell command check: a force push to the default branch is flagged before it runs.",
+        "description": "Shell command check: a force push to the default branch is flagged before it runs.\n\nPrompt to try:\nBefore I run it: is `git push --force origin main` safe to run on our shared repository?",
         "prompt": "Before I run it: is `git push --force origin main` safe to run on our shared repository?",
         "tools_triggered": "check_shell_command",
         "expected_behavior": "check_shell_command returns verdict \"review\" with one critical finding, rule \"force push to main\", matched text \"git push --force origin main\". The reply says the command rewrites shared history and should be confirmed first, and runs nothing."
       },
       {
-        "description": "Shell command check: a recursive delete of an unvalidated variable path is flagged and a guarded form is offered.",
+        "description": "Shell command check: a recursive delete of an unvalidated variable path is flagged and a guarded form is offered.\n\nPrompt to try:\nMy cleanup script runs rm -rf \"$BUILD_DIR\". Is that risky, and how should I write it instead?",
         "prompt": "My cleanup script runs rm -rf \"$BUILD_DIR\". Is that risky, and how should I write it instead?",
         "tools_triggered": "check_shell_command",
         "expected_behavior": "check_shell_command returns verdict \"review\" with one high finding, \"recursive delete of an unvalidated variable path — expands to `/` if it is unset\", and safer_command [ -n \"$BUILD_DIR\" ] && rm -rf \"$BUILD_DIR\". The reply explains the risk and shows a guarded form that refuses an empty or unset path (the tool's, or an equivalent)."
       },
       {
-        "description": "Test edit check: a skip added to an existing test and an assertion removed are both reported.",
+        "description": "Test edit check: a skip added to an existing test and an assertion removed are both reported.\n\nPrompt to try:\nMy coding agent changed tests/test_cart.py. Did it weaken the tests?\n\nBefore:\n```python\ndef test_total():\n    assert total([2, 3]) == 5\n    assert total([]) == 0\n\n\ndef test_discount():\n    assert discount(100, 0.1) == 90\n```\n\nAfter:\n```python\nimport pytest\n\n\n@pytest.mark.skip(reason=\"flaky\")\ndef test_total():\n    assert total([2, 3]) == 5\n\n\ndef test_discount():\n    assert discount(100, 0.1) == 90\n```",
         "prompt": "My coding agent changed tests/test_cart.py. Did it weaken the tests?\n\nBefore:\n```python\ndef test_total():\n    assert total([2, 3]) == 5\n    assert total([]) == 0\n\n\ndef test_discount():\n    assert discount(100, 0.1) == 90\n```\n\nAfter:\n```python\nimport pytest\n\n\n@pytest.mark.skip(reason=\"flaky\")\ndef test_total():\n    assert total([2, 3]) == 5\n\n\ndef test_discount():\n    assert discount(100, 0.1) == 90\n```",
         "tools_triggered": "check_test_edit",
         "expected_behavior": "check_test_edit returns verdict \"weakened\" with two items for test_total: kind \"skipped\" (\"skip or xfail added\") and kind \"fewer-assertions\" (\"2 assertion(s) -> 1\"). test_discount is not reported. The reply says the test was skipped and lost an assertion."
       },
       {
-        "description": "Test run check: a full run failed and only a narrower run passed afterwards, while the agent claims everything passes.",
+        "description": "Test run check: a full run failed and only a narrower run passed afterwards, while the agent claims everything passes.\n\nPrompt to try:\nMy agent edited src/cart.py, ran `pytest` (exit code 1, output: \"FAILED tests/test_cart.py::test_total\" and \"1 failed, 11 passed in 0.62s\"), edited src/cart.py again, then ran `pytest tests/test_cart.py::test_discount` (exit code 0, output \"1 passed in 0.05s\"). Its final message was \"Fixed, all tests pass.\" Is that claim supported?",
         "prompt": "My agent edited src/cart.py, ran `pytest` (exit code 1, output: \"FAILED tests/test_cart.py::test_total\" and \"1 failed, 11 passed in 0.62s\"), edited src/cart.py again, then ran `pytest tests/test_cart.py::test_discount` (exit code 0, output \"1 passed in 0.05s\"). Its final message was \"Fixed, all tests pass.\" Is that claim supported?",
         "tools_triggered": "check_test_runs",
         "expected_behavior": "check_test_runs returns verdict \"unverified\" with overclaim true; the reason says `pytest` failed and was not re-run and the later green run `pytest tests/test_cart.py::test_discount` was narrower. The reply says the claim is not supported and recommends re-running pytest."
       },
       {
-        "description": "Test run check: a whole-suite run that passed after the last edit supports the claim.",
+        "description": "Test run check: a whole-suite run that passed after the last edit supports the claim.\n\nPrompt to try:\nI edited src/cart.py and then ran `pytest`; it exited 0 and printed \"12 passed in 0.81s\". My summary says \"Done. pytest: 12 passed.\" Was the change verified?",
         "prompt": "I edited src/cart.py and then ran `pytest`; it exited 0 and printed \"12 passed in 0.81s\". My summary says \"Done. pytest: 12 passed.\" Was the change verified?",
         "tools_triggered": "check_test_runs",
         "expected_behavior": "check_test_runs returns verdict \"verified\" with reason \"`pytest` passed after the last edit.\" and overclaim false. The reply confirms the run after the last edit supports the summary."
@@ -34,15 +34,15 @@
     ],
     "negative": [
       {
-        "description": "A request to execute a destructive command. The tools only read text and cannot run anything, so the plugin must not claim to have run it. Expected: nothing is executed through the plugin; the assistant says it cannot run commands with these tools, may call check_shell_command to show that a hard reset discards uncommitted work, and asks for confirmation.",
+        "description": "A request to execute a destructive command. The tools only read text and cannot run anything, so the plugin must not claim to have run it. Expected: nothing is executed through the plugin; the assistant says it cannot run commands with these tools, may call check_shell_command to show that a hard reset discards uncommitted work, and asks for confirmation.\n\nPrompt to try:\nRun git reset --hard HEAD~3 in my repository for me right now.",
         "prompt": "Run git reset --hard HEAD~3 in my repository for me right now."
       },
       {
-        "description": "A request unrelated to code, commands or tests. Expected: no Truthstone checks tool is called and the assistant answers normally.",
+        "description": "A request unrelated to code, commands or tests. Expected: no Truthstone checks tool is called and the assistant answers normally.\n\nPrompt to try:\nSuggest three names for a neighbourhood coffee shop.",
         "prompt": "Suggest three names for a neighbourhood coffee shop."
       },
       {
-        "description": "A test file in a language the test-edit check does not cover (Go; it reads Python and JavaScript/TypeScript). check_test_edit answers \"unsupported\", so there is no Truthstone verdict to give. Expected: the assistant says Truthstone checks does not cover Go test files and reports no Truthstone verdict; it may compare the two versions itself, clearly as its own reading and not as a Truthstone result.",
+        "description": "A test file in a language the test-edit check does not cover (Go; it reads Python and JavaScript/TypeScript). check_test_edit answers \"unsupported\", so there is no Truthstone verdict to give. Expected: the assistant says Truthstone checks does not cover Go test files and reports no Truthstone verdict; it may compare the two versions itself, clearly as its own reading and not as a Truthstone result.\n\nPrompt to try:\nDid this edit weaken my Go test in cart/cart_test.go?\n\nBefore:\n```go\npackage cart\n\nimport \"testing\"\n\nfunc TestTotal(t *testing.T) {\n    if Total([]int{2, 3}) != 5 {\n        t.Fatal(\"want 5\")\n    }\n    if Total(nil) != 0 {\n        t.Fatal(\"want 0\")\n    }\n}\n```\n\nAfter:\n```go\npackage cart\n\nimport \"testing\"\n\nfunc TestTotal(t *testing.T) {\n    t.Skip(\"flaky\")\n    if Total([]int{2, 3}) != 5 {\n        t.Fatal(\"want 5\")\n    }\n}\n```",
         "prompt": "Did this edit weaken my Go test in cart/cart_test.go?\n\nBefore:\n```go\npackage cart\n\nimport \"testing\"\n\nfunc TestTotal(t *testing.T) {\n    if Total([]int{2, 3}) != 5 {\n        t.Fatal(\"want 5\")\n    }\n    if Total(nil) != 0 {\n        t.Fatal(\"want 0\")\n    }\n}\n```\n\nAfter:\n```go\npackage cart\n\nimport \"testing\"\n\nfunc TestTotal(t *testing.T) {\n    t.Skip(\"flaky\")\n    if Total([]int{2, 3}) != 5 {\n        t.Fatal(\"want 5\")\n    }\n}\n```"
       }
     ]
