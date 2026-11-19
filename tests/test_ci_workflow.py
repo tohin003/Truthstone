@@ -67,9 +67,9 @@ def test_every_job_checks_out_installs_lints_and_tests(workflow, name):
     assert any(a.startswith("actions/checkout@") for a in actions)
     assert any(a.startswith("astral-sh/setup-uv@") for a in actions)
     commands = runs(job)
-    assert "uv run ruff check src tests" in commands
+    assert "uv run ruff check src tests services" in commands
     assert "uv run pytest -q" in commands
-    assert commands.index("uv run ruff check src tests") < commands.index("uv run pytest -q")
+    assert commands.index("uv run ruff check src tests services") < commands.index("uv run pytest -q")
 
 
 @pytest.mark.parametrize("name", ["test", "windows"])

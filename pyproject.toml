@@ -42,6 +42,8 @@ dev = [
     "httpx>=0.28",
     "ruff>=0.8",
     "tzdata>=2024.1",
+    # The hosted checks server (services/truthstone-checks) and its tests; not a runtime dependency.
+    "mcp>=2.3,<3",
 ]
 
 [build-system]
@@ -53,7 +55,7 @@ packages = ["src/truthstone"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "."]
+pythonpath = ["src", ".", "services/truthstone-checks"]
 addopts = "-q --strict-markers"
 # tests/fixtures holds miniature repositories that the index is tested *against*.
 # Their contents are data, not tests, and must not be collected or imported.
@@ -66,7 +68,7 @@ markers = [
 
 [tool.ruff]
 line-length = 110
-src = ["src", "tests"]
+src = ["src", "tests", "services/truthstone-checks"]
 target-version = "py312"
 # Fixture repositories are deliberately imperfect sample code (unused imports, a missing
 # method, a broken parse). Linting them would defeat their purpose.

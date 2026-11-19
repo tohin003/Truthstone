@@ -61,7 +61,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests services
 
       - name: Test
         run: uv run pytest -q
@@ -91,7 +91,7 @@ jobs:
         run: uv sync --all-extras
 
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests services
 
       - name: Test
         run: uv run pytest -q

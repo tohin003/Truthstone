@@ -1,0 +1,4 @@
+# Everything the server needs, from PyPI: no checkout of this repository.
+truthstone==0.2.0
+mcp==2.3.0
+uvicorn>=0.32
