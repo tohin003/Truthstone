@@ -1,13 +1,13 @@
 # Terms of Use
 
-Last updated: 4 November 2026
+Last updated: 19 November 2026
 
 These terms cover two pieces of software that Tohin Majumder ("we") publishes at https://github.com/tohin003/Truthstone:
 
 - **Truthstone Practices**, a skills plugin
 - **Truthstone (previously named AgentGuard)**, an open-source local runtime
 
-By installing or using either one, you agree to these terms.
+They also cover **Truthstone checks**, the optional hosted tools that the version of Truthstone Practices in the ChatGPT and Codex plugin directory connects to. By installing or using any of them, you agree to these terms.
 
 ## 1. License
 
@@ -22,6 +22,7 @@ We don't charge for either piece of software, and we sell nothing through it.
 ## 3. What the software does and does not do
 
 - **Truthstone Practices** is a set of instructions that a coding agent may follow. It runs no code and enforces nothing.
+- **Truthstone checks** reads the text your agent passes to it and returns a result. It runs nothing, can be unavailable at times, and, like Truthstone, can miss problems or raise concerns that turn out to be unfounded.
 - **Truthstone** runs deterministic checks on your computer. It can miss problems, and it can raise concerns that turn out to be unfounded.
 - **Your judgement still decides.** Both are aids to your own judgement, not a substitute for it. You remain responsible for:
   - reviewing changes before you merge, deploy or publish them

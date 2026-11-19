@@ -1,10 +1,11 @@
 # Privacy Policy
 
-Last updated: 4 November 2026
+Last updated: 19 November 2026
 
-This policy covers two pieces of software that Tohin Majumder ("we") publishes from the GitHub repository https://github.com/tohin003/Truthstone:
+This policy covers two pieces of software that Tohin Majumder ("we") publishes from the GitHub repository https://github.com/tohin003/Truthstone, and one optional online service:
 
-- **Truthstone Practices**: a plugin made only of skills, which are written instructions for coding agents.
+- **Truthstone Practices**: a plugin made of skills, which are written instructions for coding agents.
+- **Truthstone checks**: an optional hosted service with three read-only tools that the version of Truthstone Practices in the ChatGPT and Codex plugin directory connects to (section 1a).
 - **Truthstone (previously named AgentGuard)**: an open-source program that runs on your own computer and connects to coding agents through local hooks. It is distributed as a Claude Code plugin, a Codex plugin and a command-line install.
 
 It also explains what happens to the information you send when you contact us for support.
@@ -13,6 +14,7 @@ It also explains what happens to the information you send when you contact us fo
 
 - **We collect no personal data through either piece of software.** There are no accounts, no telemetry or analytics, no advertising identifiers and no tracking.
 - **Truthstone Practices contains no code.** It cannot collect, store or send anything.
+- **Truthstone checks keeps nothing.** When your agent calls one of its tools, the service receives only the text passed to that tool, processes it in memory to return a result, and does not store or log it. It is optional: the skills work without it, and the local runtime never calls it.
 - **Truthstone stays on your computer.** It keeps its records there and never sends them to us or to anyone else.
 - **Your agent provider handles your conversations.** That is the provider of the agent product you use, for example ChatGPT, Codex or Claude Code. Its own privacy policy covers them, and we never receive them.
 
@@ -21,6 +23,28 @@ It also explains what happens to the information you send when you contact us fo
 **Data collected: none.** The plugin is a set of text files: skill instructions, a manifest and icons. Installing it makes those instructions available to your agent. It contains no code that could run, opens no network connections, and does not request, read or transmit any data.
 
 **What the agent does with the skills.** When your agent follows a skill, it uses tools your environment already provides, under your usual approval settings. For example, it may read files in your repository or run your project's tests. Those actions happen inside your agent product, and nothing from them is sent to us.
+
+## 1a. Truthstone checks (the optional hosted tools)
+
+The version of Truthstone Practices in the ChatGPT and Codex plugin directory declares one remote MCP server, Truthstone checks. Three skills call its tools when they are available. The service's source code is in the repository, in `services/truthstone-checks`.
+
+**What it receives.** Only the text your agent passes to a tool, in that one request:
+
+- `check_shell_command`: a command line;
+- `check_test_edit`: a test file's path and its content before and after a change;
+- `check_test_runs`: a list of file paths that changed and commands that ran, with their exit codes and output, and optionally the message that reports the work as done.
+
+The agent decides what to pass, under your agent product's controls; the tools do not ask for anything else, and they do not read your conversation, your repository or any account.
+
+**What it does with it.** It applies Truthstone's rules to that text in memory and returns the result to your agent. It does not run the commands it reads, does not contact any other service, and keeps nothing: there is no database, no file storage and no analytics, and the service does not write request bodies or tool arguments to its logs.
+
+**What the hosting provider sees.** The service runs on a hosting provider, {{HOSTING_PROVIDER}}, which records ordinary request metadata for each request: the time, the IP address the request came from (your agent provider's servers or your own computer, depending on the product), the path, the response status and the request size. It keeps that metadata for {{HOST_LOG_RETENTION}} under its own privacy policy. We use it only to keep the service running and to investigate failures.
+
+**Who receives it.** No one else. Your agent provider sends the request and receives the result as part of your conversation, under its own privacy policy.
+
+**Your controls.** The tools are optional. You can turn them off in your agent product's plugin or connector settings, or install Truthstone Practices from the GitHub repository, which has no server; every skill then works without them. Avoid passing secrets: the tools do not need credentials, and a command line or test output containing one would be sent with it.
+
+**Scope.** This section covers only these optional tools. The Truthstone runtime and its hook plugins (section 2) stay on your computer and never call this service.
 
 ## 2. Truthstone (the local runtime)
 
@@ -105,7 +129,7 @@ When you open a GitHub issue, email tohin1400@gmail.com or report a security pro
 
 ## Children
 
-Neither piece of software is directed at children, or at anyone under 18: they are tools for software developers. We do not knowingly collect personal data from anyone, including children.
+None of this software is directed at children, or at anyone under 18: they are tools for software developers. We do not knowingly collect personal data from anyone, including children.
 
 ## Changes to this policy
 
